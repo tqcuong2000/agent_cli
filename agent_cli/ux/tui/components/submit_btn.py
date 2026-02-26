@@ -1,8 +1,19 @@
+from textual import events
+from textual.message import Message
 from textual.widgets import Static
 
 
 class SubmitButtonComponent(Static):
     """A custom styled submit button for the agent orchestrator."""
+
+    can_focus = True
+
+    class Pressed(Message):
+        """Emitted when the submit button is activated."""
+
+        def __init__(self, button: "SubmitButtonComponent") -> None:
+            self.button = button
+            super().__init__()
 
     DEFAULT_CSS = """
     SubmitButtonComponent {
@@ -36,3 +47,15 @@ class SubmitButtonComponent(Static):
         if "id" not in kwargs:
             kwargs["id"] = "submit_btn"
         super().__init__(label, **kwargs)
+
+    def _emit_pressed(self) -> None:
+        self.post_message(self.Pressed(self))
+
+    def on_click(self, _: events.Click) -> None:
+        self._emit_pressed()
+
+    def key_enter(self) -> None:
+        self._emit_pressed()
+
+    def key_space(self) -> None:
+        self._emit_pressed()

@@ -47,7 +47,7 @@ class FooterWidget(BaseWidget):
 
     def _sync_submit_button_offset(self) -> None:
         """Keep the submit button aligned with the bottom input line."""
-        visible_lines = min(15, max(1, self.input_comp.text.count("\n") + 1))
+        visible_lines = self.input_comp.visible_line_count
         self.submit_btn.styles.offset = (0, visible_lines - 1)
 
     def on_mount(self) -> None:
@@ -56,3 +56,8 @@ class FooterWidget(BaseWidget):
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area is self.input_comp:
             self._sync_submit_button_offset()
+
+    def on_submit_button_component_pressed(
+        self, _: SubmitButtonComponent.Pressed
+    ) -> None:
+        self.input_comp.submit()

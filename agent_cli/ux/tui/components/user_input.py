@@ -48,13 +48,22 @@ class UserInputComponent(TextArea):
         self.show_line_numbers = False
         self.show_vertical_scrollbar = False
         self.highlight_cursor_line = False
-        self._max_visible_lines = 15
+        self._max_visible_lines = 10
         self._update_height()
+
+    @property
+    def max_visible_lines(self) -> int:
+        """Maximum number of visible lines before scrolling."""
+        return self._max_visible_lines
+
+    @property
+    def visible_line_count(self) -> int:
+        """Current visible line count clamped to the configured maximum."""
+        return min(self.max_visible_lines, max(1, self.text.count("\n") + 1))
 
     def _update_height(self) -> None:
         """Resize the input to match content lines, capped to max lines."""
-        line_count = max(1, self.text.count("\n") + 1)
-        self.styles.height = min(line_count, self._max_visible_lines)
+        self.styles.height = self.visible_line_count
 
     def on_text_area_changed(self, _: TextArea.Changed) -> None:
         """Recompute height whenever the text changes."""
