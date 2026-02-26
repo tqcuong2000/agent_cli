@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+from agent_cli.ux.tui.app import AgentCLIApp
 
 def main():
     parser = argparse.ArgumentParser(
@@ -23,13 +24,12 @@ def main():
 
     args = parser.parse_args()
 
-    print("Hello from agent_cli!")
-    print(f"Root Folder: {args.root}")
+    # Create and run the Textual application
+    app = AgentCLIApp(root_folder=args.root)
     
-    if args.verbose:
-        print("Verbosity is ON")
-    
-    print(f"Other Arguments: {sys.argv[1:]}")
+    # Only run the app when not running tests
+    if "pytest" not in sys.modules:
+        app.run()
 
 if __name__ == "__main__":
     main()
