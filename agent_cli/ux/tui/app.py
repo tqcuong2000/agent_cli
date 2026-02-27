@@ -1,8 +1,8 @@
 from textual.app import App, ComposeResult
 
-from agent_cli.ux.tui.widgets.body import BodyWidget
-from agent_cli.ux.tui.widgets.footer import FooterWidget
-from agent_cli.ux.tui.widgets.header import HeaderWidget
+from agent_cli.ux.tui.views.body.body import BodyContainer
+from agent_cli.ux.tui.views.footer.footer import FooterContainer
+from agent_cli.ux.tui.views.header.header import HeaderContainer
 
 
 class AgentCLIApp(App):
@@ -23,9 +23,9 @@ class AgentCLIApp(App):
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
-        yield HeaderWidget()
-        yield BodyWidget()
-        yield FooterWidget()
+        yield HeaderContainer()
+        yield BodyContainer()
+        yield FooterContainer()
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""

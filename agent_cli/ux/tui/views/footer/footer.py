@@ -1,49 +1,48 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Container, Horizontal
 from textual.widgets import TextArea
 
-from agent_cli.ux.tui.components.submit_btn import SubmitButtonComponent
-from agent_cli.ux.tui.components.user_input import UserInputComponent
-from agent_cli.ux.tui.widgets.base import BaseWidget
+from agent_cli.ux.tui.views.footer.submit_btn import SubmitButtonComponent
+from agent_cli.ux.tui.views.footer.user_input import UserInputComponent
+from agent_cli.ux.tui.views.header.status import StatusContainer
 
 
-class FooterWidget(BaseWidget):
-    """The footer widget containing the terminal input area."""
+class FooterContainer(Container):
+    """The footer container holding the terminal input area and status bar."""
 
     DEFAULT_CSS = """
-    FooterWidget {
+    FooterContainer {
         dock: bottom;
         width: 100%;
         height: auto;
-        border: solid #2a2f35;
         background: transparent;
         align: left bottom;
     }
 
-    FooterWidget Horizontal {
+    FooterContainer .input_container {
         width: 100%;
         height: auto;
+        border: solid #2a2f35;
         min-height: 1;
         align: left bottom;
     }
     """
 
     def __init__(self, **kwargs):
-        # Ensure ID is set
         if "id" not in kwargs:
             kwargs["id"] = "footer"
         super().__init__(**kwargs)
 
-        # Instantiate components
         self.input_comp = UserInputComponent()
         self.submit_btn = SubmitButtonComponent()
 
     def compose(self) -> ComposeResult:
-        with Horizontal():
+        with Horizontal(classes="input_container"):
             yield self.input_comp
             yield self.submit_btn
+        yield StatusContainer()
 
     def _sync_submit_button_offset(self) -> None:
         """Keep the submit button aligned with the bottom input line."""

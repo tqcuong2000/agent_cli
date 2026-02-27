@@ -48,7 +48,7 @@ class UserInputComponent(TextArea):
         self.show_line_numbers = False
         self.show_vertical_scrollbar = False
         self.highlight_cursor_line = False
-        self._max_visible_lines = 10
+        self._max_visible_lines = 5
         self._update_height()
 
     @property
