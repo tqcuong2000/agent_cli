@@ -109,6 +109,7 @@ class PromptBuilder:
         *,
         workspace_context: str = "",
         extra_instructions: str = "",
+        native_tool_mode: bool = False,
     ) -> str:
         """Assemble a complete system prompt.
 
@@ -126,6 +127,7 @@ class PromptBuilder:
             effort_constraints:  Dict from ``EFFORT_CONSTRAINTS[effort]``.
             workspace_context:   Project info (language, framework).
             extra_instructions:  Agent-specific additions.
+            native_tool_mode:    Whether the provider handles tools natively.
         """
         sections: List[str] = []
 
@@ -133,23 +135,27 @@ class PromptBuilder:
         sections.append(f"# Role\n{persona}")
 
         # 2. Output format
-        sections.append(self._output_format_section())
+        sections.append(self._output_format_section(native_tool_mode))
 
         # 3. Tool descriptions
         if tool_names:
             tool_defs = self.tool_registry.get_definitions_for_llm(tool_names)
             sections.append(self._tools_section(tool_defs))
 
-        # 4. Effort-level behavior
+        # 4. Clarification policy (only if ask_user is available)
+        if "ask_user" in tool_names:
+            sections.append(self._ask_user_policy_section())
+
+        # 5. Effort-level behavior
         reasoning_instruction = effort_constraints.get("reasoning_instruction", "")
         if reasoning_instruction:
             sections.append(f"# Reasoning Policy\n{reasoning_instruction}")
 
-        # 5. Workspace context
+        # 6. Workspace context
         if workspace_context:
             sections.append(f"# Workspace Context\n{workspace_context}")
 
-        # 6. Extra instructions
+        # 7. Extra instructions
         if extra_instructions:
             sections.append(f"# Additional Instructions\n{extra_instructions}")
 
@@ -158,23 +164,39 @@ class PromptBuilder:
     # ── Private Section Builders ─────────────────────────────────
 
     @staticmethod
-    def _output_format_section() -> str:
-        """Standard XML output format instructions for all agents."""
+    def _output_format_section(native_tool_mode: bool = False) -> str:
+        """Standard output format instructions for all agents."""
+        action_step = (
+            (
+                "3. **Action**: To use a tool, call the function natively (as defined "
+                "by the API). DO NOT write an <action> XML tag.\n"
+            )
+            if native_tool_mode
+            else (
+                "3. **Action**: If you need to use a tool, wrap it in <action> tags:\n"
+                "   <action><tool>tool_name</tool>"
+                '<args>{"key": "value"}</args></action>\n'
+            )
+        )
+
         return (
             "# Output Format\n"
             "You MUST structure every response as follows:\n\n"
-            "1. **Title**: Provide a short title in <title> tags (4 to 12 words).\n"
+            "1. **Title**: Provide a short title in <title> tags (1 to 12 words).\n"
             "2. **Thinking**: Wrap your reasoning chain in <thinking> tags.\n"
-            "3. **Action**: If you need to use a tool, wrap it in <action> tags:\n"
-            "   <action><tool>tool_name</tool>"
-            '<args>{"key": "value"}</args></action>\n'
-            "4. **Final Answer**: When the task is complete, provide your "
-            "answer in <final_answer> tags:\n"
+            f"{action_step}"
+            "4. **Final Answer**: When the task is complete AND you are absolutely done, "
+            "provide your answer in <final_answer> tags:\n"
             "   <final_answer>Your response to the user.</final_answer>\n\n"
+            "**CRITICAL ANTI-HALLUCINATION RULE:**\n"
+            "If you decide to use a tool, YOU MUST STOP IMMEDIATELY after defining the action. "
+            "DO NOT continue writing the `<final_answer>`. "
+            "DO NOT guess or invent the output of the tool. Wait for the system to execute the tool "
+            "and provide the result back to you.\n\n"
             "You must ALWAYS include both <title> and <thinking> before any "
             "action or final answer.\n"
             "Required skeleton:\n"
-            "<title>Short 4-12 word title</title>\n"
+            "<title>Short 1-12 word title</title>\n"
             "<thinking>Your reasoning chain here.</thinking>"
         )
 
@@ -201,3 +223,16 @@ class PromptBuilder:
             lines.append("")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _ask_user_policy_section() -> str:
+        """Hard policy for how the agent must ask user questions."""
+        return (
+            "# Clarification Policy\n"
+            "When you need to ask the user any question, you MUST use the "
+            "`ask_user` tool.\n"
+            "Do NOT ask questions directly in `<final_answer>` while the task is "
+            "still in progress.\n"
+            "Use 2-5 likely answer options in `ask_user` and wait for the tool "
+            "result before continuing."
+        )

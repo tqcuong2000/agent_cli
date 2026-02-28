@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.core.events.event_bus import AbstractEventBus
@@ -29,9 +29,16 @@ from agent_cli.core.events.events import (
     UserApprovalRequestEvent,
     UserApprovalResponseEvent,
 )
+from agent_cli.core.interaction import (
+    InteractionType,
+    UserInteractionRequest,
+)
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
 from agent_cli.tools.shell_tool import is_safe_command
+
+if TYPE_CHECKING:
+    from agent_cli.core.interaction import BaseInteractionHandler
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +70,13 @@ class ToolExecutor:
         output_formatter: ToolOutputFormatter,
         *,
         auto_approve: bool = False,
+        interaction_handler: Optional["BaseInteractionHandler"] = None,
     ) -> None:
         self.registry = registry
         self.event_bus = event_bus
         self.output_formatter = output_formatter
         self._auto_approve = auto_approve
+        self._interaction_handler = interaction_handler
 
         # Approval response handling (Phase 4 HITL will improve this)
         self._pending_approvals: Dict[str, asyncio.Event] = {}
@@ -119,16 +128,26 @@ class ToolExecutor:
                 requires_approval = False
 
         if requires_approval and not self._auto_approve:
-            approved = await self._request_approval(
-                tool_name=tool_name,
-                arguments=arguments,
-                task_id=task_id,
-            )
+            if self._interaction_handler is not None:
+                approved = await self._request_approval_via_handler(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    task_id=task_id,
+                )
+            else:
+                # Backward-compatible fallback while migrating older flows.
+                approved = await self._request_approval(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    task_id=task_id,
+                )
             if not approved:
                 return f"[Tool: {tool_name}] User denied execution."
 
-        # ── 3. Execute with observability ────────────────────────
-        await self.event_bus.emit(
+        # Use publish() (synchronous) so the TUI handler mounts the
+        # ToolStepWidget before the tool executes.  emit() (fire-and-forget)
+        # would schedule it as a background task that races with tool output.
+        await self.event_bus.publish(
             ToolExecutionStartEvent(
                 source="tool_executor",
                 task_id=task_id,
@@ -142,7 +161,11 @@ class ToolExecutor:
         raw_result = ""
 
         try:
-            raw_result = await tool.execute(**validated.model_dump())
+            execution_args = validated.model_dump()
+            if tool.name == "ask_user":
+                execution_args["_interaction_handler"] = self._interaction_handler
+                execution_args["_task_id"] = task_id
+            raw_result = await tool.execute(**execution_args)
 
         except ToolExecutionError as e:
             raw_result = str(e)
@@ -170,7 +193,7 @@ class ToolExecutor:
         # ── 5. Format output ─────────────────────────────────────
         formatted = self.output_formatter.format(tool_name, raw_result, success)
 
-        await self.event_bus.emit(
+        await self.event_bus.publish(
             ToolExecutionResultEvent(
                 source="tool_executor",
                 task_id=task_id,
@@ -183,6 +206,35 @@ class ToolExecutor:
         return formatted
 
     # ── Approval Handling ────────────────────────────────────────
+
+    def set_interaction_handler(
+        self,
+        interaction_handler: Optional["BaseInteractionHandler"],
+    ) -> None:
+        """Attach or replace the HITL interaction handler."""
+        self._interaction_handler = interaction_handler
+
+    async def _request_approval_via_handler(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        task_id: str,
+    ) -> bool:
+        if self._interaction_handler is None:
+            return False
+
+        response = await self._interaction_handler.request_human_input(
+            UserInteractionRequest(
+                interaction_type=InteractionType.APPROVAL,
+                message=f"Tool '{tool_name}' requires approval.",
+                task_id=task_id,
+                source="tool_executor",
+                tool_name=tool_name,
+                tool_args=dict(arguments),
+                options=["approve", "deny"],
+            )
+        )
+        return response.action.lower() == "approve"
 
     async def _request_approval(
         self,

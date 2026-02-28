@@ -18,26 +18,28 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
-
-from agent_cli.core.config import AgentSettings, load_providers
-from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
-from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
-from agent_cli.providers.manager import ProviderManager
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 # Phase 3 imports
 from agent_cli.agent.memory import BaseMemoryManager, WorkingMemoryManager
 from agent_cli.agent.react_loop import PromptBuilder
 from agent_cli.agent.schema import BaseSchemaValidator, SchemaValidator
+
+# Phase 4.2 imports
+from agent_cli.commands.base import CommandContext, CommandRegistry
+from agent_cli.commands.parser import CommandParser
+from agent_cli.core.config import AgentSettings, load_providers
+from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
 from agent_cli.core.orchestrator import Orchestrator
+from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
+from agent_cli.providers.manager import ProviderManager
 from agent_cli.tools.executor import ToolExecutor
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
 from agent_cli.tools.workspace import WorkspaceContext
 
-# Phase 4.2 imports
-from agent_cli.commands.base import CommandContext, CommandRegistry
-from agent_cli.commands.parser import CommandParser
+if TYPE_CHECKING:
+    from agent_cli.core.interaction import BaseInteractionHandler
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,7 @@ class AppContext:
     # ── Phase 4.2 Command System ─────────────────────────────────
     command_registry: Optional[CommandRegistry] = None
     command_parser: Optional[CommandParser] = None
+    interaction_handler: Optional["BaseInteractionHandler"] = None
 
     # ── Lifecycle State ──────────────────────────────────────────
     _started: bool = field(default=False, repr=False)
@@ -123,6 +126,12 @@ class AppContext:
         if self.orchestrator:
             await self.orchestrator.shutdown()
 
+        # Shut down interaction handler if present
+        if self.interaction_handler is not None and hasattr(
+            self.interaction_handler, "shutdown"
+        ):
+            await self.interaction_handler.shutdown()
+
         # Future phases will shut down more components here:
         # - Persist session
         # - Close HTTP clients
@@ -144,6 +153,7 @@ class AppContext:
 
 def create_app(
     settings: Optional[AgentSettings] = None,
+    root_folder: Optional[Union[str, Path]] = None,
 ) -> AppContext:
     """Bootstrap the application — the single wiring entry point.
 
@@ -169,7 +179,8 @@ def create_app(
     providers = ProviderManager(settings)
 
     # 5. Tool System
-    workspace = WorkspaceContext(root_path=Path.cwd())
+    workspace_root = Path(root_folder) if root_folder else Path.cwd()
+    workspace = WorkspaceContext(root_path=workspace_root)
     tool_registry = _build_tool_registry(workspace)
     output_formatter = ToolOutputFormatter(
         max_output_length=settings.tool_output_max_chars,
@@ -218,6 +229,7 @@ def create_app(
         orchestrator=None,
         command_registry=cmd_registry,
         command_parser=cmd_parser,
+        interaction_handler=None,
     )
 
     # Wire up the back-reference so commands can access providers and orchestrator
@@ -255,9 +267,7 @@ def create_app(
     return context
 
 
-def register_default_agent(
-    context: AppContext, agent: BaseAgent
-) -> None:
+def register_default_agent(context: AppContext, agent: BaseAgent) -> None:
     """Wire a default agent into the Orchestrator.
 
     Call this after ``create_app()`` to activate the Orchestrator.
@@ -270,9 +280,7 @@ def register_default_agent(
         default_agent=agent,
         command_parser=context.command_parser,
     )
-    logger.info(
-        "Default agent '%s' registered with Orchestrator.", agent.name
-    )
+    logger.info("Default agent '%s' registered with Orchestrator.", agent.name)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -282,6 +290,7 @@ def register_default_agent(
 
 def _build_tool_registry(workspace: WorkspaceContext) -> ToolRegistry:
     """Create and populate the tool registry with all built-in tools."""
+    from agent_cli.tools.ask_user_tool import AskUserTool
     from agent_cli.tools.file_tools import (
         ListDirectoryTool,
         ReadFileTool,
@@ -297,6 +306,7 @@ def _build_tool_registry(workspace: WorkspaceContext) -> ToolRegistry:
     registry.register(ListDirectoryTool(workspace))
     registry.register(SearchFilesTool(workspace))
     registry.register(RunCommandTool(workspace))
+    registry.register(AskUserTool())
 
     logger.info(
         "Tool registry built with %d tools: %s",

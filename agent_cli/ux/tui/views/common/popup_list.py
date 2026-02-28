@@ -34,9 +34,6 @@ class PopupItem:
     data: object = None  # Arbitrary data attached to this item
 
 
-
-
-
 class BasePopupListView(Widget):
     """
     Abstract base for a floating popup list that appears above the input bar.
@@ -170,6 +167,7 @@ class BasePopupListView(Widget):
         """Dynamically set margin-bottom to sit above the footer."""
         try:
             from agent_cli.ux.tui.views.footer.footer import FooterContainer
+
             footer = self.app.query_one(FooterContainer)
             # Footer outer height = content + borders
             footer_height = footer.outer_size.height
@@ -191,7 +189,7 @@ class BasePopupListView(Widget):
 
     # ── Keyboard Navigation ──────────────────────────────────
 
-    def handle_key(self, event: events.Key) -> bool:
+    def handles_key(self, event: events.Key) -> bool:
         """
         Handle keyboard events while the popup is visible.
         Returns True if the event was consumed.
@@ -253,7 +251,7 @@ class BasePopupListView(Widget):
         if not self._filtered_items:
             return
         item = self._filtered_items[self.selected_index]
-        insert_text = self.on_item_selected(item)
+        # insert_text = self.on_item_selected(item)
         self.post_message(self.ItemSelected(item, self.get_trigger_char()))
         self.hide_popup()
 

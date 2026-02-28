@@ -109,8 +109,8 @@ class TextWindowContainer(Container):
     async def _on_user_request(self, event: BaseEvent) -> None:
         if not isinstance(event, UserRequestEvent):
             return
-        self._messages.mount(UserMessageContainer(event.text))
-        self.call_after_refresh(self._scroll_to_end)
+        # User message is mounted synchronously by the footer via
+        # add_user_message() BEFORE this event fires — nothing to do here.
 
     async def _on_agent_message(self, event: BaseEvent) -> None:
         if not isinstance(event, AgentMessageEvent):
@@ -258,6 +258,28 @@ class TextWindowContainer(Container):
 
     def _scroll_to_end(self) -> None:
         self._messages.scroll_end(animate=False)
+
+    def add_user_message(self, text: str) -> None:
+        """Mount a user message bubble directly (called by footer before emitting event).
+
+        This ensures the user bubble appears in the DOM before the
+        Orchestrator starts the agent and agent responses begin mounting.
+
+        Also resets ``_current_arc`` so the next agent response creates
+        a fresh container below this user message — not inside an old
+        container left over from a slash-command response.
+        """
+        # Finish any lingering thinking block from a prior turn
+        if self._current_arc is not None:
+            active_thinking = self._current_arc.get_active_thinking()
+            if active_thinking is not None:
+                active_thinking.finish_streaming()
+
+        self._current_arc = None
+        self._active_task_id = ""
+
+        self._messages.mount(UserMessageContainer(text))
+        self.call_after_refresh(self._scroll_to_end)
 
     @property
     def _messages(self) -> VerticalScroll:

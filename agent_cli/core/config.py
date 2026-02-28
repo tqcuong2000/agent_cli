@@ -97,15 +97,15 @@ class AgentSettings(BaseSettings):
     # ── LLM Provider Settings ────────────────────────────────────
 
     default_model: str = Field(
-        default="claude-3-5-sonnet",
+        default="gemini-2.5-flash-lite",
         description="The default LLM model to use for agent tasks.",
     )
     routing_model: str = Field(
-        default="claude-3-5-haiku",
+        default="gemini-2.5-flash-lite",
         description="Fast/cheap model used for routing classification.",
     )
     summarization_model: str = Field(
-        default="claude-3-5-haiku",
+        default="gemini-2.5-flash-lite",
         description="Fast/cheap model used for context summarization.",
     )
 
@@ -367,8 +367,13 @@ _BUILTIN_PROVIDERS: Dict[str, ProviderConfig] = {
     ),
     "google": ProviderConfig(
         adapter_type="google",
-        models=["gemini-2.0-flash", "gemini-2.0-pro"],
-        default_model="gemini-2.0-flash",
+        models=[
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.0-flash",
+            "gemini-2.0-pro",
+        ],
+        default_model="gemini-2.5-flash-lite",
     ),
 }
 
@@ -409,7 +414,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Agent CLI Configuration
 # See documentation for all available options.
 
-default_model = "claude-3-5-sonnet"
+default_model = "gemini-2.5-flash-lite"
 default_effort_level = "MEDIUM"
 show_agent_thinking = true
 log_level = "INFO"

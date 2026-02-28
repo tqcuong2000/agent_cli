@@ -13,6 +13,7 @@ from agent_cli.core.events.event_bus import AsyncEventBus
 from agent_cli.core.state.state_manager import TaskState, TaskStateManager
 from agent_cli.providers.base import BaseLLMProvider
 from agent_cli.providers.models import LLMRequest, LLMResponse, ToolCallMode
+from agent_cli.tools.ask_user_tool import AskUserTool
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.tools.executor import ToolExecutor
 from agent_cli.tools.output_formatter import ToolOutputFormatter
@@ -283,3 +284,32 @@ async def test_react_loop_stuck_detection(base_deps):
 
     mem = base_deps["memory_manager"].get_working_context()
     assert any("repeating the same action" in m["content"] for m in mem)
+
+
+def test_prompt_builder_adds_ask_user_policy_when_tool_available():
+    registry = ToolRegistry()
+    registry.register(MockMathTool())
+    registry.register(AskUserTool())
+    prompt_builder = PromptBuilder(registry)
+
+    prompt = prompt_builder.build(
+        persona="You are a tester.",
+        tool_names=["add", "ask_user"],
+        effort_constraints={"reasoning_instruction": "Think carefully."},
+    )
+    assert "# Clarification Policy" in prompt
+    assert "MUST use the `ask_user` tool" in prompt
+    assert "Use 2-5 likely answer options in `ask_user`" in prompt
+
+
+def test_prompt_builder_skips_ask_user_policy_when_tool_missing():
+    registry = ToolRegistry()
+    registry.register(MockMathTool())
+    prompt_builder = PromptBuilder(registry)
+
+    prompt = prompt_builder.build(
+        persona="You are a tester.",
+        tool_names=["add"],
+        effort_constraints={"reasoning_instruction": "Think carefully."},
+    )
+    assert "# Clarification Policy" not in prompt

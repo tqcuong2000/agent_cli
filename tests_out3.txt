@@ -1,9 +1,0 @@
-F...                                                                     [100%]
-================================== FAILURES ===================================
-_______________________ test_react_loop_successful_task _______________________
-tests\agent\test_react_loop.py:171: in test_react_loop_successful_task
-    assert "The answer is 5" in memory[-1]["content"]
-E   AssertionError: assert 'The answer is 5' in '[Tool: add] Result:\n5'
-=========================== short test summary info ===========================
-FAILED tests/agent/test_react_loop.py::test_react_loop_successful_task - Asse...
-1 failed, 3 passed in 0.32s

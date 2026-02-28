@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.containers import ScrollableContainer
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import Markdown, Static
 
 
 class ThinkingBlock(Widget):
@@ -67,7 +67,7 @@ class ThinkingBlock(Widget):
     def compose(self) -> ComposeResult:
         yield Static(classes="thinking_header")
         with ScrollableContainer(classes="thinking_content_container"):
-            yield Static(classes="thinking_content")
+            yield Markdown("", classes="thinking_content")
 
     def on_mount(self) -> None:
         self._sync_view()
@@ -151,10 +151,6 @@ class ThinkingBlock(Widget):
         words = [w for w in title.split(" ") if w]
         if not words:
             return "Thinking in progress"
-        if len(words) < 4 and self._thoughts:
-            thoughts_words = [w for w in self._thoughts.split(" ") if w]
-            needed = 4 - len(words)
-            words.extend(thoughts_words[:needed])
         if len(words) > 12:
             words = words[:12]
         return " ".join(words)
@@ -170,8 +166,8 @@ class ThinkingBlock(Widget):
         return self.query_one(".thinking_header", Static)
 
     @property
-    def _content(self) -> Static:
-        return self.query_one(".thinking_content", Static)
+    def _content(self) -> Markdown:
+        return self.query_one(".thinking_content", Markdown)
 
     @property
     def _content_container(self) -> ScrollableContainer:

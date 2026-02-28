@@ -20,7 +20,6 @@ from agent_cli.core.events.events import StateChangeEvent, UserRequestEvent
 from agent_cli.core.state.state_models import TaskState
 from agent_cli.providers.manager import ProviderManager
 
-
 # ── Factory Tests ─────────────────────────────────────────────────────
 
 
@@ -43,6 +42,12 @@ def test_create_app_accepts_custom_settings():
 
     assert ctx.settings.default_model == "gpt-4o"
     assert ctx.settings.log_level == "DEBUG"
+
+
+def test_create_app_registers_ask_user_tool():
+    """Default tool registry should include ask_user for clarification flow."""
+    ctx = create_app()
+    assert "ask_user" in ctx.tool_registry.get_all_names()
 
 
 # ── Lifecycle Tests ───────────────────────────────────────────────────
@@ -180,10 +185,7 @@ async def test_event_bus_drains_on_shutdown():
     ctx.event_bus.subscribe("UserRequestEvent", slow_handler)
 
     # Fire-and-forget via emit
-    await ctx.event_bus.emit(
-        UserRequestEvent(source="test", text="hello")
-    )
-
+    await ctx.event_bus.emit(UserRequestEvent(source="test", text="hello"))
     # Shutdown should wait for the slow handler
     await ctx.shutdown()
 

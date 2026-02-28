@@ -17,7 +17,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-
 # ── Base Event ───────────────────────────────────────────────────────
 
 
@@ -159,6 +158,23 @@ class UserApprovalResponseEvent(BaseEvent):
     task_id: str = ""
     approved: bool = False
     modified_arguments: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class AgentQuestionRequestEvent(BaseEvent):
+    """Published when the agent asks a clarification question."""
+
+    task_id: str = ""
+    question: str = ""
+    options: List[str] = field(default_factory=list)  # 2-5 suggested answers
+
+
+@dataclass
+class AgentQuestionResponseEvent(BaseEvent):
+    """Published by the TUI after user answers an agent question."""
+
+    task_id: str = ""
+    answer: str = ""
 
 
 # ═══════════════════════════════════════════════════════════════════════

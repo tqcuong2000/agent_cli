@@ -66,8 +66,8 @@ async def test_thinking_block_append_chunk_and_finish_streaming():
         )
         await pilot.pause()
 
-        content = str(block.query_one(".thinking_content", Static).content)
-        assert "First thought line." in content
+        assert "First thought line." in block._thoughts
+        assert isinstance(block.query_one(".thinking_content", Markdown), Markdown)
 
         block.finish_streaming()
         await pilot.pause()

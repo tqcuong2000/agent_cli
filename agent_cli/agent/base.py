@@ -224,8 +224,7 @@ class BaseAgent(ABC):
         effort = effort_override or self.config.effort_level
         constraints = EFFORT_CONSTRAINTS[effort]
         max_iterations = (
-            self.config.max_iterations_override
-            or constraints["max_iterations"]
+            self.config.max_iterations_override or constraints["max_iterations"]
         )
 
         # ── Build system prompt ──────────────────────────────────
@@ -233,9 +232,7 @@ class BaseAgent(ABC):
 
         # ── Initialize Working Memory ────────────────────────────
         self.memory.reset_working()
-        self.memory.add_working_event(
-            {"role": "system", "content": system_prompt}
-        )
+        self.memory.add_working_event({"role": "system", "content": system_prompt})
 
         # Inject prior context from previous agents (ExecutionPlan)
         if prior_context:
@@ -247,9 +244,7 @@ class BaseAgent(ABC):
             )
 
         # Inject the task itself
-        self.memory.add_working_event(
-            {"role": "user", "content": task_description}
-        )
+        self.memory.add_working_event({"role": "user", "content": task_description})
 
         # ── Tracking ─────────────────────────────────────────────
         schema_error_count = 0
@@ -288,8 +283,8 @@ class BaseAgent(ABC):
                     )
 
                 # ── STEP 3: Validate & Parse Response ────────────
-                response: AgentResponse = (
-                    self.validator.parse_and_validate(llm_response)
+                response: AgentResponse = self.validator.parse_and_validate(
+                    llm_response
                 )
                 schema_error_count = 0  # Reset on success
 
@@ -310,24 +305,18 @@ class BaseAgent(ABC):
                             "content": llm_response.text_content,
                         }
                     )
-                    self.memory.add_working_event(
-                        {"role": "tool", "content": result}
-                    )
+                    self.memory.add_working_event({"role": "tool", "content": result})
 
                     # Agent-specific hook
-                    await self.on_tool_result(
-                        response.action.tool_name, result
-                    )
+                    await self.on_tool_result(response.action.tool_name, result)
 
                     # Stuck detection
-                    if stuck_detector.is_stuck(
-                        response.action.tool_name, result
-                    ):
+                    if stuck_detector.is_stuck(response.action.tool_name, result):
                         self.memory.add_working_event(
                             {
                                 "role": "user",
                                 "content": (
-                                    "⚠ You appear to be repeating the same "
+                                    "⚠You appear to be repeating the same "
                                     "action with the same result. "
                                     "Try a completely different approach."
                                 ),
@@ -338,9 +327,7 @@ class BaseAgent(ABC):
 
                 elif response.final_answer:
                     # ── FINAL ANSWER PATH ──
-                    final = await self.on_final_answer(
-                        response.final_answer
-                    )
+                    final = await self.on_final_answer(response.final_answer)
 
                     # Publish to TUI
                     await self.event_bus.emit(
@@ -380,9 +367,7 @@ class BaseAgent(ABC):
                     AgentMessageEvent(
                         source=self.name,
                         agent_name=self.name,
-                        content=(
-                            "⚠ Context too long, summarizing older steps..."
-                        ),
+                        content=("⚠ Context too long, summarizing older steps..."),
                         is_monologue=True,
                     )
                 )
@@ -405,8 +390,7 @@ class BaseAgent(ABC):
                     {
                         "role": "user",
                         "content": (
-                            f"Schema Error: {e}. "
-                            f"Fix your formatting and try again."
+                            f"Schema Error: {e}. Fix your formatting and try again."
                         ),
                     }
                 )
@@ -417,9 +401,7 @@ class BaseAgent(ABC):
                 self.memory.add_working_event(
                     {
                         "role": "tool",
-                        "content": (
-                            f"Tool Error: {e}. Try a different approach."
-                        ),
+                        "content": (f"Tool Error: {e}. Try a different approach."),
                     }
                 )
                 continue
@@ -444,6 +426,4 @@ class BaseAgent(ABC):
         """Retrieve tool definitions for the LLM."""
         if not self.config.tools:
             return []
-        return self.tool_executor.registry.get_definitions_for_llm(
-            self.config.tools
-        )
+        return self.tool_executor.registry.get_definitions_for_llm(self.config.tools)

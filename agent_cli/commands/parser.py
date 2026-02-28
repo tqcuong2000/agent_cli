@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import shlex
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from agent_cli.commands.base import (
     CommandContext,
@@ -18,6 +18,9 @@ from agent_cli.commands.base import (
     CommandRegistry,
     CommandResult,
 )
+
+if TYPE_CHECKING:
+    from textual.app import App
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,15 @@ class CommandParser:
         self._context = context
 
     # ── Public API ───────────────────────────────────────────────
+
+    @property
+    def app(self) -> "App | None":
+        """Current Textual app attached to the command context."""
+        return self._context.app
+
+    def set_app(self, app: "App | None") -> None:
+        """Attach the active Textual app so handlers can update UI widgets."""
+        self._context.app = app
 
     @staticmethod
     def is_command(text: str) -> bool:
@@ -70,31 +82,21 @@ class CommandParser:
         if cmd_def is None:
             suggestions = self._registry.get_suggestions(cmd_name)
             if suggestions:
-                names = ", ".join(
-                    f"/{s.name}" for s in suggestions[:3]
-                )
+                names = ", ".join(f"/{s.name}" for s in suggestions[:3])
                 return CommandResult(
                     success=False,
-                    message=(
-                        f"Unknown command: /{cmd_name}. "
-                        f"Did you mean: {names}?"
-                    ),
+                    message=(f"Unknown command: /{cmd_name}. Did you mean: {names}?"),
                 )
             return CommandResult(
                 success=False,
-                message=(
-                    f"Unknown command: /{cmd_name}. "
-                    f"Type /help for a list."
-                ),
+                message=(f"Unknown command: /{cmd_name}. Type /help for a list."),
             )
 
         # ── Execute ──────────────────────────────────────────────
         try:
             return await cmd_def.handler(args, self._context)
         except Exception as e:
-            logger.error(
-                "Command /%s raised: %s", cmd_name, e, exc_info=True
-            )
+            logger.error("Command /%s raised: %s", cmd_name, e, exc_info=True)
             return CommandResult(
                 success=False,
                 message=f"Command error: {e}",

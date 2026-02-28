@@ -48,13 +48,14 @@ class AgentCLIApp(App):
     ):
         super().__init__(*args, **kwargs)
         self.root_folder = root_folder
-        self.app_context = app_context or create_app()
+        self.app_context = app_context or create_app(root_folder=root_folder)
 
         # Build popups — use live CommandRegistry if available
         registry = getattr(self.app_context, "command_registry", None)
         self.command_popup = CommandPopup(registry=registry)
         self.file_popup = FileDiscoveryPopup()
         self.error_popup = ErrorPopup(id="error_popup")
+        self._bind_command_parser_context()
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -71,8 +72,29 @@ class AgentCLIApp(App):
         if self.root_folder:
             self.file_popup.set_workspace_root(self.root_folder)
 
+        # Ensure command handlers can access this app instance.
+        self._bind_command_parser_context()
+        self._bind_interaction_handler()
+
         # Initialize status bar from settings
         self._init_status_bar()
+
+    def _bind_command_parser_context(self) -> None:
+        parser = getattr(self.app_context, "command_parser", None)
+        if parser is not None:
+            parser.set_app(self)
+
+    def _bind_interaction_handler(self) -> None:
+        from agent_cli.core.tui_interaction_handler import TUIInteractionHandler
+
+        handler = getattr(self.app_context, "interaction_handler", None)
+        if handler is None:
+            handler = TUIInteractionHandler(self)
+            self.app_context.interaction_handler = handler
+
+        tool_executor = getattr(self.app_context, "tool_executor", None)
+        if tool_executor is not None:
+            tool_executor.set_interaction_handler(handler)
 
     def _init_status_bar(self) -> None:
         """Push current settings into the reactive status bar."""

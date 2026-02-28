@@ -12,6 +12,13 @@ from agent_cli.core.events.events import (
     UserApprovalRequestEvent,
     UserApprovalResponseEvent,
 )
+from agent_cli.core.interaction import (
+    BaseInteractionHandler,
+    InteractionType,
+    UserInteractionRequest,
+    UserInteractionResponse,
+)
+from agent_cli.tools.ask_user_tool import AskUserTool
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.tools.executor import ToolExecutor
 from agent_cli.tools.output_formatter import ToolOutputFormatter
@@ -54,6 +61,21 @@ class UnsafeDummyTool(BaseTool):
         return f"Unsafe {arg1}"
 
 
+class _AnswerInteractionHandler(BaseInteractionHandler):
+    def __init__(self, answer: str) -> None:
+        self.answer = answer
+        self.last_request: UserInteractionRequest | None = None
+
+    async def request_human_input(
+        self, request: UserInteractionRequest
+    ) -> UserInteractionResponse:
+        self.last_request = request
+        return UserInteractionResponse(action="answered", feedback=self.answer)
+
+    async def notify(self, message: str) -> None:
+        return None
+
+
 @pytest.fixture
 def registry():
     reg = ToolRegistry()
@@ -77,9 +99,10 @@ async def test_executor_safe_tool_success(registry, event_bus, output_formatter)
     executor = ToolExecutor(registry, event_bus, output_formatter)
 
     events = []
+
     async def on_event(event):
         events.append(event)
-        
+
     event_bus.subscribe("ToolExecutionStartEvent", on_event)
     event_bus.subscribe("ToolExecutionResultEvent", on_event)
 
@@ -125,8 +148,10 @@ async def test_executor_tool_execution_error(registry, event_bus, output_formatt
     executor = ToolExecutor(registry, event_bus, output_formatter)
 
     events = []
+
     async def on_event(event):
         events.append(event)
+
     event_bus.subscribe("ToolExecutionResultEvent", on_event)
 
     result = await executor.execute("safe_tool", {"arg1": "fail"})
@@ -145,8 +170,10 @@ async def test_executor_unexpected_exception(registry, event_bus, output_formatt
     executor = ToolExecutor(registry, event_bus, output_formatter)
 
     events = []
+
     async def on_event(event):
         events.append(event)
+
     event_bus.subscribe("ToolExecutionResultEvent", on_event)
 
     result = await executor.execute("safe_tool", {"arg1": "crash"})
@@ -169,12 +196,16 @@ async def test_executor_unsafe_tool_auto_approve(registry, event_bus, output_for
 
 
 @pytest.mark.asyncio
-async def test_executor_unsafe_tool_requires_approval(registry, event_bus, output_formatter):
+async def test_executor_unsafe_tool_requires_approval(
+    registry, event_bus, output_formatter
+):
     executor = ToolExecutor(registry, event_bus, output_formatter, auto_approve=False)
 
     approval_events = []
+
     async def on_event(event):
         approval_events.append(event)
+
     event_bus.subscribe("UserApprovalRequestEvent", on_event)
 
     # We need a background task to simulate the TUI approving it
@@ -192,9 +223,7 @@ async def test_executor_unsafe_tool_requires_approval(registry, event_bus, outpu
 
     task = asyncio.create_task(approve_delayed())
 
-    result = await executor.execute(
-        "unsafe_tool", {"arg1": "test"}, task_id="task_1"
-    )
+    result = await executor.execute("unsafe_tool", {"arg1": "test"}, task_id="task_1")
 
     await task
 
@@ -218,11 +247,43 @@ async def test_executor_unsafe_tool_denied(registry, event_bus, output_formatter
 
     task = asyncio.create_task(deny_delayed())
 
-    result = await executor.execute(
-        "unsafe_tool", {"arg1": "test"}, task_id="task_2"
-    )
+    result = await executor.execute("unsafe_tool", {"arg1": "test"}, task_id="task_2")
 
     await task
 
     assert "User denied execution." in result
     assert "unsafe_tool" in result
+
+
+@pytest.mark.asyncio
+async def test_executor_routes_ask_user_to_interaction_handler(
+    event_bus, output_formatter
+):
+    registry = ToolRegistry()
+    registry.register(AskUserTool())
+    interaction_handler = _AnswerInteractionHandler(answer="Balanced")
+
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        interaction_handler=interaction_handler,
+    )
+
+    result = await executor.execute(
+        "ask_user",
+        {
+            "question": "Which profile should I use?",
+            "options": ["Fast", "Balanced"],
+        },
+        task_id="task-ask-executor-1",
+    )
+
+    assert "[Tool: ask_user] Result:" in result
+    assert "User replied: Balanced" in result
+    assert interaction_handler.last_request is not None
+    assert (
+        interaction_handler.last_request.interaction_type
+        == InteractionType.CLARIFICATION
+    )
+    assert interaction_handler.last_request.task_id == "task-ask-executor-1"

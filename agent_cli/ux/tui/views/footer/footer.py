@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
-from textual.widgets import TextArea
+from textual.widgets import Static, TextArea
 
-from agent_cli.core.events.events import UserRequestEvent
+from agent_cli.core.events.events import (
+    AgentQuestionRequestEvent,
+    AgentQuestionResponseEvent,
+    BaseEvent,
+    UserApprovalRequestEvent,
+    UserApprovalResponseEvent,
+    UserRequestEvent,
+)
 from agent_cli.ux.tui.views.footer.submit_btn import SubmitButtonComponent
 from agent_cli.ux.tui.views.footer.user_input import UserInputComponent
+from agent_cli.ux.tui.views.footer.user_interaction import UserInteraction
 from agent_cli.ux.tui.views.header.status import StatusContainer
 
 
@@ -29,6 +37,18 @@ class FooterContainer(Container):
         min-height: 1;
         align: left bottom;
     }
+
+    FooterContainer #question_input_hint {
+        width: 100%;
+        height: 1;
+        color: $text-muted;
+        padding: 0 1;
+        margin: 0;
+    }
+
+    FooterContainer #question_input_hint.-hidden {
+        display: none;
+    }
     """
 
     def __init__(self, **kwargs):
@@ -38,8 +58,12 @@ class FooterContainer(Container):
 
         self.input_comp = UserInputComponent()
         self.submit_btn = SubmitButtonComponent()
+        self.user_interaction = UserInteraction()
+        self._subscriptions: list[str] = []
 
     def compose(self) -> ComposeResult:
+        yield self.user_interaction
+        yield Static("Type your answer", id="question_input_hint", classes="-hidden")
         with Horizontal(classes="input_container"):
             yield self.input_comp
             yield self.submit_btn
@@ -47,6 +71,31 @@ class FooterContainer(Container):
 
     def on_mount(self) -> None:
         self._sync_submit_button_offset()
+        app_context = getattr(self.app, "app_context", None)
+        if app_context is None:
+            return
+        self._subscriptions.append(
+            app_context.event_bus.subscribe(
+                "UserApprovalRequestEvent",
+                self._on_user_approval_request,
+                priority=50,
+            )
+        )
+        self._subscriptions.append(
+            app_context.event_bus.subscribe(
+                "AgentQuestionRequestEvent",
+                self._on_agent_question_request,
+                priority=50,
+            )
+        )
+
+    def on_unmount(self) -> None:
+        app_context = getattr(self.app, "app_context", None)
+        if app_context is None:
+            return
+        for subscription_id in self._subscriptions:
+            app_context.event_bus.unsubscribe(subscription_id)
+        self._subscriptions.clear()
 
     def _sync_submit_button_offset(self) -> None:
         """Keep the submit button aligned with the bottom input line."""
@@ -62,6 +111,67 @@ class FooterContainer(Container):
     ) -> None:
         self.input_comp.submit()
 
+    async def _on_user_approval_request(self, event: BaseEvent) -> None:
+        if not isinstance(event, UserApprovalRequestEvent):
+            return
+        self._hide_question_hint()
+        self.user_interaction.show_approval(
+            task_id=event.task_id,
+            tool_name=event.tool_name,
+            tool_args=event.arguments,
+            message=event.risk_description,
+        )
+
+    async def _on_agent_question_request(self, event: BaseEvent) -> None:
+        if not isinstance(event, AgentQuestionRequestEvent):
+            return
+        self._show_question_hint()
+        self.user_interaction.show_question(
+            task_id=event.task_id,
+            question=event.question,
+            options=event.options,
+        )
+
+    async def on_user_interaction_action_selected(
+        self, event: UserInteraction.ActionSelected
+    ) -> None:
+        event.stop()
+        self._hide_question_hint()
+        self.user_interaction.hide_panel()
+
+        app_context = getattr(self.app, "app_context", None)
+        if app_context is None:
+            return
+
+        approved = event.action == "approve"
+        await app_context.event_bus.emit(
+            UserApprovalResponseEvent(
+                source="tui",
+                task_id=event.task_id,
+                approved=approved,
+                modified_arguments=None,
+            )
+        )
+
+    async def on_user_interaction_question_answered(
+        self, event: UserInteraction.QuestionAnswered
+    ) -> None:
+        event.stop()
+        self._hide_question_hint()
+        self.user_interaction.hide_panel()
+
+        app_context = getattr(self.app, "app_context", None)
+        if app_context is None:
+            return
+
+        await app_context.event_bus.emit(
+            AgentQuestionResponseEvent(
+                source="tui",
+                task_id=event.task_id,
+                answer=event.answer,
+            )
+        )
+
     async def on_user_input_component_submitted(
         self, event: UserInputComponent.Submitted
     ) -> None:
@@ -72,6 +182,11 @@ class FooterContainer(Container):
 
         app_context = getattr(self.app, "app_context", None)
         if app_context is None:
+            return
+
+        # ── AgentQuestion typed answer path ──────────────────────
+        if self.user_interaction.question_active:
+            self.user_interaction.submit_typed_answer(text)
             return
 
         # ── Slash-command interception ────────────────────────────
@@ -93,6 +208,17 @@ class FooterContainer(Container):
                     )
                 return  # Do NOT publish UserRequestEvent for commands
 
+        # ── Mount user message BEFORE emitting the event ─────────
+        # This guarantees the user bubble is in the DOM before the
+        # Orchestrator starts the agent and agent responses mount.
+        try:
+            from agent_cli.ux.tui.views.body.text_window import TextWindowContainer
+
+            text_window = self.app.query_one(TextWindowContainer)
+            text_window.add_user_message(text)
+        except Exception:
+            pass  # TextWindowContainer may not be mounted
+
         # ── Normal user input → event bus ────────────────────────
         await app_context.event_bus.emit(
             UserRequestEvent(
@@ -100,3 +226,15 @@ class FooterContainer(Container):
                 text=text,
             )
         )
+
+    def _show_question_hint(self) -> None:
+        try:
+            self.query_one("#question_input_hint", Static).remove_class("-hidden")
+        except Exception:
+            pass
+
+    def _hide_question_hint(self) -> None:
+        try:
+            self.query_one("#question_input_hint", Static).add_class("-hidden")
+        except Exception:
+            pass

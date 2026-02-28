@@ -155,7 +155,7 @@ class UserInputComponent(TextArea):
 
         # ── Popup intercept: let the active popup handle keys first ──
         if self._active_popup and self._active_popup.is_visible:
-            consumed = self._active_popup.handle_key(event)
+            consumed = self._active_popup.handles_key(event)
             if consumed:
                 event.stop()
                 event.prevent_default()
