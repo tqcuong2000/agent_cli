@@ -7,11 +7,14 @@ works end-to-end.
 """
 
 import asyncio
+import os
 
 import pytest
 
 from agent_cli.core.bootstrap import AppContext, create_app
 from agent_cli.core.config import AgentSettings
+
+os.environ["OPENAI_API_KEY"] = "mock_key_for_testing"
 from agent_cli.core.events.event_bus import AsyncEventBus, BusState
 from agent_cli.core.events.events import StateChangeEvent, UserRequestEvent
 from agent_cli.core.state.state_models import TaskState

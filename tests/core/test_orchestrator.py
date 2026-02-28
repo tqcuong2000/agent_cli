@@ -26,7 +26,6 @@ from agent_cli.tools.executor import ToolExecutor
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
 
-
 # ── Mocks ────────────────────────────────────────────────────────────
 
 
@@ -67,6 +66,7 @@ class MockProvider(BaseLLMProvider):
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         text = (
+            f"<title>Process incoming user request safely now</title>\n"
             f"<thinking>Processing.</thinking>\n"
             f"<final_answer>{self._answer}</final_answer>"
         )
@@ -208,6 +208,7 @@ async def test_orchestrator_emits_delegation_event(deps):
 @pytest.mark.asyncio
 async def test_orchestrator_command_interception(deps):
     """Slash-commands are intercepted and not routed to agents."""
+
     # Register a test command
     async def mock_help(text: str) -> str:
         return "Available commands: /help, /exit"

@@ -92,9 +92,21 @@ class UserInputComponent(TextArea):
 
         # --- '/' commands: only at the very start of input ---
         if text.startswith("/"):
+            query = text[1:]  # Text after '/'
+
+            # If the command name is complete (has a space after it),
+            # dismiss the popup — the user is done picking a command.
+            if " " in query:
+                popup = self._find_popup("command_popup")
+                if popup is not None and popup.is_visible:
+                    popup.hide_popup()
+                    self._active_popup = None
+                    self._trigger_char = ""
+                    self._trigger_pos = 0
+                return
+
             popup = self._find_popup("command_popup")
             if popup is not None:
-                query = text[1:]  # Text after '/'
                 if not popup.is_visible:
                     popup.show_popup(query)
                     self._active_popup = popup

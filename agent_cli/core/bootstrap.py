@@ -35,6 +35,10 @@ from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
 from agent_cli.tools.workspace import WorkspaceContext
 
+# Phase 4.2 imports
+from agent_cli.commands.base import CommandContext, CommandRegistry
+from agent_cli.commands.parser import CommandParser
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,6 +73,10 @@ class AppContext:
     memory_manager: BaseMemoryManager
     prompt_builder: PromptBuilder
     orchestrator: Optional[Orchestrator] = None  # None until an agent is registered
+
+    # ── Phase 4.2 Command System ─────────────────────────────────
+    command_registry: Optional[CommandRegistry] = None
+    command_parser: Optional[CommandParser] = None
 
     # ── Lifecycle State ──────────────────────────────────────────
     _started: bool = field(default=False, repr=False)
@@ -184,7 +192,17 @@ def create_app(
     # 8. Prompt Builder
     prompt_builder = PromptBuilder(tool_registry=tool_registry)
 
-    # 9. Assemble context
+    # 9. Command System (Phase 4.2)
+    cmd_registry = _build_command_registry()
+    cmd_context = CommandContext(
+        settings=settings,
+        event_bus=event_bus,
+        state_manager=state_manager,
+        memory_manager=memory_manager,
+    )
+    cmd_parser = CommandParser(registry=cmd_registry, context=cmd_context)
+
+    # 10. Assemble context
     #    Orchestrator is None until an agent is registered via
     #    ``register_default_agent()``.
     context = AppContext(
@@ -198,9 +216,42 @@ def create_app(
         memory_manager=memory_manager,
         prompt_builder=prompt_builder,
         orchestrator=None,
+        command_registry=cmd_registry,
+        command_parser=cmd_parser,
     )
 
-    logger.info("AppContext created (startup pending).")
+    # Wire up the back-reference so commands can access providers and orchestrator
+    cmd_context.app_context = context
+
+    # 11. Create and register the Default Agent
+    from agent_cli.agent.base import AgentConfig
+    from agent_cli.agent.default import DefaultAgent
+
+    # The default provider is initialized automatically by LLMProviderManager.get_provider()
+    provider = providers.get_provider(settings.default_model)
+
+    agent_config = AgentConfig(
+        name="Generalist",
+        description="A helpful general-purpose AI assistant",
+        model=settings.default_model,
+        effort_level=settings.default_effort_level,
+        tools=tool_registry.get_all_names(),  # Give access to all registered tools
+    )
+
+    default_agent = DefaultAgent(
+        config=agent_config,
+        provider=provider,
+        tool_executor=tool_executor,
+        schema_validator=schema_validator,
+        memory_manager=memory_manager,
+        event_bus=event_bus,
+        state_manager=state_manager,
+        prompt_builder=prompt_builder,
+    )
+
+    register_default_agent(context, default_agent)
+
+    logger.info("AppContext created and default agent registered.")
     return context
 
 
@@ -217,6 +268,7 @@ def register_default_agent(
         event_bus=context.event_bus,
         state_manager=context.state_manager,
         default_agent=agent,
+        command_parser=context.command_parser,
     )
     logger.info(
         "Default agent '%s' registered with Orchestrator.", agent.name
@@ -250,5 +302,32 @@ def _build_tool_registry(workspace: WorkspaceContext) -> ToolRegistry:
         "Tool registry built with %d tools: %s",
         len(registry.get_all_names()),
         ", ".join(registry.get_all_names()),
+    )
+    return registry
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Command Registry Builder (Phase 4.2)
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _build_command_registry() -> CommandRegistry:
+    """Create a CommandRegistry populated with all built-in commands.
+
+    Importing ``core`` triggers the ``@command`` decorators which
+    register into ``_DEFAULT_REGISTRY``.  We absorb that into a fresh
+    ``CommandRegistry`` instance.
+    """
+    # Import triggers @command decorator registration
+    import agent_cli.commands.handlers.core  # noqa: F401
+    from agent_cli.commands.base import _DEFAULT_REGISTRY
+
+    registry = CommandRegistry()
+    registry.absorb(_DEFAULT_REGISTRY)
+
+    logger.info(
+        "Command registry built with %d commands: %s",
+        len(registry.all()),
+        ", ".join(c.name for c in registry.all()),
     )
     return registry

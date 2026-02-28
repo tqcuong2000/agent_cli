@@ -1,4 +1,7 @@
-from textual.containers import Container, Horizontal
+from __future__ import annotations
+
+from textual.app import ComposeResult
+from textual.containers import Container
 from textual.widgets import Static
 
 
@@ -7,10 +10,11 @@ class UserMessageContainer(Container):
 
     DEFAULT_CSS = """
     UserMessageContainer {
+        layout: vertical;
         width: 100%;
         height: auto;
-        align: left top;
-        padding: 1 2 0 2;
+        padding: 0 2;
+        margin: 2 0;
     }
 
     UserMessageContainer .message_bubble {
@@ -21,17 +25,12 @@ class UserMessageContainer(Container):
         color: $text;
         padding: 1 1;
     }
-    
-    UserMessageContainer .spacer {
-        width: 1fr;
-    }
+
     """
 
-    def __init__(self, message_text: str, **kwargs):
+    def __init__(self, message_text: str, **kwargs) -> None:
         super().__init__(**kwargs)
         self.message_text = message_text
 
-    def compose(self):
-        with Horizontal():
-            yield Static(self.message_text, classes="message_bubble")
-            yield Static(" ", classes="spacer")
+    def compose(self) -> ComposeResult:
+        yield Static(self.message_text, classes="message_bubble")

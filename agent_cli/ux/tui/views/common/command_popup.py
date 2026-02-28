@@ -8,9 +8,12 @@ Triggered when the user types '/' in the input bar.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from agent_cli.ux.tui.views.common.popup_list import BasePopupListView, PopupItem
+
+if TYPE_CHECKING:
+    from agent_cli.commands.base import CommandRegistry
 
 
 @dataclass
@@ -63,16 +66,39 @@ class CommandPopup(BasePopupListView):
     }
     """
 
-    def __init__(self, commands: List[CommandInfo] | None = None, **kwargs):
+    def __init__(
+        self,
+        commands: List[CommandInfo] | None = None,
+        registry: Optional[CommandRegistry] = None,
+        **kwargs,
+    ):
         kwargs.setdefault("id", "command_popup")
         super().__init__(max_visible=10, **kwargs)
         self._commands = commands or _COMMANDS
+        self._registry = registry
 
     def get_trigger_char(self) -> str:
         return "/"
 
     def get_all_items(self) -> List[PopupItem]:
-        """Convert CommandInfo entries to PopupItems."""
+        """Convert command entries to PopupItems.
+
+        If a live ``CommandRegistry`` is available, use it;
+        otherwise fall back to the static ``_COMMANDS`` list.
+        """
+        if self._registry is not None:
+            return [
+                PopupItem(
+                    label=cmd.name,
+                    description=cmd.description,
+                    icon="/",
+                    hint=cmd.shortcut or "",
+                    value=f"/{cmd.name} ",
+                    data=cmd,
+                )
+                for cmd in self._registry.all()
+            ]
+
         return [
             PopupItem(
                 label=cmd.name,

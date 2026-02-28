@@ -212,6 +212,11 @@ class BasePopupListView(Widget):
             return True
 
         elif key in ("tab", "enter"):
+            if not self._filtered_items:
+                # No matches — dismiss popup and let the key fall through
+                self.hide_popup()
+                self.post_message(self.Dismissed())
+                return False
             self._select_current()
             return True
 

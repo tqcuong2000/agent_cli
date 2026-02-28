@@ -18,8 +18,8 @@ from agent_cli.tools.executor import ToolExecutor
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
 
-
 # ── Mocks ────────────────────────────────────────────────────────────
+
 
 class MockMathToolArgs(BaseModel):
     x: int
@@ -64,14 +64,17 @@ class MockLLMProvider(BaseLLMProvider):
         else:
             text = self.responses[self.call_count]
             self.call_count += 1
-        
+
         return LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
 
     def get_buffered_response(self) -> LLMResponse:
         return LLMResponse(text_content="buffered", tool_mode=ToolCallMode.XML)
 
     async def safe_generate(
-        self, context: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None, **kwargs
+        self,
+        context: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        **kwargs,
     ) -> LLMResponse:
         # Override safe_generate directly since we mock everything
         request = LLMRequest(messages=[])
@@ -99,24 +102,29 @@ class DummyAgent(BaseAgent):
         return f"FINAL: {answer}"
 
 
+def _reasoning(title: str, thoughts: str) -> str:
+    return f"<title>{title}</title>\n<thinking>{thoughts}</thinking>"
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def base_deps():
     registry = ToolRegistry()
     registry.register(MockMathTool())
-    
+
     event_bus = AsyncEventBus()
     state_manager = TaskStateManager(event_bus)
     output_formatter = ToolOutputFormatter()
-    
+
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
         output_formatter=output_formatter,
         auto_approve=True,
     )
-    
+
     schema_validator = SchemaValidator(registry.get_all_names())
     memory_manager = WorkingMemoryManager()
     prompt_builder = PromptBuilder(registry)
@@ -133,38 +141,38 @@ def base_deps():
 
 # ── Integration Tests ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_react_loop_successful_task(base_deps):
     """Test a full ReAct loop where the agent thinks, uses a tool,
     and returns a final answer."""
-    
+
     mock_responses = [
         # Iteration 1: Call 'add' tool
-        "<thinking>I should add.</thinking>\n"
-        "<action>\n  <tool>add</tool>\n  <args>{\"x\": 2, \"y\": 3}</args>\n</action>",
-        
+        _reasoning("Compute sum using add tool call", "I should add.") + "\n"
+        '<action>\n  <tool>add</tool>\n  <args>{"x": 2, "y": 3}</args>\n</action>',
         # Iteration 2: Return final answer
-        "<thinking>Got the result.</thinking>\n"
-        "<final_answer>The answer is 5.</final_answer>"
+        _reasoning("Return concise final answer to user", "Got the result.") + "\n"
+        "<final_answer>The answer is 5.</final_answer>",
     ]
-    
+
     provider = MockLLMProvider(mock_responses)
     config = AgentConfig(name="dummy", tools=["add"])
-    
+
     agent = DummyAgent(config=config, provider=provider, **base_deps)
-    
+
     task = await base_deps["state_manager"].create_task("Add 2 and 3")
     await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
     await base_deps["state_manager"].transition(task.task_id, TaskState.WORKING)
-    
+
     result = await agent.handle_task(
         task_id=task.task_id,
         task_description="Add 2 and 3",
     )
-    
+
     assert result == "FINAL: The answer is 5."
     assert provider.call_count == 2
-    
+
     # Verify working memory
     memory = base_deps["memory_manager"].get_working_context()
     assert len(memory) > 3  # sys prompt, task desc, iteration 1 turn, etc.
@@ -175,22 +183,22 @@ async def test_react_loop_successful_task(base_deps):
 async def test_react_loop_schema_correction(base_deps):
     """Test that the agent recovers from a malformed schema response
     by receiving the error and trying again."""
-    
+
     mock_responses = [
         # Iteration 1: Malformed action (missing <tool>)
-        "<thinking>Oops</thinking>\n"
+        _reasoning("Detect malformed action and recover quickly", "Oops") + "\n"
         "<action>\n  <args>{}</args>\n</action>",
-        
         # Iteration 2: Correct format
-        "<thinking>Let me fix that.</thinking>\n"
-        "<final_answer>I fixed it.</final_answer>"
+        _reasoning("Provide corrected response after feedback", "Let me fix that.")
+        + "\n"
+        "<final_answer>I fixed it.</final_answer>",
     ]
-    
+
     provider = MockLLMProvider(mock_responses)
     config = AgentConfig(name="dummy", tools=["add"])
-    
+
     agent = DummyAgent(config=config, provider=provider, **base_deps)
-    
+
     task = await base_deps["state_manager"].create_task("Do something")
     await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
     await base_deps["state_manager"].transition(task.task_id, TaskState.WORKING)
@@ -199,9 +207,9 @@ async def test_react_loop_schema_correction(base_deps):
         task_id=task.task_id,
         task_description="Do something",
     )
-    
+
     assert result == "FINAL: I fixed it."
-    
+
     # Check that memory contains the schema error feedback
     mem = base_deps["memory_manager"].get_working_context()
     assert any("Schema Error" in m["content"] for m in mem)
@@ -211,20 +219,20 @@ async def test_react_loop_schema_correction(base_deps):
 async def test_react_loop_max_iterations(base_deps):
     """Test that the agent raises MaxIterationsExceededError if it
     loops too many times without a final answer."""
-    
+
     # Always returning an action (infinite loop scenario)
     infinite_action = (
-        "<thinking>Looping</thinking>\n"
-        "<action>\n  <tool>add</tool>\n  <args>{\"x\": 1, \"y\": 1}</args>\n</action>"
+        _reasoning("Repeat same action to test max iterations", "Looping") + "\n"
+        '<action>\n  <tool>add</tool>\n  <args>{"x": 1, "y": 1}</args>\n</action>'
     )
-    
+
     # Feed 10 copies of the same action
     # We set LOW effort so max_iterations is 5.
     provider = MockLLMProvider([infinite_action] * 10)
     config = AgentConfig(name="dummy", tools=["add"], effort_level=EffortLevel.LOW)
-    
+
     agent = DummyAgent(config=config, provider=provider, **base_deps)
-    
+
     task = await base_deps["state_manager"].create_task("Loop forever")
     await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
     await base_deps["state_manager"].transition(task.task_id, TaskState.WORKING)
@@ -234,7 +242,7 @@ async def test_react_loop_max_iterations(base_deps):
             task_id=task.task_id,
             task_description="Loop forever",
         )
-    
+
     assert "reached 5 iterations" in str(exc.value)
 
 
@@ -242,25 +250,26 @@ async def test_react_loop_max_iterations(base_deps):
 async def test_react_loop_stuck_detection(base_deps):
     """Test that the stuck detector injects a warning if the agent
     repeats the exact same tool call and gets the same result."""
-    
+
     same_action = (
-        "<thinking>Stuck</thinking>\n"
-        "<action>\n  <tool>add</tool>\n  <args>{\"x\": 0, \"y\": 0}</args>\n</action>"
+        _reasoning("Repeat identical action to trigger stuck hint", "Stuck") + "\n"
+        '<action>\n  <tool>add</tool>\n  <args>{"x": 0, "y": 0}</args>\n</action>'
     )
-    
+
     # 3 repetitions triggers the stuck detector warning for the 4th iteration
     mock_responses = [
-        same_action, # iter 1 -> result 0
-        same_action, # iter 2 -> result 0
-        same_action, # iter 3 -> result 0, triggers stuck detection!
-        "<thinking>Oh</thinking><final_answer>I was stuck.</final_answer>"
+        same_action,  # iter 1 -> result 0
+        same_action,  # iter 2 -> result 0
+        same_action,  # iter 3 -> result 0, triggers stuck detection!
+        _reasoning("Acknowledge loop and finish with answer", "Oh")
+        + "<final_answer>I was stuck.</final_answer>",
     ]
-    
+
     provider = MockLLMProvider(mock_responses)
     config = AgentConfig(name="dummy", tools=["add"])
-    
+
     agent = DummyAgent(config=config, provider=provider, **base_deps)
-    
+
     task = await base_deps["state_manager"].create_task("Test stuck")
     await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
     await base_deps["state_manager"].transition(task.task_id, TaskState.WORKING)
@@ -269,8 +278,8 @@ async def test_react_loop_stuck_detection(base_deps):
         task_id=task.task_id,
         task_description="Test stuck",
     )
-    
+
     assert result == "FINAL: I was stuck."
-    
+
     mem = base_deps["memory_manager"].get_working_context()
     assert any("repeating the same action" in m["content"] for m in mem)

@@ -222,6 +222,10 @@ class AgentSettings(BaseSettings):
         default=True,
         description="Show agent's <thinking> monologue in the TUI.",
     )
+    execution_mode: str = Field(
+        default="plan",
+        description="Execution mode: 'plan' or 'fast'.",
+    )
 
     # ── Observability ────────────────────────────────────────────
 
@@ -263,7 +267,7 @@ class AgentSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="AGENT_",
-        env_file=".env",
+        env_file=(str(Path.home() / ".agent_cli" / ".env"), ".env"),
         env_file_encoding="utf-8",
         extra="ignore",  # Ignore unknown fields in TOML (forward compat)
         populate_by_name=True,  # Allow both alias and field name

@@ -19,18 +19,22 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
 
 from agent_cli.agent.base import BaseAgent
 from agent_cli.core.error_handler.errors import AgentCLIError
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.events.events import (
+    AgentMessageEvent,
     TaskDelegatedEvent,
     TaskResultEvent,
     UserRequestEvent,
 )
 from agent_cli.core.state.state_manager import AbstractStateManager
 from agent_cli.core.state.state_models import TaskState
+
+if TYPE_CHECKING:
+    from agent_cli.commands.parser import CommandParser
 
 logger = logging.getLogger(__name__)
 
@@ -60,12 +64,14 @@ class Orchestrator:
         event_bus: AbstractEventBus,
         state_manager: AbstractStateManager,
         default_agent: BaseAgent,
+        command_parser: Optional[CommandParser] = None,
     ) -> None:
         self._event_bus = event_bus
         self._state_manager = state_manager
         self._default_agent = default_agent
+        self._command_parser = command_parser
 
-        # Slash-command registry: prefix → handler
+        # Legacy slash-command registry (kept for backward compat)
         self._commands: Dict[str, CommandHandler] = {}
 
         # Subscribe to UserRequestEvent
@@ -104,6 +110,20 @@ class Orchestrator:
 
         # ── Slash-command interception ────────────────────────────
         if text.startswith("/"):
+            # Prefer the new CommandParser if available
+            if self._command_parser is not None:
+                result = await self._command_parser.execute(text)
+                if result.message:
+                    await self._event_bus.publish(
+                        AgentMessageEvent(
+                            source="command_system",
+                            content=result.message,
+                            is_monologue=False,
+                        )
+                    )
+                return result.message
+
+            # Fallback to legacy dict-based commands
             return await self._handle_command(text)
 
         # ── Normal request → agent routing ───────────────────────

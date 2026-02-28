@@ -1,9 +1,16 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
+
 from textual import events
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
 
 from agent_cli.ux.tui.views.body.panel_window import PanelWindowContainer
 from agent_cli.ux.tui.views.body.text_window import TextWindowContainer
+
+if TYPE_CHECKING:
+    from agent_cli.core.bootstrap import AppContext
 
 
 class BodyContainer(Container):
@@ -18,12 +25,13 @@ class BodyContainer(Container):
     }
     """
 
-    def __init__(self):
+    def __init__(self, app_context: Optional["AppContext"] = None):
         super().__init__(id="body")
+        self._app_context = app_context
 
     def compose(self):
         with Horizontal():
-            yield TextWindowContainer()
+            yield TextWindowContainer(app_context=self._app_context)
             yield PanelWindowContainer()
 
     def on_resize(self, event: events.Resize) -> None:

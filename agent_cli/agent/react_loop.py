@@ -61,7 +61,7 @@ class StuckDetector:
             return False
 
         # Check if the last N actions are identical
-        last_n = self._recent[-self.threshold:]
+        last_n = self._recent[-self.threshold :]
         if all(k == last_n[0] for k in last_n):
             self._recent.clear()  # Reset after detection
             logger.warning(
@@ -163,15 +163,19 @@ class PromptBuilder:
         return (
             "# Output Format\n"
             "You MUST structure every response as follows:\n\n"
-            "1. **Thinking**: Wrap your reasoning in <thinking> tags. "
-            "This is your internal monologue.\n"
-            "2. **Action**: If you need to use a tool, wrap it in <action> tags:\n"
+            "1. **Title**: Provide a short title in <title> tags (4 to 12 words).\n"
+            "2. **Thinking**: Wrap your reasoning chain in <thinking> tags.\n"
+            "3. **Action**: If you need to use a tool, wrap it in <action> tags:\n"
             "   <action><tool>tool_name</tool>"
             '<args>{"key": "value"}</args></action>\n'
-            "3. **Final Answer**: When the task is complete, provide your "
+            "4. **Final Answer**: When the task is complete, provide your "
             "answer in <final_answer> tags:\n"
             "   <final_answer>Your response to the user.</final_answer>\n\n"
-            "You must ALWAYS include <thinking> before any action or final answer."
+            "You must ALWAYS include both <title> and <thinking> before any "
+            "action or final answer.\n"
+            "Required skeleton:\n"
+            "<title>Short 4-12 word title</title>\n"
+            "<thinking>Your reasoning chain here.</thinking>"
         )
 
     @staticmethod

@@ -1,10 +1,15 @@
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
+from textual.reactive import reactive
 from textual.widgets import Static
 
 
 class StatusContainer(Container):
-    """A container to display status information."""
+    """A container to display status information.
+
+    Mode, model, and effort are **reactive** — changing them
+    automatically updates the corresponding ``Static`` widget.
+    """
 
     DEFAULT_CSS = """
     StatusContainer {
@@ -61,6 +66,12 @@ class StatusContainer(Container):
     }
     """
 
+    # ── Reactive state ───────────────────────────────────────────
+
+    mode: reactive[str] = reactive("Plan")
+    model: reactive[str] = reactive("gemini-3.1-pro-preview")
+    effort: reactive[str] = reactive("xHigh")
+
     def __init__(self, **kwargs):
         if "id" not in kwargs:
             kwargs["id"] = "status_bar"
@@ -68,11 +79,11 @@ class StatusContainer(Container):
 
     def compose(self) -> ComposeResult:
         with Horizontal():
-            yield Static("Plan", id="mode", classes="mode")
+            yield Static(self.mode, id="mode", classes="mode")
             yield Static(" ● ", classes="shortcut_separator")
-            yield Static("gemini-3.1-pro-preview", id="model", classes="model")
+            yield Static(self.model, id="model", classes="model")
             yield Static(" ● ", classes="shortcut_separator")
-            yield Static("xHigh", id="effort", classes="effort")
+            yield Static(self.effort, id="effort", classes="effort")
             yield Static(" ", id="spacer", classes="spacer")
             yield Static("tab ", classes="shortcut_key")
             yield Static("mode", classes="shortcut_action")
@@ -82,3 +93,37 @@ class StatusContainer(Container):
             yield Static(" | ", classes="shortcut_separator")
             yield Static("ctrl+e ", classes="shortcut_key")
             yield Static("efforts", classes="shortcut_action")
+
+    # ── Watchers ─────────────────────────────────────────────────
+
+    def watch_mode(self, value: str) -> None:
+        try:
+            self.query_one("#mode", Static).update(value)
+        except Exception:
+            pass  # Widget not mounted yet
+
+    def watch_model(self, value: str) -> None:
+        try:
+            self.query_one("#model", Static).update(value)
+        except Exception:
+            pass
+
+    def watch_effort(self, value: str) -> None:
+        try:
+            self.query_one("#effort", Static).update(value)
+        except Exception:
+            pass
+
+    # ── Public API (called by command handlers) ──────────────────
+
+    def update_mode(self, value: str) -> None:
+        """Update the displayed execution mode."""
+        self.mode = value.capitalize()
+
+    def update_model(self, value: str) -> None:
+        """Update the displayed model name."""
+        self.model = value
+
+    def update_effort(self, value: str) -> None:
+        """Update the displayed effort level."""
+        self.effort = value.upper()

@@ -1,15 +1,34 @@
-from textual.app import App, ComposeResult
+from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional
+
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+
+from agent_cli.core.bootstrap import create_app
 from agent_cli.ux.tui.views.body.body import BodyContainer
 from agent_cli.ux.tui.views.common.command_popup import CommandPopup
+from agent_cli.ux.tui.views.common.error_popup import ErrorPopup
 from agent_cli.ux.tui.views.common.file_popup import FileDiscoveryPopup
 from agent_cli.ux.tui.views.common.popup_list import BasePopupListView
 from agent_cli.ux.tui.views.footer.footer import FooterContainer
 from agent_cli.ux.tui.views.header.header import HeaderContainer
 
+if TYPE_CHECKING:
+    from agent_cli.core.bootstrap import AppContext
+
 
 class AgentCLIApp(App):
     """A minimal Textual TUI for agent_cli."""
+
+    BINDINGS = [
+        Binding("ctrl+p", "open_command_palette", "Commands", show=True),
+        Binding("ctrl+e", "cycle_effort", "Effort", show=True),
+        Binding("ctrl+m", "toggle_mode", "Mode", show=False),
+        Binding("ctrl+l", "clear_context", "Clear", show=False),
+        Binding("ctrl+q", "quit_app", "Quit", show=False),
+        ("shift+up", "show_error_popup", "Show Error Popup (Temp)"),
+    ]
 
     CSS = """
     #content {
@@ -20,25 +39,53 @@ class AgentCLIApp(App):
     }
     """
 
-    def __init__(self, root_folder: str, *args, **kwargs):
+    def __init__(
+        self,
+        root_folder: str,
+        app_context: Optional["AppContext"] = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.root_folder = root_folder
-        self.command_popup = CommandPopup()
+        self.app_context = app_context or create_app()
+
+        # Build popups — use live CommandRegistry if available
+        registry = getattr(self.app_context, "command_registry", None)
+        self.command_popup = CommandPopup(registry=registry)
         self.file_popup = FileDiscoveryPopup()
+        self.error_popup = ErrorPopup(id="error_popup")
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield HeaderContainer()
-        yield BodyContainer()
+        yield BodyContainer(app_context=self.app_context)
         # Popups at App level — true floating overlays
         yield self.command_popup
         yield self.file_popup
+        yield self.error_popup
         yield FooterContainer()
 
     def on_mount(self) -> None:
         # Set workspace root for file discovery
         if self.root_folder:
             self.file_popup.set_workspace_root(self.root_folder)
+
+        # Initialize status bar from settings
+        self._init_status_bar()
+
+    def _init_status_bar(self) -> None:
+        """Push current settings into the reactive status bar."""
+        try:
+            from agent_cli.ux.tui.views.header.status import StatusContainer
+
+            status = self.query_one(StatusContainer)
+            s = self.app_context.settings
+            status.update_mode(getattr(s, "execution_mode", "plan"))
+            status.update_model(s.default_model)
+            status.update_effort(s.default_effort_level.value)
+        except Exception:
+            pass  # StatusContainer may not be mounted
 
     def on_base_popup_list_view_item_selected(
         self, event: BasePopupListView.ItemSelected
@@ -64,9 +111,67 @@ class AgentCLIApp(App):
         input_comp.move_cursor((row, col))
         input_comp.focus()
 
+    # ── Keyboard shortcut actions ────────────────────────────────
+
+    async def action_open_command_palette(self) -> None:
+        """Focus input bar and insert '/' to open the command popup."""
+        try:
+            footer = self.query_one(FooterContainer)
+            footer.input_comp.text = "/"
+            footer.input_comp.focus()
+        except Exception:
+            pass
+
+    async def action_cycle_effort(self) -> None:
+        """Cycle through effort levels: LOW → MEDIUM → HIGH → LOW."""
+        levels = ["LOW", "MEDIUM", "HIGH"]
+        current = self.app_context.settings.default_effort_level.value
+        try:
+            idx = levels.index(current)
+        except ValueError:
+            idx = 0
+        next_level = levels[(idx + 1) % 3]
+
+        parser = self.app_context.command_parser
+        if parser:
+            await parser.execute(f"/effort {next_level}")
+
+    async def action_toggle_mode(self) -> None:
+        """Toggle between fast and plan mode."""
+        current = getattr(self.app_context.settings, "execution_mode", "plan")
+        new_mode = "plan" if current == "fast" else "fast"
+
+        parser = self.app_context.command_parser
+        if parser:
+            await parser.execute(f"/mode {new_mode}")
+
+    async def action_clear_context(self) -> None:
+        """Clear working memory."""
+        parser = self.app_context.command_parser
+        if parser:
+            result = await parser.execute("/clear")
+            self.notify(result.message)
+
+    async def action_quit_app(self) -> None:
+        """Exit the application."""
+        self.exit()
+
+    # ── Legacy actions ───────────────────────────────────────────
+
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
         if self.theme != "textual-light":
             self.theme = "textual-light"
         else:
             self.theme = "textual-dark"
+
+    def action_show_error_popup(self) -> None:
+        """Temporary debug action to preview the error popup UI."""
+        self.error_popup.show_error(
+            title="Temporary Popup Test",
+            message=(
+                "This is a temporary trigger for validating ErrorPopup position, "
+                "style, and auto-dismiss behavior."
+            ),
+            error_type="error",
+        )

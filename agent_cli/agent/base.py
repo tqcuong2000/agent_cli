@@ -36,6 +36,7 @@ from agent_cli.core.error_handler.errors import (
 )
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.events.events import AgentMessageEvent
+from agent_cli.core.models.config_models import EffortLevel
 from agent_cli.core.state.state_manager import AbstractStateManager
 from agent_cli.tools.executor import ToolExecutor
 
@@ -43,16 +44,8 @@ logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Effort Level
+# Effort Level Constraints
 # ══════════════════════════════════════════════════════════════════════
-
-
-class EffortLevel(Enum):
-    """Controls reasoning depth, model tier, and iteration limits."""
-
-    LOW = auto()     # Fast. Bias towards immediate action.  3-5 iterations.
-    MEDIUM = auto()  # Balanced. Chain-of-thought reasoning. 10-15 iterations.
-    HIGH = auto()    # Deep. Multi-path planning + self-verification. 25-30 iterations.
 
 
 EFFORT_CONSTRAINTS: Dict[EffortLevel, Dict[str, Any]] = {
