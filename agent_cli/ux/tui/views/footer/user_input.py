@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from textual import events
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import TextArea
+
+from agent_cli.ux.tui.views.common.popup_list import BasePopupListView
 
 
 class UserInputComponent(TextArea):
     """
     A custom multi-line input component for the agent orchestrator.
     Supports `\\` + Enter and Shift+Down for new lines, and Enter for submission.
+
+    Popup integration:
+    - Typing '/' triggers the CommandPopup
+    - Typing '@' triggers the FileDiscoveryPopup
+    - The popup intercepts ↑/↓/Tab/Enter/Esc while visible
     """
 
     DEFAULT_CSS = """
@@ -51,6 +59,11 @@ class UserInputComponent(TextArea):
         self._max_visible_lines = 5
         self._update_height()
 
+        # Popup state
+        self._active_popup: BasePopupListView | None = None
+        self._trigger_char: str = ""
+        self._trigger_pos: int = 0
+
     @property
     def max_visible_lines(self) -> int:
         """Maximum number of visible lines before scrolling."""
@@ -66,13 +79,81 @@ class UserInputComponent(TextArea):
         self.styles.height = self.visible_line_count
 
     def on_text_area_changed(self, _: TextArea.Changed) -> None:
-        """Recompute height whenever the text changes."""
+        """Recompute height and manage popup visibility based on text."""
         self._update_height()
         self.call_after_refresh(lambda: self.scroll_end(animate=False))
+
+        # Check for popup triggers
+        self._check_popup_triggers()
+
+    def _check_popup_triggers(self) -> None:
+        """Detect '/' or '@' and show/update the relevant popup."""
+        text = self.text
+
+        # --- '/' commands: only at the very start of input ---
+        if text.startswith("/"):
+            popup = self._find_popup("command_popup")
+            if popup is not None:
+                query = text[1:]  # Text after '/'
+                if not popup.is_visible:
+                    popup.show_popup(query)
+                    self._active_popup = popup
+                    self._trigger_char = "/"
+                    self._trigger_pos = 0
+                else:
+                    popup.update_filter(query)
+                return
+
+        # --- '@' file mentions: anywhere in the text ---
+        # Find the last '@' that isn't followed by a space (completed mention)
+        at_pos = text.rfind("@")
+        if at_pos >= 0:
+            after_at = text[at_pos + 1 :]
+            # Only trigger if there's no space yet after @ (still typing the path)
+            if " " not in after_at:
+                popup = self._find_popup("file_popup")
+                if popup is not None:
+                    query = after_at
+                    if not popup.is_visible:
+                        popup.show_popup(query)
+                        self._active_popup = popup
+                        self._trigger_char = "@"
+                        self._trigger_pos = at_pos
+                    else:
+                        popup.update_filter(query)
+                    return
+
+        # No trigger matched — hide any active popup
+        if self._active_popup and self._active_popup.is_visible:
+            self._active_popup.hide_popup()
+            self._active_popup = None
+            self._trigger_char = ""
+            self._trigger_pos = 0
+
+    def _find_popup(self, popup_id: str) -> BasePopupListView | None:
+        """Find a popup widget by ID from anywhere in the app DOM."""
+        try:
+            return self.app.query_one(f"#{popup_id}", BasePopupListView)
+        except NoMatches:
+            return None
 
     async def _on_key(self, event: events.Key) -> None:
         """Handle submit/newline keyboard behavior for chat input."""
         key = event.key.lower()
+
+        # ── Popup intercept: let the active popup handle keys first ──
+        if self._active_popup and self._active_popup.is_visible:
+            consumed = self._active_popup.handle_key(event)
+            if consumed:
+                event.stop()
+                event.prevent_default()
+
+                # If the popup selected an item (Tab/Enter), replace input text
+                if key in ("tab", "enter") and not self._active_popup.is_visible:
+                    # The popup was just hidden by selection — get the selected item
+                    # The ItemSelected message will be handled by FooterContainer
+                    pass
+                return
 
         if key == "shift+down":
             event.stop()
@@ -105,6 +186,11 @@ class UserInputComponent(TextArea):
 
     def submit(self) -> None:
         """Emit a Submitted message with the current input value."""
+        # Hide any active popup on submit
+        if self._active_popup and self._active_popup.is_visible:
+            self._active_popup.hide_popup()
+            self._active_popup = None
+
         self.post_message(self.Submitted(self, self.text))
         self.text = ""
         self._update_height()

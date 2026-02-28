@@ -44,13 +44,13 @@ class FooterContainer(Container):
             yield self.submit_btn
         yield StatusContainer()
 
+    def on_mount(self) -> None:
+        self._sync_submit_button_offset()
+
     def _sync_submit_button_offset(self) -> None:
         """Keep the submit button aligned with the bottom input line."""
         visible_lines = self.input_comp.visible_line_count
         self.submit_btn.styles.offset = (0, visible_lines - 1)
-
-    def on_mount(self) -> None:
-        self._sync_submit_button_offset()
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area is self.input_comp:

@@ -1,0 +1,74 @@
+"""
+Unit tests for the ProviderManager factory.
+"""
+
+from typing import Dict, Any
+
+from agent_cli.core.config import AgentSettings
+from agent_cli.providers.manager import ProviderManager
+from agent_cli.providers.openai_provider import OpenAIProvider
+from agent_cli.providers.anthropic_provider import AnthropicProvider
+from agent_cli.providers.google_provider import GoogleProvider
+from agent_cli.providers.openai_compat import OpenAICompatibleProvider
+
+
+def test_manager_infers_known_model_prefixes():
+    """Verify inference for standard models (gpt, claude, gemini)."""
+    settings = AgentSettings(
+        openai_api_key="sk-test",
+        anthropic_api_key="sk-ant",
+        google_api_key="AIzaSy",
+    )
+    manager = ProviderManager(settings)
+
+    p1 = manager._infer_provider("gpt-4.5")
+    assert isinstance(p1, OpenAIProvider)
+    assert p1.provider_name == "openai"
+    assert p1.model_name == "gpt-4.5"
+
+    p2 = manager._infer_provider("claude-sonnet-4.6")
+    assert isinstance(p2, AnthropicProvider)
+    assert p2.provider_name == "anthropic"
+
+    p3 = manager._infer_provider("gemini-2.5-pro")
+    assert isinstance(p3, GoogleProvider)
+    assert p3.provider_name == "google"
+
+
+def test_manager_creates_from_config():
+    """Verify custom TOML configurations are respected."""
+    settings = AgentSettings()
+    # Mock the TOML config dictionary usually loaded via Pydantic
+    settings._config_data = {
+        "providers": {
+            "local_vllm": {
+                "adapter_type": "openai_compatible",
+                "base_url": "http://localhost:8000/v1",
+                "models": ["llama-3-8b-instruct", "mistral-large"],
+                "supports_native_tools": True,
+            }
+        }
+    }
+
+    manager = ProviderManager(settings)
+    
+    # "llama-3-8b-instruct" mapped to the custom local_vllm provider
+    provider = manager.get_provider("llama-3-8b-instruct")
+
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert provider.provider_name == "openai_compatible"
+    assert provider.model_name == "llama-3-8b-instruct"
+    assert provider.supports_native_tools is True
+    assert provider.client.base_url == "http://localhost:8000/v1/"
+
+
+def test_manager_caching_behavior():
+    """Verify that multiple requests for the same model return the same instance."""
+    settings = AgentSettings(openai_api_key="sk-test")
+    manager = ProviderManager(settings)
+
+    p1 = manager.get_provider("gpt-5")
+    p2 = manager.get_provider("gpt-5")
+    
+    # Should be the exact same object reference
+    assert p1 is p2

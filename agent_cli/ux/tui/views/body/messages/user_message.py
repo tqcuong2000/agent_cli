@@ -15,11 +15,11 @@ class UserMessageContainer(Container):
 
     UserMessageContainer .message_bubble {
         width: auto;
-        max-width: 80%;
-        background: $primary 30%;
-        border: wide $primary;
+        max-width: 90%;
+        background: $panel 80%;
+        border-left: inner $primary;
         color: $text;
-        padding: 1 2;
+        padding: 1 1;
     }
     
     UserMessageContainer .spacer {
