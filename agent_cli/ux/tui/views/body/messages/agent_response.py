@@ -6,6 +6,10 @@ from textual.containers import Container
 from textual.widget import Widget
 
 from agent_cli.ux.tui.views.body.messages.answer_block import AnswerBlock
+from agent_cli.ux.tui.views.body.messages.changed_file_detail_block import (
+    ChangedFileDetailBlock,
+    DiffLine,
+)
 from agent_cli.ux.tui.views.body.messages.thinking_block import ThinkingBlock
 from agent_cli.ux.tui.views.body.messages.tool_step import ToolStepWidget
 
@@ -43,6 +47,23 @@ class AgentResponseContainer(Container):
         self._mount_or_defer(answer)
         self._active_thinking = None
 
+    def set_changed_file_detail(
+        self,
+        *,
+        title: str,
+        summary: str = "",
+        diff_lines: list[DiffLine] | None = None,
+        file_path: str = "",
+    ) -> None:
+        detail = self._create_changed_file_detail_block(
+            title=title,
+            summary=summary,
+            diff_lines=diff_lines or [],
+            file_path=file_path,
+        )
+        self._mount_or_defer(detail)
+        self._active_thinking = None
+
     def get_active_thinking(self) -> Optional["ThinkingBlock"]:
         if self._active_thinking is None:
             return None
@@ -73,3 +94,22 @@ class AgentResponseContainer(Container):
         from agent_cli.ux.tui.views.body.messages.answer_block import AnswerBlock
 
         return AnswerBlock(content=content)
+
+    def _create_changed_file_detail_block(
+        self,
+        *,
+        title: str,
+        summary: str,
+        diff_lines: list[DiffLine],
+        file_path: str = "",
+    ) -> "ChangedFileDetailBlock":
+        from agent_cli.ux.tui.views.body.messages.changed_file_detail_block import (
+            ChangedFileDetailBlock,
+        )
+
+        return ChangedFileDetailBlock(
+            title=title,
+            summary=summary,
+            diff_lines=diff_lines,
+            file_path=file_path,
+        )

@@ -32,7 +32,7 @@ class BodyContainer(Container):
     def compose(self):
         with Horizontal():
             yield TextWindowContainer(app_context=self._app_context)
-            yield PanelWindowContainer()
+            yield PanelWindowContainer(app_context=self._app_context)
 
     def on_resize(self, event: events.Resize) -> None:
         try:

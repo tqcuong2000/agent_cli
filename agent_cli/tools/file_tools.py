@@ -1,5 +1,5 @@
 """
-File Tools — core tools for reading, writing, listing, and searching files.
+File Tools — core tools for reading, writing, editing, listing, and searching files.
 
 These are the fundamental file-system tools that every agent needs.
 All paths are resolved and jailed via ``WorkspaceContext`` to prevent
@@ -8,6 +8,7 @@ escapes outside the project root.
 
 from __future__ import annotations
 
+import difflib
 import fnmatch
 import os
 from pathlib import Path
@@ -19,7 +20,6 @@ from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.tools.workspace import WorkspaceContext
 
-
 # ══════════════════════════════════════════════════════════════════════
 # ReadFile
 # ══════════════════════════════════════════════════════════════════════
@@ -28,7 +28,9 @@ from agent_cli.tools.workspace import WorkspaceContext
 class ReadFileArgs(BaseModel):
     """Arguments for the ``read_file`` tool."""
 
-    path: str = Field(description="Path to the file to read (relative to workspace root).")
+    path: str = Field(
+        description="Path to the file to read (relative to workspace root)."
+    )
     start_line: Optional[int] = Field(
         default=None,
         description="Starting line number (1-indexed, inclusive).",
@@ -57,13 +59,11 @@ class ReadFileTool(BaseTool):
     def args_schema(self) -> Type[BaseModel]:
         return ReadFileArgs
 
-    async def execute(
-        self,
-        path: str,
-        start_line: Optional[int] = None,
-        end_line: Optional[int] = None,
-        **kwargs: Any,
-    ) -> str:
+    async def execute(self, **kwargs: Any) -> str:
+        path = str(kwargs.get("path", ""))
+        start_line = kwargs.get("start_line")
+        end_line = kwargs.get("end_line")
+
         resolved = self.workspace.resolve_path(path, must_exist=True)
 
         if resolved.is_dir():
@@ -90,8 +90,7 @@ class ReadFileTool(BaseTool):
 
             content = "\n".join(lines[start:end])
             content = (
-                f"Showing lines {start + 1}-{end} of {total} total lines:\n"
-                f"{content}"
+                f"Showing lines {start + 1}-{end} of {total} total lines:\n{content}"
             )
 
         return content
@@ -105,7 +104,9 @@ class ReadFileTool(BaseTool):
 class WriteFileArgs(BaseModel):
     """Arguments for the ``write_file`` tool."""
 
-    path: str = Field(description="Path to write the file (relative to workspace root).")
+    path: str = Field(
+        description="Path to write the file (relative to workspace root)."
+    )
     content: str = Field(description="The full content to write to the file.")
     create_dirs: bool = Field(
         default=True,
@@ -131,13 +132,11 @@ class WriteFileTool(BaseTool):
     def args_schema(self) -> Type[BaseModel]:
         return WriteFileArgs
 
-    async def execute(
-        self,
-        path: str,
-        content: str,
-        create_dirs: bool = True,
-        **kwargs: Any,
-    ) -> str:
+    async def execute(self, **kwargs: Any) -> str:
+        path = str(kwargs.get("path", ""))
+        content = str(kwargs.get("content", ""))
+        create_dirs = bool(kwargs.get("create_dirs", True))
+
         resolved = self.workspace.resolve_path(path, writable=True)
 
         if create_dirs:
@@ -148,6 +147,245 @@ class WriteFileTool(BaseTool):
         lines = content.count("\n") + 1
         size = len(content.encode("utf-8"))
         return f"Successfully wrote {lines} lines ({size:,} bytes) to {path}"
+
+
+# ══════════════ Edit (surgical, preferred over WriteFile) ══════════════
+
+
+def _line_numbers_for_exact_match(content: str, needle: str) -> list[int]:
+    """Return 1-indexed start line numbers where ``needle`` appears exactly."""
+    if not needle:
+        return []
+
+    starts: list[int] = []
+    idx = 0
+    while True:
+        pos = content.find(needle, idx)
+        if pos == -1:
+            break
+        starts.append(content.count("\n", 0, pos) + 1)
+        idx = pos + 1
+    return starts
+
+
+def _line_number_for_case_insensitive_line_hint(
+    content: str, old_str: str
+) -> int | None:
+    """Return first line number where old_str's first line appears (case-insensitive)."""
+    first_line = old_str.splitlines()[0].strip() if old_str else ""
+    if not first_line:
+        return None
+
+    target = first_line.lower()
+    for i, line in enumerate(content.splitlines(), start=1):
+        if target in line.lower():
+            return i
+    return None
+
+
+def _compact_unified_diff(
+    before: str,
+    after: str,
+    *,
+    fromfile: str,
+    tofile: str,
+    context_lines: int = 2,
+    max_lines: int = 60,
+) -> str:
+    """Build unified diff and cap output length."""
+    diff_lines = list(
+        difflib.unified_diff(
+            before.splitlines(),
+            after.splitlines(),
+            fromfile=fromfile,
+            tofile=tofile,
+            lineterm="",
+            n=context_lines,
+        )
+    )
+    if len(diff_lines) <= max_lines:
+        return "\n".join(diff_lines)
+
+    head = diff_lines[:max_lines]
+    remaining = len(diff_lines) - max_lines
+    head.append(f"... [diff truncated: {remaining} more line(s)]")
+    return "\n".join(head)
+
+
+class StrReplaceArgs(BaseModel):
+    """Arguments for ``str_replace``."""
+
+    path: str = Field(description="File path relative to workspace root.")
+    old_str: str = Field(
+        description="Exact string to replace (must match exactly once)."
+    )
+    new_str: str = Field(default="", description="Replacement string.")
+
+
+class StrReplaceTool(BaseTool):
+    """Replace exactly one occurrence of a string in a file and return a diff."""
+
+    name = "str_replace"
+    description = (
+        "Replace exactly one occurrence of old_str with new_str in a text file. "
+        "Fails if zero or multiple matches are found. Returns a unified diff."
+    )
+    is_safe = False
+    category = ToolCategory.FILE
+
+    def __init__(self, workspace: WorkspaceContext) -> None:
+        self.workspace = workspace
+
+    @property
+    def args_schema(self) -> Type[BaseModel]:
+        return StrReplaceArgs
+
+    async def execute(self, **kwargs: Any) -> str:
+        path = str(kwargs.get("path", ""))
+        old_str = str(kwargs.get("old_str", ""))
+        new_str = str(kwargs.get("new_str", ""))
+
+        if not path:
+            raise ToolExecutionError("path is required.", tool_name=self.name)
+        if old_str == "":
+            raise ToolExecutionError("old_str must not be empty.", tool_name=self.name)
+
+        resolved = self.workspace.resolve_path(path, must_exist=True, writable=True)
+
+        if resolved.is_dir():
+            raise ToolExecutionError(
+                f"'{path}' is a directory, not a file.",
+                tool_name=self.name,
+            )
+
+        try:
+            content = resolved.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            raise ToolExecutionError(
+                f"Cannot edit '{path}': file appears to be binary.",
+                tool_name=self.name,
+            )
+
+        matches = _line_numbers_for_exact_match(content, old_str)
+        count = len(matches)
+
+        if count == 0:
+            hint_line = _line_number_for_case_insensitive_line_hint(content, old_str)
+            hint = (
+                f" Near match hint: first line of old_str appears around line {hint_line} (case-insensitive)."
+                if hint_line is not None
+                else " No near-match hint found."
+            )
+            raise ToolExecutionError(
+                f"str_replace found 0 matches in '{path}'.{hint}",
+                tool_name=self.name,
+            )
+
+        if count > 1:
+            lines_preview = ", ".join(str(n) for n in matches[:20])
+            more = f" (+{count - 20} more)" if count > 20 else ""
+            raise ToolExecutionError(
+                "str_replace found multiple matches "
+                f"({count}) in '{path}' at line(s): {lines_preview}{more}. "
+                "Add more unique context to old_str so only one location matches.",
+                tool_name=self.name,
+            )
+
+        updated = content.replace(old_str, new_str, 1)
+        resolved.write_text(updated, encoding="utf-8")
+
+        diff = _compact_unified_diff(
+            content,
+            updated,
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+            context_lines=2,
+            max_lines=60,
+        )
+
+        if not diff.strip():
+            return f"Applied replacement in {path}, but no textual diff was produced."
+        return diff
+
+
+class InsertLinesArgs(BaseModel):
+    """Arguments for ``insert_lines``."""
+
+    path: str = Field(description="File path relative to workspace root.")
+    insert_after_line: int = Field(
+        description="Insert content after this line number. Use 0 to insert at file start."
+    )
+    content: str = Field(description="Text content to insert.")
+
+
+class InsertLinesTool(BaseTool):
+    """Insert content after a specified line and return insertion summary."""
+
+    name = "insert_lines"
+    description = (
+        "Insert content into a file after the specified line number "
+        "(use 0 to insert at the top)."
+    )
+    is_safe = False
+    category = ToolCategory.FILE
+
+    def __init__(self, workspace: WorkspaceContext) -> None:
+        self.workspace = workspace
+
+    @property
+    def args_schema(self) -> Type[BaseModel]:
+        return InsertLinesArgs
+
+    async def execute(self, **kwargs: Any) -> str:
+        path = str(kwargs.get("path", ""))
+        insert_after_line = int(kwargs.get("insert_after_line", 0))
+        insertion_content = str(kwargs.get("content", ""))
+
+        if not path:
+            raise ToolExecutionError("path is required.", tool_name=self.name)
+
+        resolved = self.workspace.resolve_path(path, must_exist=True, writable=True)
+
+        if resolved.is_dir():
+            raise ToolExecutionError(
+                f"'{path}' is a directory, not a file.",
+                tool_name=self.name,
+            )
+
+        try:
+            original = resolved.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            raise ToolExecutionError(
+                f"Cannot edit '{path}': file appears to be binary.",
+                tool_name=self.name,
+            )
+
+        lines = original.splitlines(keepends=True)
+        total_lines = len(lines)
+
+        if insert_after_line < 0 or insert_after_line > total_lines:
+            raise ToolExecutionError(
+                f"insert_after_line out of range for '{path}': got {insert_after_line}, "
+                f"expected 0..{total_lines}.",
+                tool_name=self.name,
+            )
+
+        if insertion_content and not insertion_content.endswith("\n"):
+            insertion_content += "\n"
+
+        insertion_lines = insertion_content.splitlines(keepends=True)
+        new_lines = (
+            lines[:insert_after_line] + insertion_lines + lines[insert_after_line:]
+        )
+        updated = "".join(new_lines)
+        resolved.write_text(updated, encoding="utf-8")
+
+        inserted_count = len(insertion_lines)
+        new_total = len(updated.splitlines())
+        return (
+            f"Inserted {inserted_count} line(s) into {path} after line {insert_after_line}. "
+            f"New total: {new_total} line(s)."
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -186,12 +424,10 @@ class ListDirectoryTool(BaseTool):
     def args_schema(self) -> Type[BaseModel]:
         return ListDirectoryArgs
 
-    async def execute(
-        self,
-        path: str = ".",
-        max_depth: int = 2,
-        **kwargs: Any,
-    ) -> str:
+    async def execute(self, **kwargs: Any) -> str:
+        path = str(kwargs.get("path", "."))
+        max_depth = int(kwargs.get("max_depth", 2))
+
         resolved = self.workspace.resolve_path(path, must_exist=True)
 
         if not resolved.is_dir():
@@ -240,11 +476,12 @@ class ListDirectoryTool(BaseTool):
     @staticmethod
     def _format_size(size_bytes: int) -> str:
         """Format file size in human-readable form."""
+        size = float(size_bytes)
         for unit in ("B", "KB", "MB", "GB"):
-            if size_bytes < 1024:
-                return f"{size_bytes:.0f}{unit}" if unit == "B" else f"{size_bytes:.1f}{unit}"
-            size_bytes /= 1024
-        return f"{size_bytes:.1f}TB"
+            if size < 1024:
+                return f"{size:.0f}{unit}" if unit == "B" else f"{size:.1f}{unit}"
+            size /= 1024
+        return f"{size:.1f}TB"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -289,14 +526,12 @@ class SearchFilesTool(BaseTool):
     def args_schema(self) -> Type[BaseModel]:
         return SearchFilesArgs
 
-    async def execute(
-        self,
-        pattern: str,
-        path: str = ".",
-        file_pattern: str = "*",
-        max_results: int = 50,
-        **kwargs: Any,
-    ) -> str:
+    async def execute(self, **kwargs: Any) -> str:
+        pattern = str(kwargs.get("pattern", ""))
+        path = str(kwargs.get("path", "."))
+        file_pattern = str(kwargs.get("file_pattern", "*"))
+        max_results = int(kwargs.get("max_results", 50))
+
         resolved = self.workspace.resolve_path(path, must_exist=True)
 
         if not resolved.is_dir():
@@ -312,8 +547,7 @@ class SearchFilesTool(BaseTool):
             # Skip hidden directories and common noise
             root_path = Path(root)
             if any(
-                part.startswith(".")
-                or part in ("__pycache__", "node_modules", ".git")
+                part.startswith(".") or part in ("__pycache__", "node_modules", ".git")
                 for part in root_path.parts
             ):
                 continue

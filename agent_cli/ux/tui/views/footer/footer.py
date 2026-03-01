@@ -8,6 +8,8 @@ from agent_cli.core.events.events import (
     AgentQuestionRequestEvent,
     AgentQuestionResponseEvent,
     BaseEvent,
+    ChangedFileReviewActionEvent,
+    ChangedFileSelectedEvent,
     UserApprovalRequestEvent,
     UserApprovalResponseEvent,
     UserRequestEvent,
@@ -60,6 +62,8 @@ class FooterContainer(Container):
         self.submit_btn = SubmitButtonComponent()
         self.user_interaction = UserInteraction()
         self._subscriptions: list[str] = []
+        self._selected_changed_file_path: str = ""
+        self._selected_changed_file_change_type: str = ""
 
     def compose(self) -> ComposeResult:
         yield self.user_interaction
@@ -85,6 +89,13 @@ class FooterContainer(Container):
             app_context.event_bus.subscribe(
                 "AgentQuestionRequestEvent",
                 self._on_agent_question_request,
+                priority=50,
+            )
+        )
+        self._subscriptions.append(
+            app_context.event_bus.subscribe(
+                "ChangedFileSelectedEvent",
+                self._on_changed_file_selected,
                 priority=50,
             )
         )
@@ -132,6 +143,20 @@ class FooterContainer(Container):
             options=event.options,
         )
 
+    async def _on_changed_file_selected(self, event: BaseEvent) -> None:
+        if not isinstance(event, ChangedFileSelectedEvent):
+            return
+
+        self._selected_changed_file_path = event.file_path
+        self._selected_changed_file_change_type = event.change_type
+
+        self._hide_question_hint()
+        self.user_interaction.show_review(
+            task_id=event.task_id,
+            file_path=event.file_path,
+            change_type=event.change_type,
+        )
+
     async def on_user_interaction_action_selected(
         self, event: UserInteraction.ActionSelected
     ) -> None:
@@ -141,6 +166,25 @@ class FooterContainer(Container):
 
         app_context = getattr(self.app, "app_context", None)
         if app_context is None:
+            return
+
+        if event.action in {"review_accept", "review_reject"}:
+            file_path = self._selected_changed_file_path.strip()
+            if not file_path:
+                return
+
+            action = "accept" if event.action == "review_accept" else "reject"
+            await app_context.event_bus.emit(
+                ChangedFileReviewActionEvent(
+                    source="tui",
+                    task_id=event.task_id,
+                    file_path=file_path,
+                    action=action,
+                )
+            )
+            self._selected_changed_file_path = ""
+            self._selected_changed_file_change_type = ""
+            self.user_interaction.hide_panel()
             return
 
         approved = event.action == "approve"

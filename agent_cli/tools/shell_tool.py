@@ -21,7 +21,6 @@ from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.tools.workspace import WorkspaceContext
 
-
 # ══════════════════════════════════════════════════════════════════════
 # Safe Command Patterns
 # ══════════════════════════════════════════════════════════════════════
@@ -94,13 +93,10 @@ class RunCommandTool(BaseTool):
     def args_schema(self) -> Type[BaseModel]:
         return RunCommandArgs
 
-    async def execute(
-        self,
-        command: str,
-        timeout: int = 30,
-        **kwargs: Any,
-    ) -> str:
-        timeout = min(max(timeout, 1), 120)  # Clamp to [1, 120]
+    async def execute(self, **kwargs: Any) -> str:
+        command = kwargs.get("command", "")
+        timeout = kwargs.get("timeout", 30)
+        timeout = min(max(int(timeout), 1), 120)  # Clamp to [1, 120]
 
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -110,9 +106,7 @@ class RunCommandTool(BaseTool):
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()

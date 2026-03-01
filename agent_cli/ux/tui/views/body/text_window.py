@@ -10,6 +10,9 @@ from textual.css.query import NoMatches
 from agent_cli.core.events.events import (
     AgentMessageEvent,
     BaseEvent,
+    ChangedFileDetailEvent,
+    ChangedFileDiffLine,
+    ChangedFileReviewActionEvent,
     SystemErrorEvent,
     TaskErrorEvent,
     TaskResultEvent,
@@ -18,6 +21,7 @@ from agent_cli.core.events.events import (
     UserRequestEvent,
 )
 from agent_cli.ux.tui.views.body.messages.agent_response import AgentResponseContainer
+from agent_cli.ux.tui.views.body.messages.changed_file_detail_block import DiffLine
 from agent_cli.ux.tui.views.body.messages.tool_step import ToolStepWidget
 from agent_cli.ux.tui.views.body.messages.user_message import UserMessageContainer
 from agent_cli.ux.tui.views.common.error_popup import ErrorPopup
@@ -97,6 +101,20 @@ class TextWindowContainer(Container):
         self._subscriptions.append(
             bus.subscribe("SystemErrorEvent", self._on_system_error, priority=50)
         )
+        self._subscriptions.append(
+            bus.subscribe(
+                "ChangedFileDetailEvent",
+                self._on_changed_file_detail,
+                priority=50,
+            )
+        )
+        self._subscriptions.append(
+            bus.subscribe(
+                "ChangedFileReviewActionEvent",
+                self._on_changed_file_review_action,
+                priority=50,
+            )
+        )
 
     def on_unmount(self) -> None:
         if self._app_context is None:
@@ -109,8 +127,10 @@ class TextWindowContainer(Container):
     async def _on_user_request(self, event: BaseEvent) -> None:
         if not isinstance(event, UserRequestEvent):
             return
-        # User message is mounted synchronously by the footer via
-        # add_user_message() BEFORE this event fires — nothing to do here.
+        # User message is usually mounted synchronously by the footer via
+        # add_user_message() BEFORE this event fires, but we still trigger
+        # a scroll refresh here to ensure visual consistency across all events.
+        self.call_after_refresh(self._scroll_to_end)
 
     async def _on_agent_message(self, event: BaseEvent) -> None:
         if not isinstance(event, AgentMessageEvent):
@@ -207,6 +227,58 @@ class TextWindowContainer(Container):
             message=message,
             error_type="error",
         )
+
+    async def _on_changed_file_detail(self, event: BaseEvent) -> None:
+        if not isinstance(event, ChangedFileDetailEvent):
+            return
+
+        response = self._ensure_current_response()
+        active_thinking = response.get_active_thinking()
+        if active_thinking is not None:
+            active_thinking.finish_streaming()
+
+        diff_lines = [
+            DiffLine(kind=line.kind, text=line.text)
+            for line in event.diff_lines
+            if isinstance(line, ChangedFileDiffLine)
+        ]
+
+        title = event.title
+        if not title:
+            file_name = event.file_path.rsplit("/", 1)[-1] if event.file_path else ""
+            label = (event.change_type or "changed").lower()
+            title = f"{file_name} ({label})" if file_name else f"({label})"
+
+        summary = event.summary
+        if not summary and not diff_lines:
+            summary = "Preview unavailable."
+
+        response.set_changed_file_detail(
+            title=title,
+            summary=summary,
+            diff_lines=diff_lines,
+            file_path=event.file_path,
+        )
+        self.call_after_refresh(self._scroll_to_end)
+
+    async def _on_changed_file_review_action(self, event: BaseEvent) -> None:
+        if not isinstance(event, ChangedFileReviewActionEvent):
+            return
+
+        target_path = (event.file_path or "").strip()
+        if not target_path:
+            return
+
+        from agent_cli.ux.tui.views.body.messages.changed_file_detail_block import (
+            ChangedFileDetailBlock,
+        )
+
+        for detail in list(self.query(ChangedFileDetailBlock)):
+            detail_path = getattr(detail, "file_path", "")
+            if detail_path == target_path:
+                detail.remove()
+
+        self.call_after_refresh(self._scroll_to_end)
 
     def _ensure_current_response(self) -> AgentResponseContainer:
         if self._current_arc is None:

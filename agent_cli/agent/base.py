@@ -19,11 +19,10 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 from agent_cli.agent.memory import BaseMemoryManager
-from agent_cli.agent.parsers import AgentResponse, ParsedAction
+from agent_cli.agent.parsers import AgentResponse
 from agent_cli.agent.react_loop import PromptBuilder, StuckDetector
 from agent_cli.agent.schema import BaseSchemaValidator
 from agent_cli.core.error_handler.errors import (
@@ -39,12 +38,13 @@ from agent_cli.core.events.events import (
     AgentMessageEvent,
     BaseEvent,
     SettingsChangedEvent,
-    TaskDelegatedEvent,
-    TaskResultEvent,
 )
 from agent_cli.core.models.config_models import EffortLevel
 from agent_cli.core.state.state_manager import AbstractStateManager
 from agent_cli.tools.executor import ToolExecutor
+
+if TYPE_CHECKING:
+    from agent_cli.core.events.event_bus import EventCallback
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,9 @@ class AgentConfig:
     description: str = ""
     persona: str = ""
     model: str = ""
-    effort_level: Optional[EffortLevel] = None  # None = follow global default_effort_level
+    effort_level: Optional[EffortLevel] = (
+        None  # None = follow global default_effort_level
+    )
     tools: List[str] = field(default_factory=list)
     max_iterations_override: Optional[int] = None
     show_thinking: bool = True
@@ -135,24 +137,30 @@ class BaseAgent(ABC):
         self.event_bus = event_bus
         self.state_manager = state_manager
         self.prompt_builder = prompt_builder
-        
+
         # Reactive effort caching
         self._effort_constraints: Dict[str, Any] = {}
         self._last_resolved_effort: Optional[EffortLevel] = None
-        
+
         # In tests this might be None, so fallback gracefully
         if settings is None:
             from agent_cli.core.config import AgentSettings
+
             self.settings = AgentSettings()
         else:
             self.settings = settings
 
         # Subscribe to settings changes
         if self.event_bus:
-            self.event_bus.subscribe(SettingsChangedEvent, self._on_settings_changed)
-            
-    async def _on_settings_changed(self, event: SettingsChangedEvent) -> None:
+            self.event_bus.subscribe(
+                "SettingsChangedEvent",
+                cast("EventCallback", self._on_settings_changed),
+            )
+
+    async def _on_settings_changed(self, event: BaseEvent) -> None:
         """Reactive hook for settings updates."""
+        if not isinstance(event, SettingsChangedEvent):
+            return
         if event.setting_name == "default_effort_level":
             # Invalidate cache
             self._last_resolved_effort = None
@@ -231,16 +239,16 @@ class BaseAgent(ABC):
         """
         # ── Resolve effort level ─────────────────────────────────
         effort = effort_override or self.effort
-        
+
         # Reactive cache check
         if effort != self._last_resolved_effort or not self._effort_constraints:
             self._effort_constraints = self.settings.get_effort_config(effort)
             self._last_resolved_effort = effort
-            
+
         constraints = self._effort_constraints
-        
-        max_iterations = (
-            self.config.max_iterations_override or constraints.get("max_iterations", 15)
+
+        max_iterations = self.config.max_iterations_override or constraints.get(
+            "max_iterations", 15
         )
 
         # ── Build system prompt ──────────────────────────────────

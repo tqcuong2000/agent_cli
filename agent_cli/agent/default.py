@@ -6,8 +6,6 @@ and performs standard tasks utilizing the available tools.
 
 from __future__ import annotations
 
-from typing import Any
-
 from agent_cli.agent.base import BaseAgent
 
 

@@ -19,16 +19,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.events.events import (
+    BaseEvent,
     ToolExecutionResultEvent,
     ToolExecutionStartEvent,
     UserApprovalRequestEvent,
     UserApprovalResponseEvent,
 )
+from agent_cli.core.file_tracker import ChangeType, FileChangeTracker
 from agent_cli.core.interaction import (
     InteractionType,
     UserInteractionRequest,
@@ -38,6 +40,7 @@ from agent_cli.tools.registry import ToolRegistry
 from agent_cli.tools.shell_tool import is_safe_command
 
 if TYPE_CHECKING:
+    from agent_cli.core.events.event_bus import EventCallback
     from agent_cli.core.interaction import BaseInteractionHandler
 
 logger = logging.getLogger(__name__)
@@ -71,19 +74,21 @@ class ToolExecutor:
         *,
         auto_approve: bool = False,
         interaction_handler: Optional["BaseInteractionHandler"] = None,
+        file_tracker: Optional[FileChangeTracker] = None,
     ) -> None:
         self.registry = registry
         self.event_bus = event_bus
         self.output_formatter = output_formatter
         self._auto_approve = auto_approve
         self._interaction_handler = interaction_handler
+        self._file_tracker = file_tracker
 
         # Approval response handling (Phase 4 HITL will improve this)
         self._pending_approvals: Dict[str, asyncio.Event] = {}
         self._approval_results: Dict[str, bool] = {}
         self.event_bus.subscribe(
             "UserApprovalResponseEvent",
-            self._on_approval_response,
+            cast("EventCallback", self._on_approval_response),
         )
 
     # ── Public API ───────────────────────────────────────────────
@@ -165,6 +170,53 @@ class ToolExecutor:
             if tool.name == "ask_user":
                 execution_args["_interaction_handler"] = self._interaction_handler
                 execution_args["_task_id"] = task_id
+
+            # ── 3.3 Record Changes Before Execution (Phase 4.4) ──────
+            if self._file_tracker:
+                if tool_name == "write_file":
+                    path = arguments.get("path")
+                    if path:
+                        from pathlib import Path
+
+                        full_path = path
+                        if self._file_tracker.workspace_root:
+                            full_path = self._file_tracker.workspace_root / path
+
+                        # Detect if it's a MODIFIED or CREATED change
+                        change_type = (
+                            ChangeType.MODIFIED
+                            if Path(full_path).exists()
+                            else ChangeType.CREATED
+                        )
+                        await self._file_tracker.record_change(path, change_type)
+                elif tool_name in ("str_replace", "insert_lines"):
+                    path = arguments.get("path")
+                    if path:
+                        await self._file_tracker.record_change(
+                            path, ChangeType.MODIFIED
+                        )
+                elif tool_name == "run_command":
+                    cmd = arguments.get("command", "")
+                    if cmd:
+                        import shlex
+
+                        try:
+                            # Use shlex to parse the command (posix=False for Windows compatibility might be needed but posix=True is safer for standard parsing)
+                            parts = shlex.split(cmd)
+                            if parts and parts[0] in ("rm", "del"):
+                                # Extract files after rm/del, skipping flags like -rf
+                                files_to_delete = [
+                                    p for p in parts[1:] if not p.startswith("-")
+                                ]
+                                for file_path in files_to_delete:
+                                    # Try to determine if it's actually a file, though it might be a dir
+                                    # File change tracker doesn't recursively track directories right now, but we track the path.
+                                    await self._file_tracker.record_change(
+                                        file_path, ChangeType.DELETED
+                                    )
+                        except Exception:
+                            pass  # Safely ignore parsing errors
+
             raw_result = await tool.execute(**execution_args)
 
         except ToolExecutionError as e:
@@ -278,8 +330,11 @@ class ToolExecutor:
 
         return self._approval_results.pop(approval_key, False)
 
-    async def _on_approval_response(self, event: UserApprovalResponseEvent) -> None:
+    async def _on_approval_response(self, event: "BaseEvent") -> None:
         """Handle incoming approval responses from the TUI."""
+        if not isinstance(event, UserApprovalResponseEvent):
+            return
+
         # Find the matching pending approval
         for key, wait_event in self._pending_approvals.items():
             if key.startswith(f"{event.task_id}:"):

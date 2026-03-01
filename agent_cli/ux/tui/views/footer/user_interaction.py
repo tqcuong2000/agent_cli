@@ -163,6 +163,33 @@ class UserInteraction(Container):
         border: round $success;
     }
 
+    /* Changed-file review row (single-line compact) */
+    UserInteraction #ui_review_row {
+        width: 100%;
+        height: 1;
+        align: left middle;
+    }
+
+    UserInteraction #ui_review_title {
+        color: $warning;
+        width: auto;
+        height: 1;
+    }
+
+    UserInteraction #ui_review_message {
+        width: 1fr;
+        height: 1;
+        color: $text;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    UserInteraction #ui_review_actions {
+        width: auto;
+        align: right middle;
+        margin-left: 1;
+    }
+
     """
 
     class ActionSelected(Message):
@@ -200,7 +227,7 @@ class UserInteraction(Container):
             kwargs["id"] = "user_interaction"
         super().__init__(**kwargs)
         self._task_id = ""
-        self._mode = "none"  # "none" | "approval" | "question"
+        self._mode = "none"  # "none" | "approval" | "question" | "review"
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="ui_approval_row"):
@@ -220,6 +247,21 @@ class UserInteraction(Container):
                 yield Static("", id="ui_question_text")
             with Vertical(id="ui_question_options"):
                 pass
+
+        with Horizontal(id="ui_review_row"):
+            yield Static("Review Change: ", id="ui_review_title")
+            yield Static("", id="ui_review_message")
+            with Horizontal(id="ui_review_actions"):
+                yield ActionChip(
+                    "Reject",
+                    action="review_reject",
+                    classes="ui_action_deny",
+                )
+                yield ActionChip(
+                    "Accept",
+                    action="review_accept",
+                    classes="ui_action_approve",
+                )
 
     def on_mount(self) -> None:
         self.hide_panel()
@@ -274,6 +316,28 @@ class UserInteraction(Container):
         self._set_mode_classes()
         self.remove_class("-hidden")
 
+    def show_review(
+        self,
+        *,
+        task_id: str,
+        file_path: str,
+        change_type: str = "",
+    ) -> None:
+        """Show changed-file review actions (accept/reject)."""
+        self._task_id = task_id
+        self._mode = "review"
+
+        label = {
+            "created": "Created",
+            "modified": "Modified",
+            "deleted": "Deleted",
+        }.get((change_type or "").strip().lower(), "Changed")
+        self.query_one("#ui_review_title", Static).update("Review Change: ")
+        self.query_one("#ui_review_message", Static).update(f"{label} — {file_path}")
+
+        self._set_mode_classes()
+        self.remove_class("-hidden")
+
     def hide_panel(self) -> None:
         self._task_id = ""
         self._mode = "none"
@@ -312,6 +376,17 @@ class UserInteraction(Container):
             )
             return
 
+        if event.action in {"review_accept", "review_reject"}:
+            action = "accept" if event.action == "review_accept" else "reject"
+            self.post_message(
+                self.ActionSelected(
+                    self,
+                    task_id=self._task_id,
+                    action=f"review_{action}",
+                )
+            )
+            return
+
         self.post_message(
             self.ActionSelected(
                 self,
@@ -323,12 +398,15 @@ class UserInteraction(Container):
     def _set_mode_classes(self) -> None:
         approval = self.query_one("#ui_approval_row", Horizontal)
         question = self.query_one("#ui_question_panel", Vertical)
+        review = self.query_one("#ui_review_row", Horizontal)
 
         show_approval = self._mode == "approval"
         show_question = self._mode == "question"
+        show_review = self._mode == "review"
 
         approval.set_class(not show_approval, "-hidden")
         question.set_class(not show_question, "-hidden")
+        review.set_class(not show_review, "-hidden")
 
     def _format_args(self, args: dict) -> str:
         parts = [f"{k}={v!r}" for k, v in args.items()]

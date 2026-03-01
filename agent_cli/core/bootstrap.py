@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 # Phase 3 imports
 from agent_cli.agent.memory import BaseMemoryManager, WorkingMemoryManager
@@ -28,8 +28,9 @@ from agent_cli.agent.schema import BaseSchemaValidator, SchemaValidator
 # Phase 4.2 imports
 from agent_cli.commands.base import CommandContext, CommandRegistry
 from agent_cli.commands.parser import CommandParser
-from agent_cli.core.config import AgentSettings, load_providers
+from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
+from agent_cli.core.file_tracker import FileChangeTracker
 from agent_cli.core.orchestrator import Orchestrator
 from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
 from agent_cli.providers.manager import ProviderManager
@@ -39,6 +40,7 @@ from agent_cli.tools.registry import ToolRegistry
 from agent_cli.tools.workspace import WorkspaceContext
 
 if TYPE_CHECKING:
+    from agent_cli.agent.base import BaseAgent
     from agent_cli.core.interaction import BaseInteractionHandler
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,7 @@ class AppContext:
     command_registry: Optional[CommandRegistry] = None
     command_parser: Optional[CommandParser] = None
     interaction_handler: Optional["BaseInteractionHandler"] = None
+    file_tracker: Optional[FileChangeTracker] = None
 
     # ── Lifecycle State ──────────────────────────────────────────
     _started: bool = field(default=False, repr=False)
@@ -130,7 +133,11 @@ class AppContext:
         if self.interaction_handler is not None and hasattr(
             self.interaction_handler, "shutdown"
         ):
-            await self.interaction_handler.shutdown()
+            shutdown = getattr(self.interaction_handler, "shutdown")
+            if callable(shutdown):
+                from typing import Awaitable, Callable, cast
+
+                await cast(Callable[[], Awaitable[None]], shutdown)()
 
         # Future phases will shut down more components here:
         # - Persist session
@@ -181,6 +188,11 @@ def create_app(
     # 5. Tool System
     workspace_root = Path(root_folder) if root_folder else Path.cwd()
     workspace = WorkspaceContext(root_path=workspace_root)
+
+    # 5.5 File Tracker (Phase 4.4)
+    file_tracker = FileChangeTracker(event_bus=event_bus)
+    file_tracker.start_tracking(workspace_root)
+
     tool_registry = _build_tool_registry(workspace)
     output_formatter = ToolOutputFormatter(
         max_output_length=settings.tool_output_max_chars,
@@ -190,6 +202,7 @@ def create_app(
         event_bus=event_bus,
         output_formatter=output_formatter,
         auto_approve=settings.auto_approve_tools,
+        file_tracker=file_tracker,
     )
 
     # 6. Schema Validator
@@ -230,6 +243,7 @@ def create_app(
         command_registry=cmd_registry,
         command_parser=cmd_parser,
         interaction_handler=None,
+        file_tracker=file_tracker,
     )
 
     # Wire up the back-reference so commands can access providers and orchestrator
@@ -292,9 +306,11 @@ def _build_tool_registry(workspace: WorkspaceContext) -> ToolRegistry:
     """Create and populate the tool registry with all built-in tools."""
     from agent_cli.tools.ask_user_tool import AskUserTool
     from agent_cli.tools.file_tools import (
+        InsertLinesTool,
         ListDirectoryTool,
         ReadFileTool,
         SearchFilesTool,
+        StrReplaceTool,
         WriteFileTool,
     )
     from agent_cli.tools.shell_tool import RunCommandTool
@@ -305,6 +321,8 @@ def _build_tool_registry(workspace: WorkspaceContext) -> ToolRegistry:
     registry.register(WriteFileTool(workspace))
     registry.register(ListDirectoryTool(workspace))
     registry.register(SearchFilesTool(workspace))
+    registry.register(StrReplaceTool(workspace))
+    registry.register(InsertLinesTool(workspace))
     registry.register(RunCommandTool(workspace))
     registry.register(AskUserTool())
 

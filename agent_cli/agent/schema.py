@@ -159,9 +159,9 @@ class SchemaValidator(BaseSchemaValidator):
 
         raw_title = title_match.group(1).strip()
         title_words = [w for w in raw_title.split() if w]
-        if not 1 <= len(title_words) <= 15:
+        if not 2 <= len(title_words) <= 15:
             raise SchemaValidationError(
-                "Invalid <title> length. Title must be 1  to 15 words.",
+                "Invalid <title> length. Title must be 2 to 15 words.",
                 raw_response=text,
             )
 

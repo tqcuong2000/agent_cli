@@ -8,7 +8,7 @@ detect repetitive tool-call loops and assemble dynamic system prompts.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from agent_cli.tools.registry import ToolRegistry
 

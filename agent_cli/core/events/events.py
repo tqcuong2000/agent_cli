@@ -253,6 +253,45 @@ class ChangesResetEvent(BaseEvent):
     task_id: str = ""
 
 
+@dataclass
+class ChangedFileSelectedEvent(BaseEvent):
+    """Published when the user selects a changed file from the panel."""
+
+    task_id: str = ""
+    file_path: str = ""
+    change_type: str = ""  # "created" | "modified" | "deleted"
+
+
+@dataclass
+class ChangedFileDiffLine:
+    """Single diff line for changed-file detail rendering."""
+
+    kind: str = ""  # "added" | "removed" | "context"
+    text: str = ""
+
+
+@dataclass
+class ChangedFileDetailEvent(BaseEvent):
+    """Published when changed-file detail is ready for chat-window rendering."""
+
+    task_id: str = ""
+    file_path: str = ""
+    change_type: str = ""  # "created" | "modified" | "deleted"
+    detail_markdown: str = ""
+    title: str = ""
+    summary: str = ""
+    diff_lines: List[ChangedFileDiffLine] = field(default_factory=list)
+
+
+@dataclass
+class ChangedFileReviewActionEvent(BaseEvent):
+    """Published when user chooses accept/reject for a selected changed file."""
+
+    task_id: str = ""
+    file_path: str = ""
+    action: str = ""  # "accept" | "reject"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # H. SESSION / PLAN EVENTS
 # ═══════════════════════════════════════════════════════════════════════

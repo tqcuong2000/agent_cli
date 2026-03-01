@@ -53,7 +53,7 @@ class ThinkingBlock(Widget):
     ThinkingBlock .thinking_content {
         width: 100%;
         height: auto;
-        color: $text-muted;
+        color: $text-muted 30%;
     }
     """
 

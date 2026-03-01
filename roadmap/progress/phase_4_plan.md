@@ -449,96 +449,118 @@ When a response event arrives, it resolves and returns.
 
 ### Overview
 Track every file the agent writes, creates, or deletes. Display them
-in the right side panel in real time. At task completion, offer
-"Accept All" / "Reject All". Rejection restores original file
-content from a snapshot taken at task start.
+in the right side panel in real time. File-detail review uses the
+chat window (not a popup): when a user selects a changed file from
+the panel, render change details in the text window and drive actions
+through the footer interaction bar.
 
 ---
 
 ### 4.4.1 — `FileChangeTracker`
 **File:** `agent_cli/core/file_tracker.py`
 
-- [ ] Create `agent_cli/core/file_tracker.py`
-- [ ] `ChangeType` enum: `CREATED`, `MODIFIED`, `DELETED`
-- [ ] `FileChange` dataclass: `path: Path`, `change_type: ChangeType`, `original_content: str | None`, `timestamp: datetime`
-- [ ] `FileChangeTracker`:
+- [x] Create `agent_cli/core/file_tracker.py`
+- [x] `ChangeType` enum: `CREATED`, `MODIFIED`, `DELETED`
+- [x] `FileChange` dataclass: `path: Path`, `change_type: ChangeType`, `original_content: str | None`, `timestamp: datetime`
+- [x] `FileChangeTracker`:
   - `start_tracking(workspace_root: Path)` — sets root, clears state
   - `async record_change(path, change_type)` — snapshot original before first write; emit `FileChangedEvent`
   - `get_changes() -> list[FileChange]`
   - `total_files() -> int`
   - `is_empty() -> bool`
   - `reset()` — clears all tracked changes and snapshots
-- [ ] Add `FileChangeTracker` to `AppContext`
-- [ ] `FileChangedEvent` dataclass: `path: str`, `change_type: ChangeType`
+- [x] Add `FileChangeTracker` to `AppContext`
+- [x] `FileChangedEvent` dataclass: `path: str`, `change_type: ChangeType`
 
 ---
 
 ### 4.4.2 — Emit `FileChangedEvent` from `ToolExecutor`
 **File:** `agent_cli/tools/executor.py` (modify)
 
-- [ ] Inject `FileChangeTracker` into `ToolExecutor.__init__`
-- [ ] After successful `write_file` / `delete_file` tool execution, call `tracker.record_change()`
-- [ ] Emit `FileChangedEvent` on the event bus
+- [x] Inject `FileChangeTracker` into `ToolExecutor.__init__`
+- [x] After successful `write_file`/ `shell` tool execution, call `tracker.record_change()`
+- [x] Emit `FileChangedEvent` on the event bus
 
 ---
 
 ### 4.4.3 — `ChangedFilesPanel` Widget
-**File:** `views/body/panel/changed_files.py`
+**File:** `views/body/panel/changed_file.py`
 
 Live-updating list in the right sidebar. Each row shows a status
 icon (`+` created / `~` modified / `-` deleted), coloured by
 change type, and the relative file path. Scrollable if many files.
-When the panel is empty it shows a dim "No changes yet" placeholder.
+Only show the panel when there are tracked changes. Selecting a row
+opens file-change details in the chat window and activates footer
+actions for accept/reject (Option 2 strategy; no popup).
 
-- [ ] Create `views/body/panel/changed_files.py`
-- [ ] Extend `Widget`, subscribe to `FileChangedEvent` from event bus on mount
-- [ ] `DEFAULT_CSS` — full width, auto height, padding 1, `$panel 50%` background
-- [ ] Header row: `Static("Changed Files")` with count badge `(N)`
-- [ ] `VerticalScroll` for the file list
-- [ ] `async _on_file_changed(event: FileChangedEvent)` — append a row to the scroll
-- [ ] `_render_row(change: FileChange) -> str` — `[green]+[/]` / `[yellow]~[/]` / `[red]-[/]` + relative path
-- [ ] `clear()` — removes all rows, resets count
-- [ ] Empty state: dim italic "No changes yet" placeholder
+- [x] Create `views/body/panel/changed_file.py`
+- [x] Extend `Widget`, subscribe to `FileChangedEvent` from event bus on mount
+- [x] `DEFAULT_CSS` — full width, auto height, padding 1, `$panel 50%` background
+- [x] Header row: `Static("Changed Files")` with count badge `(N)`
+- [x] `VerticalScroll` for the file list
+- [x] `async _on_file_changed(event: FileChangedEvent)` — append/update a row in the scroll
+- [x] `_render_row(change: FileChange) -> str` — `[green]+[/]` / `[yellow]~[/]` / `[red]-[/]` + relative path
+- [x] Row selection handler (click/enter) — emit/select file and request detail render
+- [x] `clear()` — removes all rows, resets count
+- [x] Empty state: dim italic "No changes yet" placeholder
+- [x] Panel visibility: hidden when `tracker.is_empty()`, visible when changes exist
+- [x] Integrate with detail flow: selected file should trigger detail message in `TextWindowContainer` (not popup)
 
 🛑 **STOP — Review `ChangedFilesPanel` layout, icons, and colours with user**
 
+#### Option 2 Event Contract (explicit)
+
+To support panel selection → chat detail → footer accept/reject:
+
+- [x] `FileChangedEvent` (existing)
+- [x] `ChangedFileSelectedEvent` (new)
+- [x] `ChangedFileDetailEvent` (new)
+- [x] `ChangedFileReviewActionEvent` (new)
+
 ---
 
-### 4.4.4 — Accept / Reject Buttons
-**File:** `views/body/panel/changed_files.py` (extend)
+### 4.4.4 — Accept / Reject via Footer Interaction (Option 2)
+**Files:** `views/footer/user_interaction.py`, `views/body/text_window.py`, `views/body/panel/changed_file.py` (extend)
 
-- [ ] Add `Accept All` and `Reject All` buttons below the file list
-- [ ] Buttons only appear (display) when `tracker.total_files() > 0`
-- [ ] `on_accept_all()` — calls `tracker.reset()`, clears the panel, hides buttons
-- [ ] `on_reject_all()` — calls `tracker.revert_all()` (restores snapshots), clears panel
-- [ ] `tracker.revert_all()` — iterates `FileChange` list: restore `original_content` for MODIFIED, delete for CREATED, restore for DELETED
-- [ ] On `TaskResultEvent` from event bus — automatically show/hide buttons
+- [x] Use `UserInteraction` footer bar as the action surface for changed-file review
+- [x] When a changed file is selected, show detail in chat window and present `Accept` / `Reject` actions in footer
+- [x] Keep panel focused on navigation (list + selection), not primary action controls
+- [x] `accept` action for selected file — confirm and clear selection state
+- [x] `reject` action for selected file — revert selected file using tracker snapshot logic
+- [ ] Add optional bulk actions (`Accept All` / `Reject All`) only if needed after single-file flow is stable
+- [ ] On `TaskResultEvent`, show/hide review affordances based on `tracker.total_files()`
 
-🛑 **STOP — Review accept/reject button placement and revert behaviour with user**
+🛑 **STOP — Review chat-window detail format and footer action wording with user**
 
 ---
 
 ### 4.4.5 — Wire Panel into `PanelWindowContainer`
 **File:** `views/body/panel_window.py` (modify)
 
-- [ ] Add `ChangedFilesPanel` below `ContextContainer` in `PanelWindowContainer.compose()`
-- [ ] Pass `AppContext` (specifically `file_tracker` + `event_bus`) into `ChangedFilesPanel`
-- [ ] `ChangedFilesPanel` hidden when `tracker.is_empty()` to avoid empty visual noise
+- [x] Add `ChangedFilesPanel` below `ContextContainer` in `PanelWindowContainer.compose()`
+- [x] Pass `AppContext` (specifically `file_tracker` + `event_bus`) into `ChangedFilesPanel`
+- [x] `ChangedFilesPanel` hidden when `tracker.is_empty()` to avoid empty visual noise
+- [x] Wire panel selection events to `TextWindowContainer` detail rendering pipeline
+- [x] Ensure selection→detail→footer-action flow works even when panel is toggled/re-mounted
 
 ---
 
 ### 4.4.6 — Tests
-**File:** `tests/tui/test_changed_files.py`
+**File:** `tests/tui/test_changed_file.py`
 
-- [ ] Create `tests/tui/test_changed_files.py`
-- [ ] Test: `FileChangeTracker.record_change()` snapshots original content on first write
-- [ ] Test: second write to same file does NOT overwrite snapshot
-- [ ] Test: `FileChangedEvent` is emitted after `record_change()`
-- [ ] Test: `reset()` clears all changes and snapshots
-- [ ] Test: `revert_all()` restores MODIFIED files from snapshot
-- [ ] Test: `revert_all()` deletes CREATED files
-- [ ] Test: `ChangedFilesPanel` renders a row per `FileChangedEvent`
-- [ ] Test: empty panel shows "No changes yet" placeholder
+- [x] Create `tests/tui/test_changed_file.py`
+- [x] Test: `FileChangeTracker.record_change()` snapshots original content on first write
+- [x] Test: second write to same file does NOT overwrite snapshot
+- [x] Test: `FileChangedEvent` is emitted after `record_change()`
+- [x] Test: `reset()` clears all changes and snapshots
+- [x] Test: `revert_all()` restores MODIFIED files from snapshot
+- [x] Test: `revert_all()` deletes CREATED files
+- [x] Test: `ChangedFilesPanel` renders a row per `FileChangedEvent`
+- [x] Test: panel is hidden when no tracked changes and visible when changes exist
+- [x] Test: selecting a changed file renders file-change detail in `TextWindowContainer`
+- [x] Test: selecting a changed file activates footer `UserInteraction` accept/reject actions
+- [x] Test: reject action reverts selected file correctly
+- [x] Test: empty panel shows "No changes yet" placeholder
 
 ---
 
@@ -569,6 +591,7 @@ When the panel is empty it shows a dim "No changes yet" placeholder.
 - [x] `app.py` — keyboard bindings wired
 - [x] `StatusContainer` — reactive mode/model/effort
 - [x] Tests — 7 command-level tests passing
+- [x] Tests — Verified Status Bar reactive updates in `test_status_bar.py`
 
 ### Sub-Phase 4.3 — Human-in-the-Loop
 - [x] `InteractionType`, `UserInteractionRequest`, `UserInteractionResponse`, `BaseInteractionHandler`
@@ -577,14 +600,15 @@ When the panel is empty it shows a dim "No changes yet" placeholder.
 - [x] Shell command approval flow in `ToolExecutor`
 - [x] Inline clarification widget (`AgentQuestion`)
 - [x] Tests — 6 HITL tests passing
+- [x] Tests — Verified `user_interaction.py` component separately
 
 ### Sub-Phase 4.4 — Changed Files Panel
-- [ ] `FileChangeTracker` — snapshot, record, revert
-- [ ] `FileChangedEvent` emitted from `ToolExecutor`
-- [ ] `ChangedFilesPanel` — live list, count badge, empty state
-- [ ] Accept All / Reject All buttons + revert logic
-- [ ] `PanelWindowContainer` wired with `ChangedFilesPanel`
-- [ ] Tests — 8 tracker/panel tests passing
+- [x] `FileChangeTracker` — snapshot, record, revert
+- [x] `FileChangedEvent` emitted from `ToolExecutor`
+- [x] `ChangedFilesPanel` — live list, count badge, empty state
+- [ ] Pending: Bulk `Accept All` / `Reject All` buttons + Task end automation
+- [x] `PanelWindowContainer` wired with `ChangedFilesPanel`
+- [x] Tests — 8 tracker/panel tests passing in `test_changed_file.py`
 
 ---
 
@@ -619,7 +643,7 @@ ux/tui/
     │   │   ├── tool_step.py                    # NEW — ToolStepWidget
     │   │   └── answer_block.py                 # NEW — AnswerBlock
     │   ├── panel/
-    │   │   └── changed_files.py                # NEW — ChangedFilesPanel
+    │   │   └── changed_file.py                 # NEW — ChangedFilesPanel
     │   └── modals/
     │       ├── __init__.py                     # NEW
     │       ├── approval_modal.py               # NEW — ApprovalModal (ModalScreen)
@@ -635,7 +659,7 @@ tests/
     ├── test_response_visualization.py          # NEW — 7 tests
     ├── test_command_system.py                  # NEW — 7 tests
     ├── test_hitl.py                            # NEW — 6 tests
-    └── test_changed_files.py                   # NEW — 8 tests
+    └── test_changed_file.py                    # NEW — 8 tests
 ```
 
 ---

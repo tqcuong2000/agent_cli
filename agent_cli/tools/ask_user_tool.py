@@ -7,7 +7,7 @@ question with 2-5 likely answer options.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Type
+from typing import Any, Type
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -17,9 +17,6 @@ from agent_cli.core.interaction import (
     UserInteractionRequest,
 )
 from agent_cli.tools.base import BaseTool, ToolCategory
-
-if TYPE_CHECKING:
-    from agent_cli.core.interaction import BaseInteractionHandler
 
 
 class AskUserArgs(BaseModel):
@@ -67,14 +64,12 @@ class AskUserTool(BaseTool):
     def args_schema(self) -> Type[BaseModel]:
         return AskUserArgs
 
-    async def execute(
-        self,
-        question: str,
-        options: list[str],
-        _interaction_handler: "BaseInteractionHandler" | None = None,
-        _task_id: str = "",
-        **kwargs: Any,
-    ) -> str:
+    async def execute(self, **kwargs: Any) -> str:
+        question = kwargs.get("question", "")
+        options = kwargs.get("options", [])
+        _interaction_handler = kwargs.get("_interaction_handler")
+        _task_id = kwargs.get("_task_id", "")
+
         if _interaction_handler is None:
             raise ToolExecutionError(
                 "ask_user requires an interaction handler but none is configured.",

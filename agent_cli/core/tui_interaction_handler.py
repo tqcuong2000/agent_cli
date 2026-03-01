@@ -120,6 +120,7 @@ class TUIInteractionHandler(BaseInteractionHandler):
         )
 
         timeout = getattr(self._settings, "approval_timeout_seconds", 0) or 0
+        response: Optional[UserInteractionResponse] = None
         try:
             if timeout > 0:
                 await asyncio.wait_for(wait_event.wait(), timeout=timeout)
@@ -139,7 +140,7 @@ class TUIInteractionHandler(BaseInteractionHandler):
             self._pending_approval_events.pop(interaction_task_id, None)
             await self._transition_task(request.task_id, TaskState.WORKING)
 
-        if "response" in locals():
+        if response is not None:
             return response
 
         return self._pending_approval_responses.pop(
@@ -191,6 +192,7 @@ class TUIInteractionHandler(BaseInteractionHandler):
         )
 
         timeout = getattr(self._settings, "approval_timeout_seconds", 0) or 0
+        response: Optional[UserInteractionResponse] = None
         try:
             if timeout > 0:
                 await asyncio.wait_for(wait_event.wait(), timeout=timeout)
@@ -210,7 +212,7 @@ class TUIInteractionHandler(BaseInteractionHandler):
             self._pending_question_events.pop(interaction_task_id, None)
             await self._transition_task(request.task_id, TaskState.WORKING)
 
-        if "response" in locals():
+        if response is not None:
             self._pending_questions.pop(interaction_task_id, None)
             return response
 
