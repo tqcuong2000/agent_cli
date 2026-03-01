@@ -15,13 +15,14 @@ through ``AppContext``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
 # Phase 3 imports
-from agent_cli.agent.memory import BaseMemoryManager, WorkingMemoryManager
+from agent_cli.agent.memory import BaseMemoryManager
 from agent_cli.agent.react_loop import PromptBuilder
 from agent_cli.agent.schema import BaseSchemaValidator, SchemaValidator
 
@@ -30,14 +31,21 @@ from agent_cli.commands.base import CommandContext, CommandRegistry
 from agent_cli.commands.parser import CommandParser
 from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
+from agent_cli.core.events.events import TaskResultEvent
 from agent_cli.core.file_tracker import FileChangeTracker
 from agent_cli.core.orchestrator import Orchestrator
 from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
+from agent_cli.memory.summarizer import SummarizingMemoryManager
 from agent_cli.providers.manager import ProviderManager
+from agent_cli.session.base import AbstractSessionManager
+from agent_cli.session.file_store import FileSessionManager
 from agent_cli.tools.executor import ToolExecutor
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
-from agent_cli.tools.workspace import WorkspaceContext
+from agent_cli.workspace.base import BaseWorkspaceManager
+from agent_cli.workspace.file_index import FileIndexer
+from agent_cli.workspace.sandbox import SandboxWorkspaceManager
+from agent_cli.workspace.strict import StrictWorkspaceManager
 
 if TYPE_CHECKING:
     from agent_cli.agent.base import BaseAgent
@@ -76,7 +84,10 @@ class AppContext:
     schema_validator: BaseSchemaValidator
     memory_manager: BaseMemoryManager
     prompt_builder: PromptBuilder
+    workspace_manager: Optional[BaseWorkspaceManager] = None
+    file_indexer: Optional[FileIndexer] = None
     orchestrator: Optional[Orchestrator] = None  # None until an agent is registered
+    session_manager: Optional[AbstractSessionManager] = None
 
     # ── Phase 4.2 Command System ─────────────────────────────────
     command_registry: Optional[CommandRegistry] = None
@@ -86,6 +97,8 @@ class AppContext:
 
     # ── Lifecycle State ──────────────────────────────────────────
     _started: bool = field(default=False, repr=False)
+    _task_result_subscription_id: Optional[str] = field(default=None, repr=False)
+    _autosave_task: Optional[asyncio.Task[None]] = field(default=None, repr=False)
 
     # ── Lifecycle Hooks (1.5.3) ──────────────────────────────────
 
@@ -103,6 +116,34 @@ class AppContext:
         # Future phases will init more components here:
         # - Semantic memory connection
         # - Session database
+        if self.session_manager is not None:
+            active = self.session_manager.get_active()
+            if active is None:
+                active = self.session_manager.create_session()
+                self.session_manager.save(active)
+                logger.info("Created new active session: %s", active.session_id)
+            else:
+                logger.info("Loaded active session: %s", active.session_id)
+
+        if self.session_manager is not None and self.settings.session_auto_save:
+            if self._task_result_subscription_id is None:
+                self._task_result_subscription_id = self.event_bus.subscribe(
+                    "TaskResultEvent",
+                    self._on_task_result_event,
+                    priority=90,
+                )
+
+            interval_seconds = float(
+                getattr(self.settings, "session_auto_save_interval_seconds", 300.0)
+            )
+            if interval_seconds > 0 and self._autosave_task is None:
+                self._autosave_task = asyncio.create_task(
+                    self._periodic_session_autosave(interval_seconds),
+                    name="session-autosave",
+                )
+
+        if self.file_indexer is not None:
+            self.file_indexer.start(self.event_bus)
 
         self._started = True
         logger.info(
@@ -121,6 +162,24 @@ class AppContext:
             return
 
         logger.info("AppContext shutting down...")
+
+        if self.session_manager is not None:
+            self._save_active_session(reason="shutdown")
+
+        if self._autosave_task is not None:
+            self._autosave_task.cancel()
+            try:
+                await self._autosave_task
+            except asyncio.CancelledError:
+                pass
+            self._autosave_task = None
+
+        if self._task_result_subscription_id is not None:
+            self.event_bus.unsubscribe(self._task_result_subscription_id)
+            self._task_result_subscription_id = None
+
+        if self.file_indexer is not None:
+            await self.file_indexer.shutdown()
 
         # Drain the Event Bus (waits for background tasks)
         await self.event_bus.drain()
@@ -151,6 +210,50 @@ class AppContext:
     def is_running(self) -> bool:
         """Whether the app context has been started and not yet shut down."""
         return self._started
+
+    async def _on_task_result_event(self, event: TaskResultEvent) -> None:
+        """Auto-save the active session after task completion events."""
+        if not isinstance(event, TaskResultEvent):
+            return
+        self._save_active_session(reason="task_result")
+
+    async def _periodic_session_autosave(self, interval_seconds: float) -> None:
+        """Periodic session auto-save loop."""
+        while True:
+            try:
+                await asyncio.sleep(interval_seconds)
+            except asyncio.CancelledError:
+                break
+
+            if not self._started:
+                continue
+            self._save_active_session(reason="periodic")
+
+    def _save_active_session(self, *, reason: str) -> bool:
+        """Persist the currently active session if available."""
+        if self.session_manager is None:
+            return False
+
+        active = self.session_manager.get_active()
+        if active is None:
+            return False
+
+        try:
+            self.session_manager.save(active)
+        except Exception:
+            logger.exception(
+                "Failed to save active session (%s): %s",
+                reason,
+                active.session_id,
+            )
+            return False
+
+        logger.debug(
+            "Auto-saved active session (%s): %s",
+            reason,
+            active.session_id,
+        )
+        return True
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -187,11 +290,20 @@ def create_app(
 
     # 5. Tool System
     workspace_root = Path(root_folder) if root_folder else Path.cwd()
-    workspace = WorkspaceContext(root_path=workspace_root)
+    strict_workspace = StrictWorkspaceManager(
+        root_path=workspace_root,
+        deny_patterns=settings.workspace_deny_patterns,
+        allow_overrides=settings.workspace_allow_overrides,
+    )
+    workspace = SandboxWorkspaceManager(strict_workspace)
+    file_indexer = FileIndexer(
+        root_path=workspace.get_root(),
+        max_files=settings.workspace_index_max_files,
+    )
 
     # 5.5 File Tracker (Phase 4.4)
     file_tracker = FileChangeTracker(event_bus=event_bus)
-    file_tracker.start_tracking(workspace_root)
+    file_tracker.start_tracking(workspace.get_root())
 
     tool_registry = _build_tool_registry(workspace)
     output_formatter = ToolOutputFormatter(
@@ -210,11 +322,26 @@ def create_app(
         registered_tools=tool_registry.get_all_names(),
     )
 
-    # 7. Memory Manager
-    memory_manager = WorkingMemoryManager()
+    # 7. Memory Manager (token-aware)
+    default_model = settings.default_model
+    memory_manager = SummarizingMemoryManager(
+        token_counter=providers.get_token_counter(default_model),
+        token_budget=providers.get_token_budget(
+            default_model,
+            response_reserve=4096,
+            compaction_threshold=settings.context_compaction_threshold,
+        ),
+        model_name=default_model,
+        keep_recent_turns=5,
+        summarization_model=settings.summarization_model,
+        summarizer_provider_factory=providers.get_provider,
+    )
 
     # 8. Prompt Builder
     prompt_builder = PromptBuilder(tool_registry=tool_registry)
+
+    # 8.5 Session Manager (Phase 5.2.1)
+    session_manager = FileSessionManager(default_model=settings.default_model)
 
     # 9. Command System (Phase 4.2)
     cmd_registry = _build_command_registry()
@@ -239,7 +366,10 @@ def create_app(
         schema_validator=schema_validator,
         memory_manager=memory_manager,
         prompt_builder=prompt_builder,
+        workspace_manager=workspace,
+        file_indexer=file_indexer,
         orchestrator=None,
+        session_manager=session_manager,
         command_registry=cmd_registry,
         command_parser=cmd_parser,
         interaction_handler=None,
@@ -293,6 +423,7 @@ def register_default_agent(context: AppContext, agent: BaseAgent) -> None:
         state_manager=context.state_manager,
         default_agent=agent,
         command_parser=context.command_parser,
+        session_manager=context.session_manager,
     )
     logger.info("Default agent '%s' registered with Orchestrator.", agent.name)
 
@@ -302,7 +433,7 @@ def register_default_agent(context: AppContext, agent: BaseAgent) -> None:
 # ══════════════════════════════════════════════════════════════════════
 
 
-def _build_tool_registry(workspace: WorkspaceContext) -> ToolRegistry:
+def _build_tool_registry(workspace: BaseWorkspaceManager) -> ToolRegistry:
     """Create and populate the tool registry with all built-in tools."""
     from agent_cli.tools.ask_user_tool import AskUserTool
     from agent_cli.tools.file_tools import (
@@ -348,6 +479,8 @@ def _build_command_registry() -> CommandRegistry:
     """
     # Import triggers @command decorator registration
     import agent_cli.commands.handlers.core  # noqa: F401
+    import agent_cli.commands.handlers.sandbox  # noqa: F401
+    import agent_cli.commands.handlers.session  # noqa: F401
     from agent_cli.commands.base import _DEFAULT_REGISTRY
 
     registry = CommandRegistry()

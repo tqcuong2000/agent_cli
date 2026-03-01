@@ -18,7 +18,6 @@ task lifecycle:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
 
 from agent_cli.agent.base import BaseAgent
@@ -32,6 +31,7 @@ from agent_cli.core.events.events import (
 )
 from agent_cli.core.state.state_manager import AbstractStateManager
 from agent_cli.core.state.state_models import TaskState
+from agent_cli.session.base import AbstractSessionManager, Session
 
 if TYPE_CHECKING:
     from agent_cli.commands.parser import CommandParser
@@ -65,11 +65,13 @@ class Orchestrator:
         state_manager: AbstractStateManager,
         default_agent: BaseAgent,
         command_parser: Optional[CommandParser] = None,
+        session_manager: Optional[AbstractSessionManager] = None,
     ) -> None:
         self._event_bus = event_bus
         self._state_manager = state_manager
         self._default_agent = default_agent
         self._command_parser = command_parser
+        self._session_manager = session_manager
 
         # Legacy slash-command registry (kept for backward compat)
         self._commands: Dict[str, CommandHandler] = {}
@@ -83,9 +85,7 @@ class Orchestrator:
 
     # ── Public API ───────────────────────────────────────────────
 
-    def register_command(
-        self, name: str, handler: CommandHandler
-    ) -> None:
+    def register_command(self, name: str, handler: CommandHandler) -> None:
         """Register a slash-command handler.
 
         Args:
@@ -174,6 +174,10 @@ class Orchestrator:
         Full lifecycle:
         ``create_task → ROUTING → WORKING → handle_task → SUCCESS/FAILED``
         """
+        # 0. Resolve active session (if persistence is configured)
+        active_session = self._get_or_create_active_session()
+        session_messages = list(active_session.messages) if active_session else None
+
         # 1. Create task
         task = await self._state_manager.create_task(
             description=text[:100],
@@ -183,9 +187,7 @@ class Orchestrator:
 
         try:
             # 2. PENDING → ROUTING
-            await self._state_manager.transition(
-                task_id, TaskState.ROUTING
-            )
+            await self._state_manager.transition(task_id, TaskState.ROUTING)
 
             # 3. Emit delegation event
             await self._event_bus.emit(
@@ -198,15 +200,16 @@ class Orchestrator:
             )
 
             # 4. ROUTING → WORKING
-            await self._state_manager.transition(
-                task_id, TaskState.WORKING
-            )
+            await self._state_manager.transition(task_id, TaskState.WORKING)
 
             # 5. Run agent
             result = await self._default_agent.handle_task(
                 task_id=task_id,
                 task_description=text,
+                session_messages=session_messages,
             )
+
+            self._persist_session_after_task(active_session, task_id)
 
             # 6. WORKING → SUCCESS
             await self._state_manager.transition(
@@ -227,9 +230,8 @@ class Orchestrator:
 
         except AgentCLIError as e:
             # Transition to FAILED
-            await self._safe_transition_to_failed(
-                task_id, e.user_message
-            )
+            await self._safe_transition_to_failed(task_id, e.user_message)
+            self._persist_session_after_task(active_session, task_id)
 
             await self._event_bus.publish(
                 TaskResultEvent(
@@ -251,6 +253,7 @@ class Orchestrator:
             )
 
             await self._safe_transition_to_failed(task_id, error_msg)
+            self._persist_session_after_task(active_session, task_id)
 
             await self._event_bus.publish(
                 TaskResultEvent(
@@ -264,14 +267,10 @@ class Orchestrator:
 
     # ── Helpers ──────────────────────────────────────────────────
 
-    async def _safe_transition_to_failed(
-        self, task_id: str, error: str
-    ) -> None:
+    async def _safe_transition_to_failed(self, task_id: str, error: str) -> None:
         """Attempt to transition to FAILED, ignoring transition errors."""
         try:
-            await self._state_manager.transition(
-                task_id, TaskState.FAILED, error=error
-            )
+            await self._state_manager.transition(task_id, TaskState.FAILED, error=error)
         except Exception as e:
             logger.warning(
                 "Could not transition task %s to FAILED: %s",
@@ -283,3 +282,38 @@ class Orchestrator:
         """Unsubscribe from the event bus."""
         self._event_bus.unsubscribe(self._subscription_id)
         logger.info("Orchestrator shut down.")
+
+    def _get_or_create_active_session(self) -> Optional[Session]:
+        """Get active session from manager, creating one if missing."""
+        if self._session_manager is None:
+            return None
+
+        active = self._session_manager.get_active()
+        if active is not None:
+            return active
+
+        active = self._session_manager.create_session()
+        self._session_manager.save(active)
+        return active
+
+    def _persist_session_after_task(
+        self,
+        session: Optional[Session],
+        task_id: str,
+    ) -> None:
+        """Append task-local messages and persist session state."""
+        if self._session_manager is None or session is None:
+            return
+
+        if task_id not in session.task_ids:
+            session.task_ids.append(task_id)
+
+        model_name = getattr(self._default_agent.provider, "model_name", "")
+        if isinstance(model_name, str):
+            session.active_model = model_name
+
+        new_messages = self._default_agent.get_last_task_messages()
+        if new_messages:
+            session.messages.extend(new_messages)
+
+        self._session_manager.save(session)

@@ -14,7 +14,6 @@ from typing import List
 from agent_cli.commands.base import CommandContext, CommandResult, command
 from agent_cli.core.events.events import SettingsChangedEvent
 
-
 # ══════════════════════════════════════════════════════════════════════
 # System
 # ══════════════════════════════════════════════════════════════════════
@@ -108,11 +107,19 @@ async def cmd_clear(args: List[str], ctx: CommandContext) -> CommandResult:
 async def cmd_context(args: List[str], ctx: CommandContext) -> CommandResult:
     """Show current token usage from working memory."""
     msg_count = ctx.memory_manager.message_count
+    token_count = ctx.memory_manager.count_tokens()
+    budget = getattr(ctx.memory_manager, "token_budget", None)
+    if budget is not None:
+        usage_line = (
+            f"  Estimated tokens: {token_count} / {budget.available_for_context()} "
+            f"(threshold {int(budget.compaction_threshold * 100)}%)"
+        )
+    else:
+        usage_line = f"  Estimated tokens: {token_count}"
     return CommandResult(
         success=True,
         message=(
-            f"Context usage:\n"
-            f"  Messages in working memory: {msg_count}"
+            f"Context usage:\n  Messages in working memory: {msg_count}\n{usage_line}"
         ),
     )
 
@@ -208,6 +215,36 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
                 success=False,
                 message=f"Failed to load provider for '{model_name}': {e}",
             )
+
+    # Refresh memory token counter + budget for the new model and compact if needed.
+    if ctx.app_context:
+        try:
+            token_counter = ctx.app_context.providers.get_token_counter(model_name)
+            token_budget = ctx.app_context.providers.get_token_budget(
+                model_name,
+                response_reserve=4096,
+                compaction_threshold=ctx.settings.context_compaction_threshold,
+            )
+            await ctx.memory_manager.on_model_changed(
+                model_name,
+                token_counter=token_counter,
+                token_budget=token_budget,
+            )
+        except Exception as e:
+            return CommandResult(
+                success=False,
+                message=f"Failed to update token budget for '{model_name}': {e}",
+            )
+
+    # Emit event so reactive components can update when model changes.
+    if ctx.event_bus:
+        await ctx.event_bus.publish(
+            SettingsChangedEvent(
+                setting_name="default_model",
+                new_value=model_name,
+                source="cmd_model",
+            )
+        )
 
     # Update status bar
     _update_status_bar(ctx, model=model_name)

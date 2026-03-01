@@ -2,7 +2,7 @@
 File Tools — core tools for reading, writing, editing, listing, and searching files.
 
 These are the fundamental file-system tools that every agent needs.
-All paths are resolved and jailed via ``WorkspaceContext`` to prevent
+All paths are resolved and jailed via a workspace manager to prevent
 escapes outside the project root.
 """
 
@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.tools.base import BaseTool, ToolCategory
-from agent_cli.tools.workspace import WorkspaceContext
+from agent_cli.workspace.base import BaseWorkspaceManager
 
 # ══════════════════════════════════════════════════════════════════════
 # ReadFile
@@ -52,7 +52,7 @@ class ReadFileTool(BaseTool):
     is_safe = True
     category = ToolCategory.FILE
 
-    def __init__(self, workspace: WorkspaceContext) -> None:
+    def __init__(self, workspace: BaseWorkspaceManager) -> None:
         self.workspace = workspace
 
     @property
@@ -125,7 +125,7 @@ class WriteFileTool(BaseTool):
     is_safe = False  # Requires approval — modifies filesystem
     category = ToolCategory.FILE
 
-    def __init__(self, workspace: WorkspaceContext) -> None:
+    def __init__(self, workspace: BaseWorkspaceManager) -> None:
         self.workspace = workspace
 
     @property
@@ -233,7 +233,7 @@ class StrReplaceTool(BaseTool):
     is_safe = False
     category = ToolCategory.FILE
 
-    def __init__(self, workspace: WorkspaceContext) -> None:
+    def __init__(self, workspace: BaseWorkspaceManager) -> None:
         self.workspace = workspace
 
     @property
@@ -329,7 +329,7 @@ class InsertLinesTool(BaseTool):
     is_safe = False
     category = ToolCategory.FILE
 
-    def __init__(self, workspace: WorkspaceContext) -> None:
+    def __init__(self, workspace: BaseWorkspaceManager) -> None:
         self.workspace = workspace
 
     @property
@@ -417,7 +417,7 @@ class ListDirectoryTool(BaseTool):
     is_safe = True
     category = ToolCategory.FILE
 
-    def __init__(self, workspace: WorkspaceContext) -> None:
+    def __init__(self, workspace: BaseWorkspaceManager) -> None:
         self.workspace = workspace
 
     @property
@@ -463,6 +463,9 @@ class ListDirectoryTool(BaseTool):
             return
 
         for entry in entries:
+            if not self.workspace.is_allowed(entry):
+                continue
+
             indent = "  " * depth
             rel = entry.relative_to(base)
 
@@ -519,7 +522,7 @@ class SearchFilesTool(BaseTool):
     is_safe = True
     category = ToolCategory.SEARCH
 
-    def __init__(self, workspace: WorkspaceContext) -> None:
+    def __init__(self, workspace: BaseWorkspaceManager) -> None:
         self.workspace = workspace
 
     @property
@@ -546,6 +549,9 @@ class SearchFilesTool(BaseTool):
         for root, _dirs, files in os.walk(resolved):
             # Skip hidden directories and common noise
             root_path = Path(root)
+            if not self.workspace.is_allowed(root_path):
+                continue
+
             if any(
                 part.startswith(".") or part in ("__pycache__", "node_modules", ".git")
                 for part in root_path.parts
@@ -557,6 +563,8 @@ class SearchFilesTool(BaseTool):
                     continue
 
                 file_path = root_path / filename
+                if not self.workspace.is_allowed(file_path):
+                    continue
 
                 try:
                     text = file_path.read_text(encoding="utf-8", errors="ignore")

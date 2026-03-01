@@ -131,6 +131,7 @@ def base_deps():
     prompt_builder = PromptBuilder(registry)
 
     from agent_cli.core.config import AgentSettings
+
     settings = AgentSettings()
     # Force standard constraints for tests so local config.toml doesn't break them
     settings.core["effort"] = {
@@ -139,7 +140,7 @@ def base_deps():
         "HIGH": {"max_iterations": 100},
         "XHIGH": {"max_iterations": 250},
     }
-    
+
     return {
         "tool_executor": tool_executor,
         "schema_validator": schema_validator,
@@ -188,7 +189,7 @@ async def test_react_loop_successful_task(base_deps):
     # Verify working memory
     memory = base_deps["memory_manager"].get_working_context()
     assert len(memory) > 3  # sys prompt, task desc, iteration 1 turn, etc.
-    assert "[Tool: add] Result:" in memory[-1]["content"]
+    assert any("[Tool: add] Result:" in m["content"] for m in memory)
 
 
 @pytest.mark.asyncio

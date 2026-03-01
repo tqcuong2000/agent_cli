@@ -15,10 +15,12 @@ from agent_cli.core.bootstrap import AppContext, create_app
 from agent_cli.core.config import AgentSettings
 
 os.environ["OPENAI_API_KEY"] = "mock_key_for_testing"
+from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.core.events.event_bus import AsyncEventBus, BusState
 from agent_cli.core.events.events import StateChangeEvent, UserRequestEvent
 from agent_cli.core.state.state_models import TaskState
 from agent_cli.providers.manager import ProviderManager
+from agent_cli.workspace.sandbox import SandboxWorkspaceManager
 
 # ── Factory Tests ─────────────────────────────────────────────────────
 
@@ -32,6 +34,8 @@ def test_create_app_returns_app_context():
     assert isinstance(ctx.event_bus, AsyncEventBus)
     assert ctx.state_manager is not None
     assert isinstance(ctx.providers, ProviderManager)
+    assert ctx.session_manager is not None
+    assert ctx.file_indexer is not None
     assert ctx.is_running is False  # Not started yet
 
 
@@ -50,6 +54,25 @@ def test_create_app_registers_ask_user_tool():
     assert "ask_user" in ctx.tool_registry.get_all_names()
 
 
+def test_create_app_wires_configurable_workspace_policy(tmp_path):
+    settings = AgentSettings(
+        workspace_deny_patterns=["*.key"],
+        workspace_allow_overrides=["allowed.key"],
+    )
+    ctx = create_app(settings=settings, root_folder=tmp_path)
+    manager = ctx.workspace_manager
+    assert isinstance(manager, SandboxWorkspaceManager)
+
+    denied = tmp_path / "secret.key"
+    denied.write_text("secret")
+    allowed = tmp_path / "allowed.key"
+    allowed.write_text("ok")
+
+    with pytest.raises(ToolExecutionError):
+        manager.resolve_path("secret.key", must_exist=True)
+    assert manager.resolve_path("allowed.key", must_exist=True) == allowed.resolve()
+
+
 # ── Lifecycle Tests ───────────────────────────────────────────────────
 
 
@@ -62,6 +85,9 @@ async def test_startup_and_shutdown():
 
     await ctx.startup()
     assert ctx.is_running is True
+    assert ctx.session_manager is not None
+    assert ctx.session_manager.get_active() is not None
+    assert ctx.file_indexer is not None
 
     await ctx.shutdown()
     assert ctx.is_running is False

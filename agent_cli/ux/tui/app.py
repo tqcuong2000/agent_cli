@@ -53,7 +53,7 @@ class AgentCLIApp(App):
         # Build popups — use live CommandRegistry if available
         registry = getattr(self.app_context, "command_registry", None)
         self.command_popup = CommandPopup(registry=registry)
-        self.file_popup = FileDiscoveryPopup()
+        self.file_popup = FileDiscoveryPopup(app_context=self.app_context)
         self.error_popup = ErrorPopup(id="error_popup")
         self._bind_command_parser_context()
 

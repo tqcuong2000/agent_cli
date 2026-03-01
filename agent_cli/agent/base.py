@@ -157,6 +157,9 @@ class BaseAgent(ABC):
                 cast("EventCallback", self._on_settings_changed),
             )
 
+        # Task-local message delta captured from the most recent handle_task() call.
+        self._last_task_messages: List[Dict[str, Any]] = []
+
     async def _on_settings_changed(self, event: BaseEvent) -> None:
         """Reactive hook for settings updates."""
         if not isinstance(event, SettingsChangedEvent):
@@ -215,6 +218,7 @@ class BaseAgent(ABC):
         task_description: str,
         prior_context: str = "",
         effort_override: Optional[EffortLevel] = None,
+        session_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """The main ReAct reasoning loop.
 
@@ -255,196 +259,271 @@ class BaseAgent(ABC):
         system_prompt = await self.build_system_prompt(task_description)
 
         # ── Initialize Working Memory ────────────────────────────
+        task_delta: List[Dict[str, Any]] = []
+
+        def _append_message(
+            message: Dict[str, Any], *, track_for_session: bool
+        ) -> None:
+            self.memory.add_working_event(message)
+            if track_for_session:
+                task_delta.append(dict(message))
+
         self.memory.reset_working()
-        self.memory.add_working_event({"role": "system", "content": system_prompt})
+        if session_messages is not None:
+            for msg in self._hydrate_session_messages(
+                session_messages=session_messages,
+                system_prompt=system_prompt,
+            ):
+                # Hydrated historical messages are already in persisted session history.
+                _append_message(msg, track_for_session=False)
+        else:
+            _append_message(
+                {"role": "system", "content": system_prompt}, track_for_session=False
+            )
 
         # Inject prior context from previous agents (ExecutionPlan)
         if prior_context:
-            self.memory.add_working_event(
+            _append_message(
                 {
                     "role": "user",
                     "content": f"Context from previous steps:\n{prior_context}",
-                }
+                },
+                track_for_session=True,
             )
 
         # Inject the task itself
-        self.memory.add_working_event({"role": "user", "content": task_description})
+        _append_message(
+            {"role": "user", "content": task_description},
+            track_for_session=True,
+        )
 
         # ── Tracking ─────────────────────────────────────────────
         schema_error_count = 0
         stuck_detector = StuckDetector()
 
         # ── The Loop ─────────────────────────────────────────────
-        for iteration in range(1, max_iterations + 1):
-            logger.debug(
-                "Agent '%s' iteration %d/%d (effort=%s, task=%s)",
-                self.name,
-                iteration,
-                max_iterations,
-                effort.name,
-                task_id,
-            )
-
-            try:
-                # ── STEP 1: Generate (LLM Call) ──────────────────
-                llm_response = await self.provider.safe_generate(
-                    context=self.memory.get_working_context(),
-                    tools=self._get_tool_definitions(),
+        try:
+            for iteration in range(1, max_iterations + 1):
+                logger.debug(
+                    "Agent '%s' iteration %d/%d (effort=%s, task=%s)",
+                    self.name,
+                    iteration,
+                    max_iterations,
+                    effort.name,
+                    task_id,
                 )
 
-                # ── STEP 2: Stream Thinking to TUI ───────────────
-                thinking_text = self.validator.extract_thinking(
-                    llm_response.text_content
-                )
-                if thinking_text and self.config.show_thinking:
+                try:
+                    # Token-aware compaction before making an LLM call.
+                    if self.memory.should_compact():
+                        await self.event_bus.emit(
+                            AgentMessageEvent(
+                                source=self.name,
+                                agent_name=self.name,
+                                content="Context budget threshold reached, compacting memory...",
+                                is_monologue=True,
+                            )
+                        )
+                        await self.memory.summarize_and_compact()
+
+                    # ── STEP 1: Generate (LLM Call) ──────────────────
+                    llm_response = await self.provider.safe_generate(
+                        context=self.memory.get_working_context(),
+                        tools=self._get_tool_definitions(),
+                    )
+
+                    # ── STEP 2: Stream Thinking to TUI ───────────────
+                    thinking_text = self.validator.extract_thinking(
+                        llm_response.text_content
+                    )
+                    if thinking_text and self.config.show_thinking:
+                        await self.event_bus.emit(
+                            AgentMessageEvent(
+                                source=self.name,
+                                agent_name=self.name,
+                                content=thinking_text,
+                                is_monologue=True,
+                            )
+                        )
+
+                    # ── STEP 3: Validate & Parse Response ────────────
+                    response: AgentResponse = self.validator.parse_and_validate(
+                        llm_response
+                    )
+                    schema_error_count = 0  # Reset on success
+
+                    # ── STEP 4: Process Action or Final Answer ───────
+                    if response.action:
+                        # ── TOOL EXECUTION PATH ──
+                        result = await self.tool_executor.execute(
+                            tool_name=response.action.tool_name,
+                            arguments=response.action.arguments,
+                            task_id=task_id,
+                            native_call_id=response.action.native_call_id,
+                        )
+
+                        # Add LLM response + tool result to Working Memory
+                        _append_message(
+                            {
+                                "role": "assistant",
+                                "content": llm_response.text_content,
+                            },
+                            track_for_session=True,
+                        )
+                        _append_message(
+                            {"role": "tool", "content": result},
+                            track_for_session=True,
+                        )
+
+                        # Agent-specific hook
+                        await self.on_tool_result(response.action.tool_name, result)
+
+                        # Stuck detection
+                        if stuck_detector.is_stuck(response.action.tool_name, result):
+                            _append_message(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "⚠You appear to be repeating the same "
+                                        "action with the same result. "
+                                        "Try a completely different approach."
+                                    ),
+                                },
+                                track_for_session=True,
+                            )
+
+                        continue  # Next iteration
+
+                    elif response.final_answer:
+                        # ── FINAL ANSWER PATH ──
+                        # Persist the model response that produced the final answer.
+                        _append_message(
+                            {
+                                "role": "assistant",
+                                "content": llm_response.text_content,
+                            },
+                            track_for_session=True,
+                        )
+
+                        final = await self.on_final_answer(response.final_answer)
+
+                        # Publish to TUI
+                        await self.event_bus.emit(
+                            AgentMessageEvent(
+                                source=self.name,
+                                agent_name=self.name,
+                                content=final,
+                                is_monologue=False,
+                            )
+                        )
+
+                        logger.info(
+                            "Agent '%s' completed task in %d iteration(s) "
+                            "(effort=%s, task=%s)",
+                            self.name,
+                            iteration,
+                            effort.name,
+                            task_id,
+                        )
+                        return final
+
+                    else:
+                        # Thinking-only response (no action, no answer)
+                        # Add it to memory and let the LLM continue
+                        _append_message(
+                            {
+                                "role": "assistant",
+                                "content": llm_response.text_content,
+                            },
+                            track_for_session=True,
+                        )
+                        continue
+
+                # ── ERROR HANDLING ───────────────────────────────────
+                except ContextLengthExceededError:
+                    # RECOVERABLE: Summarize and retry
                     await self.event_bus.emit(
                         AgentMessageEvent(
                             source=self.name,
                             agent_name=self.name,
-                            content=thinking_text,
+                            content=("⚠ Context too long, summarizing older steps..."),
                             is_monologue=True,
                         )
                     )
+                    await self.memory.summarize_and_compact()
+                    continue
 
-                # ── STEP 3: Validate & Parse Response ────────────
-                response: AgentResponse = self.validator.parse_and_validate(
-                    llm_response
-                )
-                schema_error_count = 0  # Reset on success
-
-                # ── STEP 4: Process Action or Final Answer ───────
-                if response.action:
-                    # ── TOOL EXECUTION PATH ──
-                    result = await self.tool_executor.execute(
-                        tool_name=response.action.tool_name,
-                        arguments=response.action.arguments,
-                        task_id=task_id,
-                        native_call_id=response.action.native_call_id,
-                    )
-
-                    # Add LLM response + tool result to Working Memory
-                    self.memory.add_working_event(
-                        {
-                            "role": "assistant",
-                            "content": llm_response.text_content,
-                        }
-                    )
-                    self.memory.add_working_event({"role": "tool", "content": result})
-
-                    # Agent-specific hook
-                    await self.on_tool_result(response.action.tool_name, result)
-
-                    # Stuck detection
-                    if stuck_detector.is_stuck(response.action.tool_name, result):
-                        self.memory.add_working_event(
-                            {
-                                "role": "user",
-                                "content": (
-                                    "⚠You appear to be repeating the same "
-                                    "action with the same result. "
-                                    "Try a completely different approach."
-                                ),
-                            }
+                except SchemaValidationError as e:
+                    # RECOVERABLE: Feedback loop (re-prompt LLM)
+                    schema_error_count += 1
+                    if schema_error_count >= _MAX_CONSECUTIVE_SCHEMA_ERRORS:
+                        raise MaxIterationsExceededError(
+                            f"Agent '{self.name}' produced "
+                            f"{_MAX_CONSECUTIVE_SCHEMA_ERRORS} consecutive "
+                            f"malformed responses.",
+                            iterations=iteration,
+                            max_iterations=max_iterations,
+                            task_id=task_id,
                         )
-
-                    continue  # Next iteration
-
-                elif response.final_answer:
-                    # ── FINAL ANSWER PATH ──
-                    final = await self.on_final_answer(response.final_answer)
-
-                    # Publish to TUI
-                    await self.event_bus.emit(
-                        AgentMessageEvent(
-                            source=self.name,
-                            agent_name=self.name,
-                            content=final,
-                            is_monologue=False,
-                        )
-                    )
-
-                    logger.info(
-                        "Agent '%s' completed task in %d iteration(s) "
-                        "(effort=%s, task=%s)",
-                        self.name,
-                        iteration,
-                        effort.name,
-                        task_id,
-                    )
-                    return final
-
-                else:
-                    # Thinking-only response (no action, no answer)
-                    # Add it to memory and let the LLM continue
-                    self.memory.add_working_event(
+                    _append_message(
                         {
-                            "role": "assistant",
-                            "content": llm_response.text_content,
-                        }
+                            "role": "user",
+                            "content": (
+                                f"Schema Error: {e}. Fix your formatting and try again."
+                            ),
+                        },
+                        track_for_session=True,
                     )
                     continue
 
-            # ── ERROR HANDLING ───────────────────────────────────
-            except ContextLengthExceededError:
-                # RECOVERABLE: Summarize and retry
-                await self.event_bus.emit(
-                    AgentMessageEvent(
-                        source=self.name,
-                        agent_name=self.name,
-                        content=("⚠ Context too long, summarizing older steps..."),
-                        is_monologue=True,
+                except ToolExecutionError as e:
+                    # RECOVERABLE: Feed error back to agent as observation
+                    _append_message(
+                        {
+                            "role": "tool",
+                            "content": (f"Tool Error: {e}. Try a different approach."),
+                        },
+                        track_for_session=True,
                     )
-                )
-                await self.memory.summarize_and_compact()
-                continue
+                    continue
 
-            except SchemaValidationError as e:
-                # RECOVERABLE: Feedback loop (re-prompt LLM)
-                schema_error_count += 1
-                if schema_error_count >= _MAX_CONSECUTIVE_SCHEMA_ERRORS:
-                    raise MaxIterationsExceededError(
-                        f"Agent '{self.name}' produced "
-                        f"{_MAX_CONSECUTIVE_SCHEMA_ERRORS} consecutive "
-                        f"malformed responses.",
-                        iterations=iteration,
-                        max_iterations=max_iterations,
-                        task_id=task_id,
-                    )
-                self.memory.add_working_event(
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Schema Error: {e}. Fix your formatting and try again."
-                        ),
-                    }
-                )
-                continue
+                except AgentCLIError as e:
+                    if e.tier == ErrorTier.FATAL:
+                        raise  # Propagated to Orchestrator
+                    raise
 
-            except ToolExecutionError as e:
-                # RECOVERABLE: Feed error back to agent as observation
-                self.memory.add_working_event(
-                    {
-                        "role": "tool",
-                        "content": (f"Tool Error: {e}. Try a different approach."),
-                    }
-                )
-                continue
-
-            except AgentCLIError as e:
-                if e.tier == ErrorTier.FATAL:
-                    raise  # Propagated to Orchestrator
-                raise
-
-        # ── LOOP EXHAUSTED ───────────────────────────────────────
-        raise MaxIterationsExceededError(
-            f"Agent '{self.name}' reached {max_iterations} iterations "
-            f"(effort={effort.name}) without completing the task.",
-            iterations=max_iterations,
-            max_iterations=max_iterations,
-            task_id=task_id,
-        )
+            # ── LOOP EXHAUSTED ───────────────────────────────────────
+            raise MaxIterationsExceededError(
+                f"Agent '{self.name}' reached {max_iterations} iterations "
+                f"(effort={effort.name}) without completing the task.",
+                iterations=max_iterations,
+                max_iterations=max_iterations,
+                task_id=task_id,
+            )
+        finally:
+            self._last_task_messages = list(task_delta)
 
     # ── Private Helpers ──────────────────────────────────────────
+
+    @staticmethod
+    def _hydrate_session_messages(
+        session_messages: List[Dict[str, Any]],
+        system_prompt: str,
+    ) -> List[Dict[str, Any]]:
+        """Replace stale session system prompt with a fresh task-scoped one."""
+        hydrated: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+
+        skipped_system = False
+        for message in session_messages:
+            if not skipped_system and message.get("role") == "system":
+                skipped_system = True
+                continue
+            hydrated.append(message)
+        return hydrated
+
+    def get_last_task_messages(self) -> List[Dict[str, Any]]:
+        """Return messages added during the most recent task execution."""
+        return list(self._last_task_messages)
 
     def _get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Retrieve tool definitions for the LLM."""

@@ -9,12 +9,20 @@ Includes fallback inference if a model isn't explicitly configured.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional, Type
+from typing import Any, Dict, Optional, Tuple, Type
 
 from agent_cli.core.config import AgentSettings, load_providers
 from agent_cli.core.models.config_models import ProviderConfig
-from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
+from agent_cli.memory.budget import TokenBudget, budget_for_model
+from agent_cli.memory.token_counter import (
+    AnthropicTokenCounter,
+    BaseTokenCounter,
+    GeminiTokenCounter,
+    HeuristicTokenCounter,
+    TiktokenCounter,
+)
 from agent_cli.providers.base import BaseLLMProvider
+from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
 from agent_cli.providers.provider.google_provider import GoogleProvider
 from agent_cli.providers.provider.ollama_provider import OllamaProvider
 from agent_cli.providers.provider.openai_compat import OpenAICompatibleProvider
@@ -45,12 +53,14 @@ class ProviderManager:
     def __init__(self, settings: AgentSettings) -> None:
         self._settings = settings
         self._providers: Dict[str, BaseLLMProvider] = {}
+        self._fallback_token_counter: BaseTokenCounter = HeuristicTokenCounter()
 
         # load_providers() expects a dict with a "providers" key
         # We wrap settings.providers to match the signature
         self._provider_configs: Dict[str, ProviderConfig] = load_providers(
             {"providers": settings.providers}
         )
+        self._token_counters: Dict[str, BaseTokenCounter] = self._build_token_counters()
 
     def get_provider(self, model_name: str) -> BaseLLMProvider:
         """Get or create a provider instance for the given model_name."""
@@ -66,22 +76,68 @@ class ProviderManager:
 
     def _resolve_provider(self, model_name: str) -> BaseLLMProvider:
         """Logic for finding the correct config for a model."""
+        resolved = self._resolve_config_match(model_name)
+        if resolved:
+            provider_name, config, actual_model = resolved
+            return self._create_provider(provider_name, config, actual_model)
+
+        # 3. Fallback inference based on common model roots
+        return self._infer_provider(model_name)
+
+    def get_token_counter(self, model_name: str) -> BaseTokenCounter:
+        """Return the best token counter implementation for a model."""
+        resolved = self._resolve_config_match(model_name)
+        if resolved:
+            _, config, _ = resolved
+            return self._token_counters.get(
+                config.adapter_type, self._fallback_token_counter
+            )
+
+        inferred_provider = self._infer_provider_key(model_name)
+        if inferred_provider:
+            return self._token_counters.get(
+                inferred_provider, self._fallback_token_counter
+            )
+        return self._fallback_token_counter
+
+    def get_token_budget(
+        self,
+        model_name: str,
+        *,
+        response_reserve: int = 4096,
+        compaction_threshold: float = 0.80,
+    ) -> TokenBudget:
+        """Return a TokenBudget for the target model."""
+        resolved = self._resolve_config_match(model_name)
+        max_context_override: Optional[int] = None
+        if resolved:
+            _, config, _ = resolved
+            max_context_override = config.max_context_tokens
+
+        return budget_for_model(
+            model_name,
+            response_reserve=response_reserve,
+            compaction_threshold=compaction_threshold,
+            max_context_override=max_context_override,
+        )
+
+    def _resolve_config_match(
+        self, model_name: str
+    ) -> Optional[Tuple[str, ProviderConfig, str]]:
+        """Resolve a model against explicit provider config entries."""
         # 1. Exact match in configured models list or default_model
         for name, config in self._provider_configs.items():
             if model_name in config.models or model_name == config.default_model:
-                return self._create_provider(name, config, model_name)
+                return name, config, model_name
 
-        # 2. Match by provider name prefix (e.g. "openai" → OpenAIProvider)
+        # 2. Match by provider name prefix (e.g. "openai/gpt-4o")
         for name, config in self._provider_configs.items():
             for sep in ["/", ":"]:
                 prefix = f"{name}{sep}"
                 if model_name.startswith(prefix):
-                    # Strip only the matched prefix
                     actual_model = model_name[len(prefix) :]
-                    return self._create_provider(name, config, actual_model)
-
-        # 3. Fallback inference based on common model roots
-        return self._infer_provider(model_name)
+                    return name, config, actual_model
+        return None
 
     def _create_provider(
         self, provider_name: str, config: ProviderConfig, model_name: str
@@ -90,8 +146,7 @@ class ProviderManager:
         adapter_cls = ADAPTER_TYPES.get(config.adapter_type)
         if not adapter_cls:
             raise ValueError(
-                f"Unknown adapter type '{config.adapter_type}' "
-                f"for model '{model_name}'"
+                f"Unknown adapter type '{config.adapter_type}' for model '{model_name}'"
             )
 
         api_key = self._resolve_api_key(provider_name, config)
@@ -110,7 +165,9 @@ class ProviderManager:
         provider._runtime_provider_name = provider_name
         return provider
 
-    def _resolve_api_key(self, provider_name: str, config: ProviderConfig) -> Optional[str]:
+    def _resolve_api_key(
+        self, provider_name: str, config: ProviderConfig
+    ) -> Optional[str]:
         """Fetch API key considering custom env vars and AgentSettings fallbacks."""
         import os
 
@@ -121,23 +178,52 @@ class ProviderManager:
         # Otherwise, use AgentSettings built-in resolution (which handles keyring)
         return self._settings.resolve_api_key(provider_name)
 
-    def _infer_provider(self, model_name: str) -> BaseLLMProvider:
-        """Fallback heuristics for unknown models not in config."""
+    def _build_token_counters(self) -> Dict[str, BaseTokenCounter]:
+        """Build adapter-type token counters shared across providers."""
+        heuristic = self._fallback_token_counter
+        return {
+            "openai": TiktokenCounter(fallback=heuristic),
+            "anthropic": AnthropicTokenCounter(
+                api_key=self._settings.resolve_api_key("anthropic"),
+                fallback=heuristic,
+            ),
+            "google": GeminiTokenCounter(
+                api_key=self._settings.resolve_api_key("google"),
+                fallback=heuristic,
+            ),
+            "ollama": heuristic,
+            "openai_compatible": heuristic,
+        }
+
+    def _infer_provider_key(self, model_name: str) -> Optional[str]:
+        """Infer logical provider key from known model naming patterns."""
         lower_model = model_name.lower()
 
         if "gpt-" in lower_model or "o1" in lower_model or "o3" in lower_model:
+            return "openai"
+        if "claude" in lower_model:
+            return "anthropic"
+        if "gemini" in lower_model:
+            return "google"
+        return None
+
+    def _infer_provider(self, model_name: str) -> BaseLLMProvider:
+        """Fallback heuristics for unknown models not in config."""
+        provider_key = self._infer_provider_key(model_name)
+
+        if provider_key == "openai":
             config = self._provider_configs.get("openai")
             if config:
                 return self._create_provider("openai", config, model_name)
             return OpenAIProvider(model_name, self._settings.openai_api_key)
 
-        elif "claude" in lower_model:
+        elif provider_key == "anthropic":
             config = self._provider_configs.get("anthropic")
             if config:
                 return self._create_provider("anthropic", config, model_name)
             return AnthropicProvider(model_name, self._settings.anthropic_api_key)
 
-        elif "gemini" in lower_model:
+        elif provider_key == "google":
             config = self._provider_configs.get("google")
             if config:
                 return self._create_provider("google", config, model_name)

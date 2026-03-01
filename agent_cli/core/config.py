@@ -14,12 +14,16 @@ Loading order (lowest → highest precedence):
 from __future__ import annotations
 
 import logging
-import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 
+import tomllib
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 from agent_cli.core.models.config_models import EffortLevel, ProviderConfig
 
@@ -51,9 +55,7 @@ class TomlConfigSettingsSource(PydanticBaseSettingsSource):
 
     # ── PydanticBaseSettingsSource interface ──────────────────────
 
-    def get_field_value(
-        self, field: Any, field_name: str
-    ) -> Tuple[Any, str, bool]:
+    def get_field_value(self, field: Any, field_name: str) -> Tuple[Any, str, bool]:
         merged = self._get_merged()
         val = merged.get(field_name)
         return val, field_name, val is not None
@@ -67,9 +69,7 @@ class TomlConfigSettingsSource(PydanticBaseSettingsSource):
         """Lazy-load and cache the merged TOML data."""
         if self._merged is None:
             global_data = self._load_toml(self._global_path)
-            local_data = (
-                self._load_toml(self._local_path) if self._local_path else {}
-            )
+            local_data = self._load_toml(self._local_path) if self._local_path else {}
             self._merged = _deep_merge(global_data, local_data)
         return self._merged
 
@@ -203,6 +203,20 @@ class AgentSettings(BaseSettings):
         le=50000,
         description="Max lines kept in RAM per persistent terminal.",
     )
+    workspace_index_max_files: int = Field(
+        default=5000,
+        ge=100,
+        le=50000,
+        description="Maximum number of files stored in the workspace file index.",
+    )
+    workspace_deny_patterns: List[str] = Field(
+        default_factory=lambda: [".env", ".git/", "*.pem", "*.key"],
+        description="Glob-like patterns denied by strict workspace policy.",
+    )
+    workspace_allow_overrides: List[str] = Field(
+        default_factory=list,
+        description="Patterns that override workspace deny patterns.",
+    )
     disabled_tools: List[str] = Field(
         default_factory=list,
         description="Tool names to disable (e.g. ['spawn_terminal']).",
@@ -252,6 +266,11 @@ class AgentSettings(BaseSettings):
         default=True,
         description="Auto-save session after every message and state transition.",
     )
+    session_auto_save_interval_seconds: float = Field(
+        default=300.0,
+        ge=0.1,
+        description="Periodic session auto-save interval in seconds.",
+    )
     session_retention_days: int = Field(
         default=30,
         ge=1,
@@ -261,21 +280,11 @@ class AgentSettings(BaseSettings):
 
     # ── API Keys (1.3.4 — from env / .env / keyring — NEVER TOML) ──
 
-    anthropic_api_key: Optional[str] = Field(
-        default=None, alias="ANTHROPIC_API_KEY"
-    )
-    openai_api_key: Optional[str] = Field(
-        default=None, alias="OPENAI_API_KEY"
-    )
-    google_api_key: Optional[str] = Field(
-        default=None, alias="GOOGLE_API_KEY"
-    )
-    huggingface_api_key: Optional[str] = Field(
-        default=None, alias="HF_TOKEN"
-    )
-    openrouter_api_key: Optional[str] = Field(
-        default=None, alias="OPENROUTER_API_KEY"
-    )
+    anthropic_api_key: Optional[str] = Field(default=None, alias="ANTHROPIC_API_KEY")
+    openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+    google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
+    huggingface_api_key: Optional[str] = Field(default=None, alias="HF_TOKEN")
+    openrouter_api_key: Optional[str] = Field(default=None, alias="OPENROUTER_API_KEY")
 
     # ── Pydantic Settings Config ─────────────────────────────────
 
@@ -289,14 +298,17 @@ class AgentSettings(BaseSettings):
 
     # ── Validators (1.3.5) ───────────────────────────────────────
 
-    @field_validator("context_budget_system_prompt_pct", "context_budget_summary_pct", "context_budget_response_reserve_pct")
+    @field_validator(
+        "context_budget_system_prompt_pct",
+        "context_budget_summary_pct",
+        "context_budget_response_reserve_pct",
+    )
     @classmethod
     def _budget_percentages_sanity(cls, v: float) -> float:
         """Ensure budget percentages are fractions, not whole numbers."""
         if v > 1.0:
             raise ValueError(
-                f"Budget percentage must be 0.0–1.0, got {v}. "
-                "Use 0.15 instead of 15."
+                f"Budget percentage must be 0.0–1.0, got {v}. Use 0.15 instead of 15."
             )
         return v
 
@@ -311,17 +323,17 @@ class AgentSettings(BaseSettings):
     def get_effort_config(self, level: EffortLevel) -> Dict[str, Any]:
         """Get effort constraints, prioritizing TOML [core.effort] over defaults."""
         defaults = _DEFAULT_EFFORT_CONSTRAINTS[level]
-        
+
         # Look for user overrides in core.effort.<LEVEL> (case-insensitive key)
         user_efforts = self.core.get("effort", {})
-        
+
         # TOML keys are often lowercase, so we check various casings
         user_override = {}
         for key, val in user_efforts.items():
             if str(key).upper() == level.name:
                 user_override = val
                 break
-                
+
         if not user_override:
             return defaults
 
@@ -544,11 +556,7 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     """Recursively merge *override* into *base* (override wins)."""
     result = base.copy()
     for key, value in override.items():
-        if (
-            key in result
-            and isinstance(result[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = _deep_merge(result[key], value)
         else:
             result[key] = value

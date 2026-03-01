@@ -192,6 +192,21 @@ async def test_list_directory_tool(workspace, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_list_directory_hides_denied_paths(workspace, tmp_path):
+    tool = ListDirectoryTool(workspace)
+
+    (tmp_path / ".env").write_text("SECRET=1", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("[core]", encoding="utf-8")
+    (tmp_path / "visible.txt").write_text("ok", encoding="utf-8")
+
+    res = await tool.execute(path=".", max_depth=2)
+    assert "visible.txt" in res
+    assert ".env" not in res
+    assert ".git" not in res
+
+
+@pytest.mark.asyncio
 async def test_search_files_tool(workspace, tmp_path):
     tool = SearchFilesTool(workspace)
 
@@ -217,3 +232,15 @@ async def test_search_files_tool(workspace, tmp_path):
     # No matches
     res3 = await tool.execute(pattern="notfound")
     assert "No matches found" in res3
+
+
+@pytest.mark.asyncio
+async def test_search_files_skips_denied_paths(workspace, tmp_path):
+    tool = SearchFilesTool(workspace)
+
+    (tmp_path / ".env").write_text("api_key=needle", encoding="utf-8")
+    (tmp_path / "app.txt").write_text("needle in app", encoding="utf-8")
+
+    res = await tool.execute(pattern="needle")
+    assert "app.txt" in res
+    assert ".env" not in res

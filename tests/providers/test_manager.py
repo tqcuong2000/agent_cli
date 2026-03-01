@@ -2,14 +2,20 @@
 Unit tests for the ProviderManager factory.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 from agent_cli.core.config import AgentSettings
+from agent_cli.memory.token_counter import (
+    AnthropicTokenCounter,
+    GeminiTokenCounter,
+    HeuristicTokenCounter,
+    TiktokenCounter,
+)
 from agent_cli.providers.manager import ProviderManager
-from agent_cli.providers.provider.openai_provider import OpenAIProvider
 from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
 from agent_cli.providers.provider.google_provider import GoogleProvider
 from agent_cli.providers.provider.openai_compat import OpenAICompatibleProvider
+from agent_cli.providers.provider.openai_provider import OpenAIProvider
 
 
 def test_manager_infers_known_model_prefixes():
@@ -48,7 +54,7 @@ def test_manager_creates_from_config():
     }
 
     manager = ProviderManager(settings)
-    
+
     # "llama-3-8b-instruct" mapped to the custom local_vllm provider
     provider = manager.get_provider("llama-3-8b-instruct")
 
@@ -66,6 +72,57 @@ def test_manager_caching_behavior():
 
     p1 = manager.get_provider("gpt-5")
     p2 = manager.get_provider("gpt-5")
-    
+
     # Should be the exact same object reference
     assert p1 is p2
+
+
+def test_manager_returns_token_counters_by_provider():
+    settings = AgentSettings(
+        openai_api_key="sk-test",
+        anthropic_api_key="sk-ant",
+        google_api_key="AIzaSy",
+    )
+    settings.providers = {
+        "local_vllm": {
+            "adapter_type": "openai_compatible",
+            "base_url": "http://localhost:8000/v1",
+            "models": ["llama-3-8b-instruct"],
+            "supports_native_tools": True,
+        }
+    }
+    manager = ProviderManager(settings)
+
+    assert isinstance(manager.get_token_counter("gpt-4o"), TiktokenCounter)
+    assert isinstance(
+        manager.get_token_counter("claude-3-5-sonnet-20241022"),
+        AnthropicTokenCounter,
+    )
+    assert isinstance(manager.get_token_counter("gemini-2.5-flash"), GeminiTokenCounter)
+    assert isinstance(
+        manager.get_token_counter("llama-3-8b-instruct"),
+        HeuristicTokenCounter,
+    )
+
+
+def test_manager_token_budget_uses_provider_override():
+    settings = AgentSettings()
+    settings.providers = {
+        "custom_provider": {
+            "adapter_type": "openai_compatible",
+            "base_url": "http://localhost:8000/v1",
+            "models": ["custom-model-a"],
+            "max_context_tokens": 42_000,
+        }
+    }
+    manager = ProviderManager(settings)
+
+    budget = manager.get_token_budget(
+        "custom-model-a",
+        response_reserve=1024,
+        compaction_threshold=0.75,
+    )
+
+    assert budget.max_context == 42_000
+    assert budget.response_reserve == 1024
+    assert budget.compaction_threshold == 0.75

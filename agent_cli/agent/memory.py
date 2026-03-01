@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from agent_cli.memory.budget import TokenBudget, budget_for_model
+from agent_cli.memory.token_counter import BaseTokenCounter, HeuristicTokenCounter
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +62,33 @@ class BaseMemoryManager(ABC):
         """
 
     @abstractmethod
+    def count_tokens(self) -> int:
+        """Return token usage estimate for the current working context."""
+
+    @abstractmethod
+    def should_compact(self) -> bool:
+        """Whether memory compaction should be triggered."""
+
+    @abstractmethod
     async def summarize_and_compact(self) -> None:
         """Reduce context size when approaching the token limit.
 
         Called automatically when ``ContextLengthExceededError`` is
         caught in the agent loop.
+        """
+
+    @abstractmethod
+    async def on_model_changed(
+        self,
+        model_name: str,
+        *,
+        token_counter: Optional[BaseTokenCounter] = None,
+        token_budget: Optional[TokenBudget] = None,
+    ) -> bool:
+        """Apply a model switch and compact if the new budget is tighter.
+
+        Returns:
+            ``True`` if compaction was performed, ``False`` otherwise.
         """
 
 
@@ -89,9 +114,18 @@ class WorkingMemoryManager(BaseMemoryManager):
                      compaction (excluding system prompt).
     """
 
-    def __init__(self, keep_recent: int = 10) -> None:
+    def __init__(
+        self,
+        keep_recent: int = 10,
+        token_counter: Optional[BaseTokenCounter] = None,
+        token_budget: Optional[TokenBudget] = None,
+        model_name: str = "unknown",
+    ) -> None:
         self._messages: List[Dict[str, Any]] = []
         self._keep_recent = keep_recent
+        self._model_name = model_name
+        self._token_counter = token_counter or HeuristicTokenCounter()
+        self._token_budget = token_budget or budget_for_model(model_name)
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -107,6 +141,15 @@ class WorkingMemoryManager(BaseMemoryManager):
         """Return the current message list for the LLM."""
         return list(self._messages)
 
+    def count_tokens(self) -> int:
+        """Estimate token usage for current working memory."""
+        return self._count_messages(self._messages)
+
+    def should_compact(self) -> bool:
+        """Whether token budget threshold has been crossed."""
+        current_tokens = self.count_tokens()
+        return self._token_budget.should_compact(current_tokens)
+
     async def summarize_and_compact(self) -> None:
         """Compact working memory by dropping old middle messages.
 
@@ -116,29 +159,107 @@ class WorkingMemoryManager(BaseMemoryManager):
 
         Drops everything in between and inserts a compaction marker.
         """
-        if len(self._messages) <= self._keep_recent + 1:
-            # Too few messages to compact
-            logger.debug("Working memory too short to compact (%d messages)", len(self._messages))
+        if not self.should_compact():
+            logger.debug(
+                "Compaction skipped: token usage %d below threshold.",
+                self.count_tokens(),
+            )
             return
 
-        # Separate system prompt from the rest
+        if len(self._messages) <= 2:
+            logger.debug(
+                "Working memory too short to compact (%d messages)", len(self._messages)
+            )
+            return
+
+        system_msgs, other_msgs = self._split_system_and_other_messages(self._messages)
+
+        if len(other_msgs) <= 1:
+            return
+
+        # Token-driven compaction: progressively reduce preserved recent turns
+        # until budget threshold is met or only one non-system message remains.
+        keep_recent = min(self._keep_recent, len(other_msgs))
+        compacted = False
+
+        while keep_recent >= 1:
+            dropped_count = len(other_msgs) - keep_recent
+            kept = other_msgs[-keep_recent:]
+
+            candidate = list(system_msgs)
+            if dropped_count > 0:
+                candidate.append(self._build_compaction_marker(dropped_count))
+            candidate.extend(kept)
+
+            candidate_tokens = self._count_messages(candidate)
+            if (
+                not self._token_budget.should_compact(candidate_tokens)
+                or keep_recent == 1
+            ):
+                self._messages = candidate
+                compacted = dropped_count > 0
+                logger.info(
+                    "Working memory compacted: dropped=%d kept=%d tokens=%d model=%s",
+                    dropped_count,
+                    len(self._messages),
+                    candidate_tokens,
+                    self._model_name,
+                )
+                break
+
+            keep_recent -= 1
+
+        if not compacted:
+            logger.debug("Compaction did not drop messages; context already minimal.")
+
+    async def on_model_changed(
+        self,
+        model_name: str,
+        *,
+        token_counter: Optional[BaseTokenCounter] = None,
+        token_budget: Optional[TokenBudget] = None,
+    ) -> bool:
+        """Update token counting/budget strategy for a newly selected model."""
+        previous_available = self._token_budget.available_for_context()
+
+        self._model_name = model_name
+        if token_counter is not None:
+            self._token_counter = token_counter
+        if token_budget is not None:
+            self._token_budget = token_budget
+        else:
+            self._token_budget = budget_for_model(model_name)
+
+        new_available = self._token_budget.available_for_context()
+        needs_compaction = self.should_compact()
+        if new_available < previous_available and needs_compaction:
+            await self.summarize_and_compact()
+            return True
+        return False
+
+    # ── Utilities ────────────────────────────────────────────────
+
+    def _count_messages(self, messages: List[Dict[str, Any]]) -> int:
+        return self._token_counter.count(messages, self._model_name)
+
+    @staticmethod
+    def _split_system_and_other_messages(
+        messages: List[Dict[str, Any]],
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Split leading system prompt(s) from the rest of the context."""
         system_msgs: List[Dict[str, Any]] = []
         other_msgs: List[Dict[str, Any]] = []
-
-        for msg in self._messages:
+        for msg in messages:
             if msg.get("role") == "system" and not other_msgs:
                 system_msgs.append(msg)
             else:
                 other_msgs.append(msg)
+        return system_msgs, other_msgs
 
-        if len(other_msgs) <= self._keep_recent:
-            return
-
-        # Keep only the most recent messages
-        dropped_count = len(other_msgs) - self._keep_recent
-        kept = other_msgs[-self._keep_recent:]
-
-        compaction_marker = {
+    @staticmethod
+    def _build_compaction_marker(dropped_count: int) -> Dict[str, Any]:
+        """Create a standard marker message for dropped historical context."""
+        return {
             "role": "user",
             "content": (
                 f"[Context compacted: {dropped_count} older messages were "
@@ -147,17 +268,12 @@ class WorkingMemoryManager(BaseMemoryManager):
             ),
         }
 
-        self._messages = system_msgs + [compaction_marker] + kept
-
-        logger.info(
-            "Working memory compacted: dropped %d messages, kept %d",
-            dropped_count,
-            len(self._messages),
-        )
-
-    # ── Utilities ────────────────────────────────────────────────
-
     @property
     def message_count(self) -> int:
         """Number of messages in working memory."""
         return len(self._messages)
+
+    @property
+    def token_budget(self) -> TokenBudget:
+        """Current token budget."""
+        return self._token_budget

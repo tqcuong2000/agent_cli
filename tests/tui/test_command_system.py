@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -24,7 +25,6 @@ from agent_cli.commands.base import (
     command,
 )
 from agent_cli.commands.parser import CommandParser
-
 
 # ── Mock dependencies ────────────────────────────────────────────────
 
@@ -42,6 +42,7 @@ class _MockSettings:
         self.show_agent_thinking = True
         self.log_level = "INFO"
         self.tool_output_max_chars = 5000
+        self.context_compaction_threshold = 0.80
 
 
 class _MockMemoryManager:
@@ -55,12 +56,22 @@ class _MockMemoryManager:
         self._reset_called = True
         self.message_count = 0
 
+    def count_tokens(self) -> int:
+        return 42
+
+    async def on_model_changed(self, model_name: str, **kwargs: Any) -> bool:
+        return False
+
 
 class _MockEventBus:
     """Stub event bus that ignores everything."""
 
+    def __init__(self) -> None:
+        self.published_events: List[Any] = []
+
     async def publish(self, *a: Any, **kw: Any) -> None:
-        pass
+        if a:
+            self.published_events.append(a[0])
 
     def subscribe(self, *a: Any, **kw: Any) -> str:
         return "sub-1"
@@ -78,6 +89,8 @@ def registry() -> CommandRegistry:
     """Build a registry with the core handlers pre-loaded."""
     # Importing triggers @command decorators
     import agent_cli.commands.handlers.core  # noqa: F401
+    import agent_cli.commands.handlers.sandbox  # noqa: F401
+    import agent_cli.commands.handlers.session  # noqa: F401
     from agent_cli.commands.base import _DEFAULT_REGISTRY
 
     reg = CommandRegistry()
@@ -117,6 +130,8 @@ def test_command_decorator_registers_into_registry(registry: CommandRegistry):
     assert "config" in names
     assert "cost" in names
     assert "context" in names
+    assert "sandbox" in names
+    assert "session" in names
 
 
 def test_parser_is_command_true_false():
@@ -148,13 +163,16 @@ async def test_parser_execute_unknown_returns_failure(parser: CommandParser):
 
 
 @pytest.mark.asyncio
-async def test_parser_execute_effort_updates_settings(parser: CommandParser, ctx: CommandContext):
+async def test_parser_execute_effort_updates_settings(
+    parser: CommandParser, ctx: CommandContext
+):
     """/effort high updates settings.default_effort_level."""
     result = await parser.execute("/effort high")
 
     assert result.success is True
 
     from agent_cli.core.models.config_models import EffortLevel
+
     assert ctx.settings.default_effort_level == EffortLevel.HIGH
 
 
@@ -175,3 +193,36 @@ async def test_clear_resets_memory_manager(parser: CommandParser, ctx: CommandCo
     assert result.success is True
     assert ctx.memory_manager._reset_called is True
     assert "cleared" in result.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_model_command_updates_model_and_emits_settings_event(
+    parser: CommandParser, ctx: CommandContext
+):
+    class _MockProviders:
+        def get_token_counter(self, model_name: str) -> object:
+            return object()
+
+        def get_token_budget(self, model_name: str, **kwargs: Any) -> object:
+            return object()
+
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        orchestrator=None,
+        providers=_MockProviders(),
+    )
+
+    result = await parser.execute("/model gpt-4o-mini")
+
+    assert result.success is True
+    assert ctx.settings.default_model == "gpt-4o-mini"
+    assert any(
+        getattr(event, "setting_name", "") == "default_model"
+        for event in ctx.event_bus.published_events
+    )
+
+
+@pytest.mark.asyncio
+async def test_sandbox_command_reports_missing_manager(parser: CommandParser):
+    result = await parser.execute("/sandbox on")
+    assert result.success is False
+    assert "not configured" in result.message.lower()
