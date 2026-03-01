@@ -126,6 +126,10 @@ class FileSessionManager(AbstractSessionManager):
             self._clear_active_id()
             return None
 
+    def clear_active(self) -> None:
+        self._active_session = None
+        self._clear_active_id()
+
     # ── Internal helpers ───────────────────────────────────────
 
     def _session_path(self, session_id: str) -> Path:

@@ -86,12 +86,22 @@ async def test_startup_and_shutdown():
     await ctx.startup()
     assert ctx.is_running is True
     assert ctx.session_manager is not None
-    assert ctx.session_manager.get_active() is not None
+    assert ctx.session_manager.get_active() is None
     assert ctx.file_indexer is not None
 
     await ctx.shutdown()
     assert ctx.is_running is False
     assert ctx.event_bus.state == BusState.STOPPED
+
+
+@pytest.mark.asyncio
+async def test_startup_does_not_create_session():
+    """Startup should not create sessions until first routed user request."""
+    ctx = create_app()
+    await ctx.startup()
+    assert ctx.session_manager is not None
+    assert ctx.session_manager.get_active() is None
+    await ctx.shutdown()
 
 
 @pytest.mark.asyncio

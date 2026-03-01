@@ -67,7 +67,9 @@ class AgentCLIApp(App):
         yield self.error_popup
         yield FooterContainer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
+        await self.app_context.startup()
+
         # Set workspace root for file discovery
         if self.root_folder:
             self.file_popup.set_workspace_root(self.root_folder)
@@ -197,3 +199,7 @@ class AgentCLIApp(App):
             ),
             error_type="error",
         )
+
+    async def on_unmount(self) -> None:
+        """Flush and release app context resources on TUI shutdown."""
+        await self.app_context.shutdown()

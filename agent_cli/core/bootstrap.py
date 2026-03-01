@@ -31,7 +31,7 @@ from agent_cli.commands.base import CommandContext, CommandRegistry
 from agent_cli.commands.parser import CommandParser
 from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
-from agent_cli.core.events.events import TaskResultEvent
+from agent_cli.core.events.events import BaseEvent, TaskResultEvent
 from agent_cli.core.file_tracker import FileChangeTracker
 from agent_cli.core.orchestrator import Orchestrator
 from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
@@ -116,14 +116,10 @@ class AppContext:
         # Future phases will init more components here:
         # - Semantic memory connection
         # - Session database
+        # Session creation is lazy and happens on first routed user request
+        # (or explicit /session command actions).
         if self.session_manager is not None:
-            active = self.session_manager.get_active()
-            if active is None:
-                active = self.session_manager.create_session()
-                self.session_manager.save(active)
-                logger.info("Created new active session: %s", active.session_id)
-            else:
-                logger.info("Loaded active session: %s", active.session_id)
+            self.session_manager.clear_active()
 
         if self.session_manager is not None and self.settings.session_auto_save:
             if self._task_result_subscription_id is None:
@@ -211,7 +207,7 @@ class AppContext:
         """Whether the app context has been started and not yet shut down."""
         return self._started
 
-    async def _on_task_result_event(self, event: TaskResultEvent) -> None:
+    async def _on_task_result_event(self, event: BaseEvent) -> None:
         """Auto-save the active session after task completion events."""
         if not isinstance(event, TaskResultEvent):
             return

@@ -141,6 +141,9 @@ async def test_session_delete_active_creates_replacement(tmp_path: Path):
     )
     parser = _build_parser(ctx)
 
+    save_result = await parser.execute("/session save temp")
+    assert save_result.success is True
+
     active_before = app_context.session_manager.get_active()
     assert active_before is not None
     old_id = active_before.session_id
@@ -167,8 +170,8 @@ async def test_autosave_on_task_result_event(tmp_path: Path):
     app_context = _build_app_context(session_dir=session_dir, settings=settings)
     await app_context.startup()
 
-    active = app_context.session_manager.get_active()
-    assert active is not None
+    active = app_context.session_manager.create_session()
+    app_context.session_manager.save(active)
     active.total_cost = 1.23
 
     await app_context.event_bus.publish(
@@ -188,8 +191,8 @@ async def test_autosave_on_shutdown(tmp_path: Path):
     app_context = _build_app_context(session_dir=session_dir)
     await app_context.startup()
 
-    active = app_context.session_manager.get_active()
-    assert active is not None
+    active = app_context.session_manager.create_session()
+    app_context.session_manager.save(active)
     active.total_cost = 4.56
     active_id = active.session_id
 
@@ -211,8 +214,8 @@ async def test_periodic_autosave(tmp_path: Path):
     app_context = _build_app_context(session_dir=session_dir, settings=settings)
     await app_context.startup()
 
-    active = app_context.session_manager.get_active()
-    assert active is not None
+    active = app_context.session_manager.create_session()
+    app_context.session_manager.save(active)
     active.total_cost = 7.89
     active_id = active.session_id
 

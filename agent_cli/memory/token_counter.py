@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import math
@@ -68,9 +69,9 @@ class TiktokenCounter(BaseTokenCounter):
             return 0
 
         try:
-            import tiktoken
-
-            encoding = tiktoken.get_encoding(self._encoding_name(model_name))
+            tiktoken_mod = importlib.import_module("tiktoken")
+            get_encoding = getattr(tiktoken_mod, "get_encoding")
+            encoding = get_encoding(self._encoding_name(model_name))
         except Exception as exc:
             logger.debug("tiktoken unavailable for '%s': %s", model_name, exc)
             return self._fallback.count(messages, model_name)
@@ -140,9 +141,9 @@ class AnthropicTokenCounter(BaseTokenCounter):
             return None
 
         try:
-            from anthropic import Anthropic
-
-            self._client = Anthropic(api_key=self._api_key)
+            anthropic_mod = importlib.import_module("anthropic")
+            anthropic_cls = getattr(anthropic_mod, "Anthropic")
+            self._client = anthropic_cls(api_key=self._api_key)
             return self._client
         except Exception as exc:
             logger.debug("Unable to initialize Anthropic count client: %s", exc)
@@ -187,9 +188,9 @@ class GeminiTokenCounter(BaseTokenCounter):
             return None
 
         try:
-            from google import genai
-
-            self._client = genai.Client(api_key=self._api_key)
+            genai_mod = importlib.import_module("google.genai")
+            client_cls = getattr(genai_mod, "Client")
+            self._client = client_cls(api_key=self._api_key)
             return self._client
         except Exception as exc:
             logger.debug("Unable to initialize Gemini count client: %s", exc)

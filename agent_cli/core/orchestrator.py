@@ -18,13 +18,14 @@ task lifecycle:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, Optional
 
 from agent_cli.agent.base import BaseAgent
 from agent_cli.core.error_handler.errors import AgentCLIError
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.events.events import (
     AgentMessageEvent,
+    BaseEvent,
     TaskDelegatedEvent,
     TaskResultEvent,
     UserRequestEvent,
@@ -131,10 +132,12 @@ class Orchestrator:
 
     # ── Event Handler ────────────────────────────────────────────
 
-    async def _on_user_request(self, event: UserRequestEvent) -> None:
+    async def _on_user_request(self, event: BaseEvent) -> None:
         """Handle ``UserRequestEvent`` from the Event Bus."""
+        if not isinstance(event, UserRequestEvent):
+            return
         try:
-            result = await self.handle_request(event.text)
+            await self.handle_request(event.text)
             # Result may be None for slash-commands (they handle
             # their own output).
         except Exception as e:

@@ -106,7 +106,7 @@ async def cmd_clear(args: List[str], ctx: CommandContext) -> CommandResult:
 )
 async def cmd_context(args: List[str], ctx: CommandContext) -> CommandResult:
     """Show current token usage from working memory."""
-    msg_count = ctx.memory_manager.message_count
+    msg_count = len(ctx.memory_manager.get_working_context())
     token_count = ctx.memory_manager.count_tokens()
     budget = getattr(ctx.memory_manager, "token_budget", None)
     if budget is not None:

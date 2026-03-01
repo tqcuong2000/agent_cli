@@ -27,7 +27,7 @@ from agent_cli.core.error_handler.errors import (
 from agent_cli.core.error_handler.retry import retry_with_backoff
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.providers.cost import estimate_cost
-from agent_cli.providers.models import LLMResponse, StreamChunk, ToolCallMode
+from agent_cli.providers.models import LLMResponse, StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,7 @@ class BaseLLMProvider(ABC):
         self.model_name = model_name
         self.api_key = api_key
         self.base_url = base_url
+        self._runtime_provider_name: Optional[str] = None
         self._tool_formatter = self._create_tool_formatter()
 
     # ── Abstract Properties ──────────────────────────────────────
@@ -228,20 +229,27 @@ class BaseLLMProvider(ABC):
                 retry_after=retry_after,
             )
         elif "500" in msg or "503" in msg or "overloaded" in msg or "529" in msg:
-            return LLMOverloadError(
-                f"Server error from {self.provider_name}: {error}"
-            )
-        elif "401" in msg or "403" in msg or "invalid_api_key" in msg or "authentication" in msg:
+            return LLMOverloadError(f"Server error from {self.provider_name}: {error}")
+        elif (
+            "401" in msg
+            or "403" in msg
+            or "invalid_api_key" in msg
+            or "authentication" in msg
+        ):
             return AuthenticationError(
                 f"Authentication failed for {self.provider_name}: {error}",
                 user_message=f"API key for {self.provider_name} is invalid or expired. "
-                             f"Check your .env file or keyring.",
+                f"Check your .env file or keyring.",
             )
-        elif "context_length" in msg or "too many tokens" in msg or "maximum context" in msg:
+        elif (
+            "context_length" in msg
+            or "too many tokens" in msg
+            or "maximum context" in msg
+        ):
             return ContextLengthExceededError(
                 f"Context too long for {self.model_name}: {error}",
                 user_message="The conversation is too long for this model. "
-                             "Context compaction will be triggered.",
+                "Context compaction will be triggered.",
             )
         else:
             return LLMTransientError(
@@ -252,10 +260,15 @@ class BaseLLMProvider(ABC):
     def _extract_retry_after(error: Exception) -> Optional[float]:
         """Try to extract a retry-after value from the exception."""
         # Many SDKs attach retry_after or response headers
-        if hasattr(error, "retry_after"):
-            return float(error.retry_after)
-        if hasattr(error, "response") and hasattr(error.response, "headers"):
-            val = error.response.headers.get("retry-after")
+        err_any: Any = error
+        retry_after = getattr(err_any, "retry_after", None)
+        if retry_after is not None:
+            return float(retry_after)
+
+        response = getattr(err_any, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is not None and hasattr(headers, "get"):
+            val = headers.get("retry-after")
             if val:
                 try:
                     return float(val)
@@ -292,10 +305,12 @@ class BaseLLMProvider(ABC):
         modified = []
         for msg in context:
             if msg.get("role") == "system":
-                modified.append({
-                    "role": "system",
-                    "content": msg["content"] + "\n\n" + tool_text,
-                })
+                modified.append(
+                    {
+                        "role": "system",
+                        "content": msg["content"] + "\n\n" + tool_text,
+                    }
+                )
             else:
                 modified.append(msg)
         return modified

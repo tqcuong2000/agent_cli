@@ -66,3 +66,7 @@ class AbstractSessionManager(ABC):
     @abstractmethod
     def get_active(self) -> Optional[Session]:
         """Get the active session, if any."""
+
+    @abstractmethod
+    def clear_active(self) -> None:
+        """Clear active-session pointer without deleting saved sessions."""

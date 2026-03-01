@@ -9,10 +9,10 @@ from agent_cli.agent.memory import WorkingMemoryManager
 from agent_cli.agent.react_loop import PromptBuilder
 from agent_cli.agent.schema import SchemaValidator
 from agent_cli.core.error_handler.errors import MaxIterationsExceededError
-from agent_cli.core.events.event_bus import AsyncEventBus
+from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
 from agent_cli.core.state.state_manager import TaskState, TaskStateManager
-from agent_cli.providers.base import BaseLLMProvider
-from agent_cli.providers.models import LLMRequest, LLMResponse, ToolCallMode
+from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
+from agent_cli.providers.models import LLMResponse, ToolCallMode
 from agent_cli.tools.ask_user_tool import AskUserTool
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.tools.executor import ToolExecutor
@@ -55,11 +55,16 @@ class MockLLMProvider(BaseLLMProvider):
     def supports_native_tools(self) -> bool:
         return False
 
-    def _create_tool_formatter(self):
-        return None
+    def _create_tool_formatter(self) -> BaseToolFormatter:
+        return _MockToolFormatter()
 
-    async def generate(self, request: LLMRequest) -> LLMResponse:
-        self.requests.append(request.to_message_dicts())
+    async def generate(
+        self,
+        context: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        self.requests.append(context)
         if self.call_count >= len(self.responses):
             text = "<final_answer>Out of mock responses.</final_answer>"
         else:
@@ -75,13 +80,21 @@ class MockLLMProvider(BaseLLMProvider):
         self,
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        max_tokens: int = 4096,
+        max_retries: int = 3,
+        task_id: str = "",
+        event_bus: Optional[AbstractEventBus] = None,
         **kwargs,
     ) -> LLMResponse:
         # Override safe_generate directly since we mock everything
-        request = LLMRequest(messages=[])
-        return await self.generate(request)
+        return await self.generate(context, tools, max_tokens)
 
-    async def stream(self, request: LLMRequest):
+    async def stream(
+        self,
+        context: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        max_tokens: int = 4096,
+    ):
         yield None
 
     async def check_health(self) -> bool:
@@ -101,6 +114,14 @@ class DummyAgent(BaseAgent):
 
     async def on_final_answer(self, answer: str) -> str:
         return f"FINAL: {answer}"
+
+
+class _MockToolFormatter(BaseToolFormatter):
+    def format_for_native_fc(self, tools: List[Dict[str, Any]]) -> Any:
+        return tools
+
+    def format_for_prompt_injection(self, tools: List[Dict[str, Any]]) -> str:
+        return ""
 
 
 def _reasoning(title: str, thoughts: str) -> str:

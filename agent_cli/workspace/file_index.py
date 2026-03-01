@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.events.events import BaseEvent, FileChangedEvent
@@ -40,7 +40,7 @@ class FileIndexer:
         self._subscription_id: Optional[str] = None
         self._build_task: Optional[asyncio.Task[None]] = None
 
-        self._gitignore_matcher: Optional[object] = None
+        self._gitignore_matcher: Optional[Any] = None
         self._fallback_gitignore_patterns: List[str] = []
 
         self._load_cache()
@@ -179,10 +179,14 @@ class FileIndexer:
 
     def _is_ignored(self, rel_path: str, *, is_dir: bool) -> bool:
         target = rel_path.replace("\\", "/")
-        if self._gitignore_matcher is not None:
+        matcher = self._gitignore_matcher
+        match_file = (
+            getattr(matcher, "match_file", None) if matcher is not None else None
+        )
+        if callable(match_file):
             pathspec_target = target + "/" if is_dir else target
             try:
-                return bool(self._gitignore_matcher.match_file(pathspec_target))
+                return bool(match_file(pathspec_target))
             except Exception:
                 pass
 
