@@ -153,15 +153,15 @@ class SchemaValidator(BaseSchemaValidator):
         if not title_match:
             raise SchemaValidationError(
                 "Missing <title> for <thinking>. "
-                "Provide a short title (1 to 12 words).",
+                 "Provide a short title (1 to 15 words).",
                 raw_response=text,
             )
 
         raw_title = title_match.group(1).strip()
         title_words = [w for w in raw_title.split() if w]
-        if not 1 <= len(title_words) <= 12:
+        if not 1 <= len(title_words) <= 15:
             raise SchemaValidationError(
-                "Invalid <title> length. Title must be 1 to 12 words.",
+                "Invalid <title> length. Title must be 1  to 15 words.",
                 raw_response=text,
             )
 

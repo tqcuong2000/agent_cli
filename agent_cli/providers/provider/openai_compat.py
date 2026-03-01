@@ -64,7 +64,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     @property
     def provider_name(self) -> str:
-        return "openai_compatible"
+        return getattr(self, "_runtime_provider_name", "openai_compatible")
 
     @property
     def supports_native_tools(self) -> bool:
@@ -91,7 +91,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         }
         if tools and self._native_tools:
             # Re-use OpenAI tool format for compatible endpoints
-            from agent_cli.providers.openai_provider import OpenAIToolFormatter
+            from agent_cli.providers.provider.openai_provider import OpenAIToolFormatter
 
             kwargs["tools"] = OpenAIToolFormatter().format_for_native_fc(tools)
 

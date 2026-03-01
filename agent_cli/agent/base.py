@@ -35,7 +35,13 @@ from agent_cli.core.error_handler.errors import (
     ToolExecutionError,
 )
 from agent_cli.core.events.event_bus import AbstractEventBus
-from agent_cli.core.events.events import AgentMessageEvent
+from agent_cli.core.events.events import (
+    AgentMessageEvent,
+    BaseEvent,
+    SettingsChangedEvent,
+    TaskDelegatedEvent,
+    TaskResultEvent,
+)
 from agent_cli.core.models.config_models import EffortLevel
 from agent_cli.core.state.state_manager import AbstractStateManager
 from agent_cli.tools.executor import ToolExecutor
@@ -48,33 +54,7 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════════════════════════════════════
 
 
-EFFORT_CONSTRAINTS: Dict[EffortLevel, Dict[str, Any]] = {
-    EffortLevel.LOW: {
-        "max_iterations": 5,
-        "model_tier": "fast",
-        "reasoning_instruction": (
-            "Be concise. Act immediately when the path is clear."
-        ),
-        "review_policy": "none",
-    },
-    EffortLevel.MEDIUM: {
-        "max_iterations": 15,
-        "model_tier": "capable",
-        "reasoning_instruction": (
-            "Think step-by-step. Explain your reasoning before acting."
-        ),
-        "review_policy": "standard",
-    },
-    EffortLevel.HIGH: {
-        "max_iterations": 30,
-        "model_tier": "premium",
-        "reasoning_instruction": (
-            "Think deeply. Consider multiple approaches before choosing one. "
-            "After completing the task, review your work for correctness."
-        ),
-        "review_policy": "self_verify",
-    },
-}
+# (EFFORT_CONSTRAINTS moved to agent_cli.core.config to support TOML overrides)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -104,7 +84,7 @@ class AgentConfig:
     description: str = ""
     persona: str = ""
     model: str = ""
-    effort_level: EffortLevel = EffortLevel.MEDIUM
+    effort_level: Optional[EffortLevel] = None  # None = follow global default_effort_level
     tools: List[str] = field(default_factory=list)
     max_iterations_override: Optional[int] = None
     show_thinking: bool = True
@@ -145,6 +125,7 @@ class BaseAgent(ABC):
         event_bus: AbstractEventBus,
         state_manager: AbstractStateManager,
         prompt_builder: PromptBuilder,
+        settings: Any = None,  # AgentSettings
     ) -> None:
         self.config = config
         self.provider = provider
@@ -154,11 +135,39 @@ class BaseAgent(ABC):
         self.event_bus = event_bus
         self.state_manager = state_manager
         self.prompt_builder = prompt_builder
+        
+        # Reactive effort caching
+        self._effort_constraints: Dict[str, Any] = {}
+        self._last_resolved_effort: Optional[EffortLevel] = None
+        
+        # In tests this might be None, so fallback gracefully
+        if settings is None:
+            from agent_cli.core.config import AgentSettings
+            self.settings = AgentSettings()
+        else:
+            self.settings = settings
+
+        # Subscribe to settings changes
+        if self.event_bus:
+            self.event_bus.subscribe(SettingsChangedEvent, self._on_settings_changed)
+            
+    async def _on_settings_changed(self, event: SettingsChangedEvent) -> None:
+        """Reactive hook for settings updates."""
+        if event.setting_name == "default_effort_level":
+            # Invalidate cache
+            self._last_resolved_effort = None
+            self._effort_constraints = {}
+            logger.debug(f"Agent '{self.name}' reactive effort cache invalidated.")
 
     @property
     def name(self) -> str:
         """Agent's unique name from config."""
         return self.config.name
+
+    @property
+    def effort(self) -> EffortLevel:
+        """Resolve the current effort level (agent override → global default)."""
+        return self.config.effort_level or self.settings.default_effort_level
 
     # ── Abstract Hooks ───────────────────────────────────────────
 
@@ -221,10 +230,17 @@ class BaseAgent(ABC):
             AgentCLIError: On fatal errors (propagated to Orchestrator).
         """
         # ── Resolve effort level ─────────────────────────────────
-        effort = effort_override or self.config.effort_level
-        constraints = EFFORT_CONSTRAINTS[effort]
+        effort = effort_override or self.effort
+        
+        # Reactive cache check
+        if effort != self._last_resolved_effort or not self._effort_constraints:
+            self._effort_constraints = self.settings.get_effort_config(effort)
+            self._last_resolved_effort = effort
+            
+        constraints = self._effort_constraints
+        
         max_iterations = (
-            self.config.max_iterations_override or constraints["max_iterations"]
+            self.config.max_iterations_override or constraints.get("max_iterations", 15)
         )
 
         # ── Build system prompt ──────────────────────────────────

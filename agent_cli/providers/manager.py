@@ -13,11 +13,12 @@ from typing import Dict, Optional, Type
 
 from agent_cli.core.config import AgentSettings, load_providers
 from agent_cli.core.models.config_models import ProviderConfig
-from agent_cli.providers.anthropic_provider import AnthropicProvider
+from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
 from agent_cli.providers.base import BaseLLMProvider
-from agent_cli.providers.google_provider import GoogleProvider
-from agent_cli.providers.openai_compat import OpenAICompatibleProvider
-from agent_cli.providers.openai_provider import OpenAIProvider
+from agent_cli.providers.provider.google_provider import GoogleProvider
+from agent_cli.providers.provider.ollama_provider import OllamaProvider
+from agent_cli.providers.provider.openai_compat import OpenAICompatibleProvider
+from agent_cli.providers.provider.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ ADAPTER_TYPES: Dict[str, Type[BaseLLMProvider]] = {
     "openai": OpenAIProvider,
     "anthropic": AnthropicProvider,
     "google": GoogleProvider,
+    "ollama": OllamaProvider,
     "openai_compatible": OpenAICompatibleProvider,
 }
 
@@ -44,10 +46,11 @@ class ProviderManager:
         self._settings = settings
         self._providers: Dict[str, BaseLLMProvider] = {}
 
-        # load_providers() reads from the parsed TOML data
-        # _config_data is where TomlConfigSettingsSource stores the raw dictionaries
-        config_data = getattr(settings, "_config_data", {})
-        self._provider_configs: Dict[str, ProviderConfig] = load_providers(config_data)
+        # load_providers() expects a dict with a "providers" key
+        # We wrap settings.providers to match the signature
+        self._provider_configs: Dict[str, ProviderConfig] = load_providers(
+            {"providers": settings.providers}
+        )
 
     def get_provider(self, model_name: str) -> BaseLLMProvider:
         """Get or create a provider instance for the given model_name."""
@@ -66,20 +69,22 @@ class ProviderManager:
         # 1. Exact match in configured models list or default_model
         for name, config in self._provider_configs.items():
             if model_name in config.models or model_name == config.default_model:
-                return self._create_provider(config, model_name)
+                return self._create_provider(name, config, model_name)
 
         # 2. Match by provider name prefix (e.g. "openai" → OpenAIProvider)
         for name, config in self._provider_configs.items():
-            if model_name.startswith(f"{name}/") or model_name.startswith(f"{name}:"):
-                # Strip prefix for the actual target model
-                actual_model = model_name.split("/", 1)[-1].split(":", 1)[-1]
-                return self._create_provider(config, actual_model)
+            for sep in ["/", ":"]:
+                prefix = f"{name}{sep}"
+                if model_name.startswith(prefix):
+                    # Strip only the matched prefix
+                    actual_model = model_name[len(prefix) :]
+                    return self._create_provider(name, config, actual_model)
 
         # 3. Fallback inference based on common model roots
         return self._infer_provider(model_name)
 
     def _create_provider(
-        self, config: ProviderConfig, model_name: str
+        self, provider_name: str, config: ProviderConfig, model_name: str
     ) -> BaseLLMProvider:
         """Instantiate the adapter class defined in the config."""
         adapter_cls = ADAPTER_TYPES.get(config.adapter_type)
@@ -89,7 +94,7 @@ class ProviderManager:
                 f"for model '{model_name}'"
             )
 
-        api_key = self._resolve_api_key(config)
+        api_key = self._resolve_api_key(provider_name, config)
 
         # OpenAICompatibleProvider accepts native_tools flag, others don't
         kwargs: Dict[str, Any] = {
@@ -97,12 +102,15 @@ class ProviderManager:
             "api_key": api_key,
             "base_url": config.base_url,
         }
-        if config.adapter_type == "openai_compatible":
+        if config.adapter_type in ["openai_compatible", "ollama"]:
             kwargs["native_tools"] = config.supports_native_tools
 
-        return adapter_cls(**kwargs)
+        provider = adapter_cls(**kwargs)
+        # Inject the logical runtime name for better error reporting
+        provider._runtime_provider_name = provider_name
+        return provider
 
-    def _resolve_api_key(self, config: ProviderConfig) -> Optional[str]:
+    def _resolve_api_key(self, provider_name: str, config: ProviderConfig) -> Optional[str]:
         """Fetch API key considering custom env vars and AgentSettings fallbacks."""
         import os
 
@@ -111,7 +119,7 @@ class ProviderManager:
             return os.getenv(config.api_key_env)
 
         # Otherwise, use AgentSettings built-in resolution (which handles keyring)
-        return self._settings.resolve_api_key(config.adapter_type)
+        return self._settings.resolve_api_key(provider_name)
 
     def _infer_provider(self, model_name: str) -> BaseLLMProvider:
         """Fallback heuristics for unknown models not in config."""
@@ -120,19 +128,19 @@ class ProviderManager:
         if "gpt-" in lower_model or "o1" in lower_model or "o3" in lower_model:
             config = self._provider_configs.get("openai")
             if config:
-                return self._create_provider(config, model_name)
+                return self._create_provider("openai", config, model_name)
             return OpenAIProvider(model_name, self._settings.openai_api_key)
 
         elif "claude" in lower_model:
             config = self._provider_configs.get("anthropic")
             if config:
-                return self._create_provider(config, model_name)
+                return self._create_provider("anthropic", config, model_name)
             return AnthropicProvider(model_name, self._settings.anthropic_api_key)
 
         elif "gemini" in lower_model:
             config = self._provider_configs.get("google")
             if config:
-                return self._create_provider(config, model_name)
+                return self._create_provider("google", config, model_name)
             return GoogleProvider(model_name, self._settings.google_api_key)
 
         raise ValueError(

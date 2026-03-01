@@ -23,11 +23,8 @@ class DefaultAgent(BaseAgent):
             "You have access to tools that let you interact with the user's system."
         )
 
-        effort_constraints = self.config.effort_level  # Enum
-        # We need the actual constraint dict from EFFORT_CONSTRAINTS
-        from agent_cli.agent.base import EFFORT_CONSTRAINTS
-
-        constraints = EFFORT_CONSTRAINTS[effort_constraints]
+        effort_constraints = self.effort  # Resolved dynamic effort level
+        constraints = self.settings.get_effort_config(effort_constraints)
 
         native_tools = getattr(self.provider, "supports_native_tools", False)
 

@@ -6,10 +6,10 @@ from typing import Dict, Any
 
 from agent_cli.core.config import AgentSettings
 from agent_cli.providers.manager import ProviderManager
-from agent_cli.providers.openai_provider import OpenAIProvider
-from agent_cli.providers.anthropic_provider import AnthropicProvider
-from agent_cli.providers.google_provider import GoogleProvider
-from agent_cli.providers.openai_compat import OpenAICompatibleProvider
+from agent_cli.providers.provider.openai_provider import OpenAIProvider
+from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
+from agent_cli.providers.provider.google_provider import GoogleProvider
+from agent_cli.providers.provider.openai_compat import OpenAICompatibleProvider
 
 
 def test_manager_infers_known_model_prefixes():
@@ -38,15 +38,12 @@ def test_manager_infers_known_model_prefixes():
 def test_manager_creates_from_config():
     """Verify custom TOML configurations are respected."""
     settings = AgentSettings()
-    # Mock the TOML config dictionary usually loaded via Pydantic
-    settings._config_data = {
-        "providers": {
-            "local_vllm": {
-                "adapter_type": "openai_compatible",
-                "base_url": "http://localhost:8000/v1",
-                "models": ["llama-3-8b-instruct", "mistral-large"],
-                "supports_native_tools": True,
-            }
+    settings.providers = {
+        "local_vllm": {
+            "adapter_type": "openai_compatible",
+            "base_url": "http://localhost:8000/v1",
+            "models": ["llama-3-8b-instruct", "mistral-large"],
+            "supports_native_tools": True,
         }
     }
 
@@ -56,7 +53,7 @@ def test_manager_creates_from_config():
     provider = manager.get_provider("llama-3-8b-instruct")
 
     assert isinstance(provider, OpenAICompatibleProvider)
-    assert provider.provider_name == "openai_compatible"
+    assert provider.provider_name == "local_vllm"
     assert provider.model_name == "llama-3-8b-instruct"
     assert provider.supports_native_tools is True
     assert provider.client.base_url == "http://localhost:8000/v1/"

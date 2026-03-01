@@ -182,7 +182,7 @@ class PromptBuilder:
         return (
             "# Output Format\n"
             "You MUST structure every response as follows:\n\n"
-            "1. **Title**: Provide a short title in <title> tags (1 to 12 words).\n"
+            "1. **Title**: Provide a short title in <title> tags (1 to 15 words).\n"
             "2. **Thinking**: Wrap your reasoning chain in <thinking> tags.\n"
             f"{action_step}"
             "4. **Final Answer**: When the task is complete AND you are absolutely done, "
@@ -196,7 +196,7 @@ class PromptBuilder:
             "You must ALWAYS include both <title> and <thinking> before any "
             "action or final answer.\n"
             "Required skeleton:\n"
-            "<title>Short 1-12 word title</title>\n"
+            "<title>Short 1-15 word title</title>\n"
             "<thinking>Your reasoning chain here.</thinking>"
         )
 

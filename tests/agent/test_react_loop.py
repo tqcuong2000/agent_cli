@@ -130,6 +130,16 @@ def base_deps():
     memory_manager = WorkingMemoryManager()
     prompt_builder = PromptBuilder(registry)
 
+    from agent_cli.core.config import AgentSettings
+    settings = AgentSettings()
+    # Force standard constraints for tests so local config.toml doesn't break them
+    settings.core["effort"] = {
+        "LOW": {"max_iterations": 30},
+        "MEDIUM": {"max_iterations": 50},
+        "HIGH": {"max_iterations": 100},
+        "XHIGH": {"max_iterations": 250},
+    }
+    
     return {
         "tool_executor": tool_executor,
         "schema_validator": schema_validator,
@@ -137,6 +147,7 @@ def base_deps():
         "event_bus": event_bus,
         "state_manager": state_manager,
         "prompt_builder": prompt_builder,
+        "settings": settings,
     }
 
 
@@ -227,9 +238,9 @@ async def test_react_loop_max_iterations(base_deps):
         '<action>\n  <tool>add</tool>\n  <args>{"x": 1, "y": 1}</args>\n</action>'
     )
 
-    # Feed 10 copies of the same action
-    # We set LOW effort so max_iterations is 5.
-    provider = MockLLMProvider([infinite_action] * 10)
+    # Feed 35 copies of the same action
+    # We set LOW effort so max_iterations is 30.
+    provider = MockLLMProvider([infinite_action] * 35)
     config = AgentConfig(name="dummy", tools=["add"], effort_level=EffortLevel.LOW)
 
     agent = DummyAgent(config=config, provider=provider, **base_deps)
@@ -244,7 +255,7 @@ async def test_react_loop_max_iterations(base_deps):
             task_description="Loop forever",
         )
 
-    assert "reached 5 iterations" in str(exc.value)
+    assert "reached 30 iterations" in str(exc.value)
 
 
 @pytest.mark.asyncio

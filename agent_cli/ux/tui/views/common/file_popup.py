@@ -180,3 +180,8 @@ class FileDiscoveryPopup(BasePopupListView):
     def invalidate_cache(self) -> None:
         """Force re-scan on next show (e.g., after file changes)."""
         self._cached_files = None
+
+    def show_popup(self, initial_filter: str = "") -> None:
+        """Always re-scan the workspace when the popup is triggered."""
+        self.invalidate_cache()
+        super().show_popup(initial_filter)

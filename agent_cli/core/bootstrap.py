@@ -246,7 +246,6 @@ def create_app(
         name="Generalist",
         description="A helpful general-purpose AI assistant",
         model=settings.default_model,
-        effort_level=settings.default_effort_level,
         tools=tool_registry.get_all_names(),  # Give access to all registered tools
     )
 
@@ -259,6 +258,7 @@ def create_app(
         event_bus=event_bus,
         state_manager=state_manager,
         prompt_builder=prompt_builder,
+        settings=settings,
     )
 
     register_default_agent(context, default_agent)

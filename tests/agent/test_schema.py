@@ -54,9 +54,9 @@ def test_extract_thinking_requires_title(validator):
 
 
 def test_extract_thinking_rejects_invalid_title_length(validator):
-    with pytest.raises(SchemaValidationError, match="4 to 12 words"):
+    with pytest.raises(SchemaValidationError, match="2 to 15 words"):
         validator.extract_thinking(
-            "<title>Too short</title>\n<thinking>Need to act.</thinking>"
+            "<title>T</title>\n<thinking>Need to act.</thinking>"
         )
 
 

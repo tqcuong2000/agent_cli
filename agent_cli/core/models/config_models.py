@@ -19,6 +19,7 @@ class EffortLevel(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+    XHIGH = "XHIGH"
 
 
 @dataclass

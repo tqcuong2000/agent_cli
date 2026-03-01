@@ -6,6 +6,8 @@ from textual.message import Message
 from textual.widgets import TextArea
 
 from agent_cli.ux.tui.views.common.popup_list import BasePopupListView
+import json
+from pathlib import Path
 
 
 class UserInputComponent(TextArea):
@@ -63,6 +65,36 @@ class UserInputComponent(TextArea):
         self._active_popup: BasePopupListView | None = None
         self._trigger_char: str = ""
         self._trigger_pos: int = 0
+
+        # History state
+        self._history_file = Path.home() / ".agent_cli" / "history.json"
+        self._history: list[str] = []
+        self._history_index: int = -1
+        self._history_draft: str = ""
+        self._load_history()
+
+    def _load_history(self) -> None:
+        """Load input history from disk."""
+        if self._history_file.exists():
+            try:
+                data = json.loads(self._history_file.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    self._history = data
+            except Exception:
+                pass
+        self._history_index = len(self._history)
+
+    def _save_history(self) -> None:
+        """Save input history to disk, keeping the last 100 entries."""
+        max_items = 100
+        if len(self._history) > max_items:
+            self._history = self._history[-max_items:]
+        
+        try:
+            self._history_file.parent.mkdir(parents=True, exist_ok=True)
+            self._history_file.write_text(json.dumps(self._history), encoding="utf-8")
+        except Exception:
+            pass
 
     @property
     def max_visible_lines(self) -> int:
@@ -174,6 +206,31 @@ class UserInputComponent(TextArea):
             self.replace("\n", start, end, maintain_selection_offset=False)
             return
 
+        if key == "up":
+            if self.selection.start[0] == 0 and self.selection.start == self.selection.end:
+                if self._history and self._history_index > 0:
+                    event.stop()
+                    event.prevent_default()
+                    if self._history_index == len(self._history):
+                        self._history_draft = self.text
+                    self._history_index -= 1
+                    self.text = self._history[self._history_index]
+                    self.move_cursor((self.document.line_count - 1, len(self.document.get_line(self.document.line_count - 1))))
+                return
+
+        if key == "down":
+            if self.selection.start[0] == self.document.line_count - 1 and self.selection.start == self.selection.end:
+                if self._history_index < len(self._history):
+                    event.stop()
+                    event.prevent_default()
+                    self._history_index += 1
+                    if self._history_index == len(self._history):
+                        self.text = self._history_draft
+                    else:
+                        self.text = self._history[self._history_index]
+                    self.move_cursor((len(self.document.lines) - 1, len(self.document.get_line(self.document.line_count - 1))))
+                return
+
         if key == "enter":
             start, end = self.selection
 
@@ -202,6 +259,16 @@ class UserInputComponent(TextArea):
         if self._active_popup and self._active_popup.is_visible:
             self._active_popup.hide_popup()
             self._active_popup = None
+
+        val = self.text.strip()
+        if val:
+            # Don't add to history if it's the exact same as the last submitted line
+            if not self._history or self._history[-1] != val:
+                self._history.append(val)
+                self._save_history()
+
+        self._history_index = len(self._history)
+        self._history_draft = ""
 
         self.post_message(self.Submitted(self, self.text))
         self.text = ""

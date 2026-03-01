@@ -108,6 +108,14 @@ class AgentSettings(BaseSettings):
         default="gemini-2.5-flash-lite",
         description="Fast/cheap model used for context summarization.",
     )
+    providers: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Raw provider configurations from TOML (e.g. [providers.ollama]).",
+    )
+    core: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Core framework configurations (e.g. [core.effort]).",
+    )
 
     # ── Agent Reasoning ──────────────────────────────────────────
 
@@ -262,6 +270,12 @@ class AgentSettings(BaseSettings):
     google_api_key: Optional[str] = Field(
         default=None, alias="GOOGLE_API_KEY"
     )
+    huggingface_api_key: Optional[str] = Field(
+        default=None, alias="HF_TOKEN"
+    )
+    openrouter_api_key: Optional[str] = Field(
+        default=None, alias="OPENROUTER_API_KEY"
+    )
 
     # ── Pydantic Settings Config ─────────────────────────────────
 
@@ -292,7 +306,27 @@ class AgentSettings(BaseSettings):
         """Expand ~ in log directory path."""
         return str(Path(v).expanduser())
 
-    # ── API Key Resolution (1.3.4) ───────────────────────────────
+    # ── Runtime Lookups (Effort & API Keys) ──────────────────────
+
+    def get_effort_config(self, level: EffortLevel) -> Dict[str, Any]:
+        """Get effort constraints, prioritizing TOML [core.effort] over defaults."""
+        defaults = _DEFAULT_EFFORT_CONSTRAINTS[level]
+        
+        # Look for user overrides in core.effort.<LEVEL> (case-insensitive key)
+        user_efforts = self.core.get("effort", {})
+        
+        # TOML keys are often lowercase, so we check various casings
+        user_override = {}
+        for key, val in user_efforts.items():
+            if str(key).upper() == level.name:
+                user_override = val
+                break
+                
+        if not user_override:
+            return defaults
+
+        # Merge user override into defaults
+        return _deep_merge(defaults, user_override)
 
     def resolve_api_key(self, provider: str) -> Optional[str]:
         """Resolve API key with fallback chain: env/.env → keyring → None."""
@@ -300,6 +334,8 @@ class AgentSettings(BaseSettings):
             "anthropic": self.anthropic_api_key,
             "openai": self.openai_api_key,
             "google": self.google_api_key,
+            "huggingface": self.huggingface_api_key,
+            "openrouter": self.openrouter_api_key,
         }
         key = key_map.get(provider)
         if key:
@@ -375,6 +411,64 @@ _BUILTIN_PROVIDERS: Dict[str, ProviderConfig] = {
         ],
         default_model="gemini-2.5-flash-lite",
     ),
+    "huggingface": ProviderConfig(
+        adapter_type="openai_compatible",
+        base_url="https://router.huggingface.co/v1",
+        models=[
+            "mistralai/Mistral-7B-Instruct-v0.3",
+            "meta-llama/Llama-3.1-8B-Instruct",
+            "microsoft/Phi-3-mini-4k-instruct",
+        ],
+        default_model="mistralai/Mistral-7B-Instruct-v0.3",
+    ),
+    "openrouter": ProviderConfig(
+        adapter_type="openai_compatible",
+        base_url="https://openrouter.ai/api/v1",
+        models=[
+            "anthropic/claude-3.5-sonnet",
+            "deepseek/deepseek-chat",
+            "google/gemini-2.5-flash",
+            "meta-llama/llama-3.1-8b-instruct",
+        ],
+        default_model="anthropic/claude-3.5-sonnet",
+    ),
+}
+
+_DEFAULT_EFFORT_CONSTRAINTS: Dict[EffortLevel, Dict[str, Any]] = {
+    EffortLevel.LOW: {
+        "max_iterations": 30,
+        "model_tier": "fast",
+        "reasoning_instruction": (
+            "Be concise. Act immediately when the path is clear."
+        ),
+        "review_policy": "none",
+    },
+    EffortLevel.MEDIUM: {
+        "max_iterations": 50,
+        "model_tier": "capable",
+        "reasoning_instruction": (
+            "Think step-by-step. Explain your reasoning before acting."
+        ),
+        "review_policy": "standard",
+    },
+    EffortLevel.HIGH: {
+        "max_iterations": 100,
+        "model_tier": "premium",
+        "reasoning_instruction": (
+            "Think deeply. Consider multiple approaches before choosing one. "
+            "After completing the task, review your work for correctness."
+        ),
+        "review_policy": "self_verify",
+    },
+    EffortLevel.XHIGH: {
+        "max_iterations": 250,
+        "model_tier": "premium",
+        "reasoning_instruction": (
+            "Think exhaustively. Leave no stone unturned. Methodically plan every step, "
+            "verify all assumptions, and rigorously double-check the final result."
+        ),
+        "review_policy": "strict_self_verify",
+    },
 }
 
 

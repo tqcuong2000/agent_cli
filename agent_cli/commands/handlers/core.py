@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import List
 
 from agent_cli.commands.base import CommandContext, CommandResult, command
+from agent_cli.core.events.events import SettingsChangedEvent
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -220,7 +221,7 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
 @command(
     name="effort",
     description="Set default effort level",
-    usage="/effort <low|medium|high>",
+    usage="/effort <low|medium|high|xhigh>",
     shortcut="ctrl+e",
     category="Model",
 )
@@ -236,13 +237,23 @@ async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
         )
 
     level = args[0].upper()
-    if level not in ("LOW", "MEDIUM", "HIGH"):
+    if level not in ("LOW", "MEDIUM", "HIGH", "XHIGH"):
         return CommandResult(
             success=False,
-            message="Usage: /effort <LOW|MEDIUM|HIGH>",
+            message="Usage: /effort <LOW|MEDIUM|HIGH|XHIGH>",
         )
 
     ctx.settings.default_effort_level = EffortLevel(level)
+
+    # Emit event so agents can update reactive caches
+    if ctx.event_bus:
+        await ctx.event_bus.publish(
+            SettingsChangedEvent(
+                setting_name="default_effort_level",
+                new_value=level,
+                source="cmd_effort",
+            )
+        )
 
     # Update status bar
     _update_status_bar(ctx, effort=level)

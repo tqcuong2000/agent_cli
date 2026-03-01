@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from agent_cli.providers.models import ToolCallMode
-from agent_cli.providers.anthropic_provider import AnthropicProvider
+from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
 
 
 def get_mocked_anthropic():

@@ -14,8 +14,8 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
-    StreamChunk,
     StopReason,
+    StreamChunk,
     ToolCall,
     ToolCallMode,
 )
@@ -105,8 +105,8 @@ class OpenAIProvider(BaseLLMProvider):
         kwargs: Dict[str, Any] = {
             "model": self.model_name,
             "messages": context,
-            "max_tokens": max_tokens,
         }
+        kwargs.update(self._max_tokens_kwargs(max_tokens))
         if tools:
             kwargs["tools"] = self._tool_formatter.format_for_native_fc(tools)
 
@@ -162,10 +162,10 @@ class OpenAIProvider(BaseLLMProvider):
         kwargs: Dict[str, Any] = {
             "model": self.model_name,
             "messages": context,
-            "max_tokens": max_tokens,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        kwargs.update(self._max_tokens_kwargs(max_tokens))
         if tools:
             kwargs["tools"] = self._tool_formatter.format_for_native_fc(tools)
 
@@ -244,7 +244,9 @@ class OpenAIProvider(BaseLLMProvider):
         return LLMResponse(
             text_content=text,
             tool_calls=self._buffered_tool_calls,
-            tool_mode=ToolCallMode.NATIVE if self._buffered_tool_calls else ToolCallMode.XML,
+            tool_mode=ToolCallMode.NATIVE
+            if self._buffered_tool_calls
+            else ToolCallMode.XML,
             input_tokens=self._buffered_usage["input"],
             output_tokens=self._buffered_usage["output"],
             cost_usd=cost,
@@ -266,3 +268,13 @@ class OpenAIProvider(BaseLLMProvider):
             "length": StopReason.MAX_TOKENS,
         }
         return mapping.get(reason or "", StopReason.END_TURN)
+
+    def _max_tokens_kwargs(self, max_tokens: int) -> Dict[str, int]:
+        """Return token-limit params compatible with the target model family.
+
+        GPT-5 chat models reject ``max_tokens`` and require
+        ``max_completion_tokens``.
+        """
+        if self.model_name.lower().startswith("gpt-5"):
+            return {"max_completion_tokens": max_tokens}
+        return {"max_tokens": max_tokens}

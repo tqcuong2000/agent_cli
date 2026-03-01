@@ -145,14 +145,14 @@ class AgentCLIApp(App):
             pass
 
     async def action_cycle_effort(self) -> None:
-        """Cycle through effort levels: LOW → MEDIUM → HIGH → LOW."""
-        levels = ["LOW", "MEDIUM", "HIGH"]
+        """Cycle through effort levels: LOW → MEDIUM → HIGH → XHIGH → LOW."""
+        levels = ["LOW", "MEDIUM", "HIGH", "XHIGH"]
         current = self.app_context.settings.default_effort_level.value
         try:
             idx = levels.index(current)
         except ValueError:
             idx = 0
-        next_level = levels[(idx + 1) % 3]
+        next_level = levels[(idx + 1) % len(levels)]
 
         parser = self.app_context.command_parser
         if parser:

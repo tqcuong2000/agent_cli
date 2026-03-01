@@ -272,3 +272,16 @@ class PlanReadyEvent(BaseEvent):
     task_id: str = ""
     plan_summary: str = ""
     steps: List[str] = field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# I. CONFIGURATION EVENTS
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class SettingsChangedEvent(BaseEvent):
+    """Published when a setting is changed at runtime (e.g. /effort)."""
+
+    setting_name: str = ""
+    new_value: Any = None
