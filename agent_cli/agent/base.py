@@ -44,20 +44,13 @@ from agent_cli.core.events.events import (
 )
 from agent_cli.core.models.config_models import EffortLevel
 from agent_cli.core.state.state_manager import AbstractStateManager
+from agent_cli.data import DataRegistry
 from agent_cli.tools.executor import ToolExecutor
 
 if TYPE_CHECKING:
     from agent_cli.core.events.event_bus import EventCallback
 
 logger = logging.getLogger(__name__)
-
-
-# ══════════════════════════════════════════════════════════════════════
-# Effort Level Constraints
-# ══════════════════════════════════════════════════════════════════════
-
-
-# (EFFORT_CONSTRAINTS moved to agent_cli.core.config to support TOML overrides)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -99,9 +92,6 @@ class AgentConfig:
 # Base Agent ABC
 # ══════════════════════════════════════════════════════════════════════
 
-# Max consecutive schema errors before failing the task
-_MAX_CONSECUTIVE_SCHEMA_ERRORS = 3
-
 
 class BaseAgent(ABC):
     """Abstract base class for all agents — implements the ReAct loop.
@@ -131,6 +121,7 @@ class BaseAgent(ABC):
         state_manager: AbstractStateManager,
         prompt_builder: PromptBuilder,
         settings: Any = None,  # AgentSettings
+        data_registry: Optional[DataRegistry] = None,
     ) -> None:
         self.config = config
         self.provider = provider
@@ -152,6 +143,10 @@ class BaseAgent(ABC):
             self.settings = AgentSettings()
         else:
             self.settings = settings
+
+        self._data_registry = data_registry or DataRegistry()
+        self._schema_defaults = self._data_registry.get_schema_defaults()
+        self._retry_defaults = self._data_registry.get_retry_defaults()
 
         # Subscribe to settings changes
         if self.event_bus:
@@ -302,7 +297,17 @@ class BaseAgent(ABC):
 
         # ── Tracking ─────────────────────────────────────────────
         schema_error_count = 0
-        stuck_detector = StuckDetector()
+        max_schema_errors = int(
+            self._schema_defaults.get("validation", {}).get(
+                "max_consecutive_schema_errors",
+                3,
+            )
+        )
+        stuck_defaults = self._data_registry.get_stuck_detector_defaults()
+        stuck_detector = StuckDetector(
+            threshold=int(stuck_defaults.get("threshold", 3)),
+            history_cap=int(stuck_defaults.get("history_cap", 10)),
+        )
 
         # ── The Loop ─────────────────────────────────────────────
         try:
@@ -333,10 +338,19 @@ class BaseAgent(ABC):
                     llm_response = await self.provider.safe_generate(
                         context=self.memory.get_working_context(),
                         tools=self._get_tool_definitions(),
+                        max_retries=int(self._retry_defaults.get("llm_max_retries", 3)),
+                        base_delay=float(
+                            self._retry_defaults.get("llm_retry_base_delay", 1.0)
+                        ),
+                        max_delay=float(
+                            self._retry_defaults.get("llm_retry_max_delay", 30.0)
+                        ),
                     )
 
                     # INTERCEPT: Extract and save raw response for debugging
-                    self._debug_intercept_response(task_id, iteration, llm_response.text_content)
+                    self._debug_intercept_response(
+                        task_id, iteration, llm_response.text_content
+                    )
 
                     # ── STEP 2: Stream Thinking to TUI ───────────────
                     thinking_text = self.validator.extract_thinking(
@@ -462,10 +476,10 @@ class BaseAgent(ABC):
                 except SchemaValidationError as e:
                     # RECOVERABLE: Feedback loop (re-prompt LLM)
                     schema_error_count += 1
-                    if schema_error_count >= _MAX_CONSECUTIVE_SCHEMA_ERRORS:
+                    if schema_error_count >= max_schema_errors:
                         raise MaxIterationsExceededError(
                             f"Agent '{self.name}' produced "
-                            f"{_MAX_CONSECUTIVE_SCHEMA_ERRORS} consecutive "
+                            f"{max_schema_errors} consecutive "
                             f"malformed responses.",
                             iterations=iteration,
                             max_iterations=max_iterations,
@@ -537,20 +551,22 @@ class BaseAgent(ABC):
             return []
         return self.tool_executor.registry.get_definitions_for_llm(self.config.tools)
 
-    def _debug_intercept_response(self, task_id: str, iteration: int, raw_content: str) -> None:
+    def _debug_intercept_response(
+        self, task_id: str, iteration: int, raw_content: str
+    ) -> None:
         """Utility to intercept and save raw LLM responses to a debug file."""
         debug_path = Path.home() / ".agent_cli" / "debug" / "agent_response.txt"
         try:
             debug_path.parent.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with open(debug_path, "a", encoding="utf-8") as f:
-                f.write(f"\n{'='*80}\n")
+                f.write(f"\n{'=' * 80}\n")
                 f.write(f"TIMESTAMP: {timestamp}\n")
                 f.write(f"AGENT:     {self.name}\n")
                 f.write(f"TASK_ID:   {task_id}\n")
                 f.write(f"ITERATION: {iteration}\n")
-                f.write(f"{'-'*80}\n")
+                f.write(f"{'-' * 80}\n")
                 f.write(raw_content)
-                f.write(f"\n{'='*80}\n")
+                f.write(f"\n{'=' * 80}\n")
         except Exception as e:
             logger.error(f"Failed to save debug interception: {e}")

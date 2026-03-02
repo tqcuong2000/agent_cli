@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from agent_cli.data import DataRegistry
 from agent_cli.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -39,8 +40,9 @@ class StuckDetector:
         threshold:  Number of consecutive identical actions to trigger.
     """
 
-    def __init__(self, threshold: int = 3) -> None:
+    def __init__(self, threshold: int = 3, history_cap: int = 10) -> None:
         self.threshold = threshold
+        self.history_cap = max(int(history_cap), 1)
         self._recent: List[tuple[str, int]] = []
 
     def is_stuck(self, tool_name: str, result: str) -> bool:
@@ -71,9 +73,9 @@ class StuckDetector:
             )
             return True
 
-        # Keep only the last 10 entries to bound memory
-        if len(self._recent) > 10:
-            self._recent = self._recent[-10:]
+        # Keep only the recent bounded history to cap memory usage.
+        if len(self._recent) > self.history_cap:
+            self._recent = self._recent[-self.history_cap :]
 
         return False
 
@@ -98,8 +100,15 @@ class PromptBuilder:
         tool_registry: Registry for generating tool descriptions.
     """
 
-    def __init__(self, tool_registry: ToolRegistry) -> None:
+    def __init__(
+        self,
+        tool_registry: ToolRegistry,
+        data_registry: DataRegistry | None = None,
+    ) -> None:
         self.tool_registry = tool_registry
+        self._data_registry = data_registry or DataRegistry()
+        title_defaults = self._data_registry.get_schema_defaults().get("title", {})
+        self._title_max_words = int(title_defaults.get("max_words", 15))
 
     def build(
         self,
@@ -124,7 +133,7 @@ class PromptBuilder:
         Args:
             persona:             Agent's role description.
             tool_names:          Which tools this agent can use.
-            effort_constraints:  Dict from ``EFFORT_CONSTRAINTS[effort]``.
+            effort_constraints:  Resolved constraints from settings/data registry.
             workspace_context:   Project info (language, framework).
             extra_instructions:  Agent-specific additions.
             native_tool_mode:    Whether the provider handles tools natively.
@@ -163,47 +172,12 @@ class PromptBuilder:
 
     # ── Private Section Builders ─────────────────────────────────
 
-    @staticmethod
-    def _output_format_section(native_tool_mode: bool = False) -> str:
+    def _output_format_section(self, native_tool_mode: bool = False) -> str:
         """Standard output format instructions for all agents."""
-        action_step = (
-            (
-                "3. **Action**: To use a tool, call the function natively (as defined "
-                "by the API). DO NOT write an <action> XML tag.\n"
-            )
-            if native_tool_mode
-            else (
-                "3. **Action**: If you need to use a tool, wrap it in <action> tags:\n"
-                "   <action><tool>tool_name</tool>"
-                '<args>{"key": "value"}</args></action>\n'
-            )
-        )
-
-        return (
-            "# Output Format\n"
-            "You MUST structure every response as follows:\n\n"
-            "1. **Title**: Provide a short title in <title> tags (1 to 15 words).\n"
-            "2. **Thinking**: Wrap your reasoning chain in <thinking> tags.\n"
-            f"{action_step}"
-            "4. **Final Answer**: When the task is complete AND you are absolutely done, "
-            "provide your **COMPLETE** response (including all tables, lists, and code) "
-            "strictly inside <final_answer> tags:\n"
-            "   <final_answer>Your response to the user.</final_answer>\n\n"
-            "**STRICT TAG ENFORCEMENT:**\n"
-            "- EVERYTHING you want the user to see MUST be inside <final_answer>.\n"
-            "- Content outside of <thinking>, <action>, or <final_answer> WILL BE DISCARDED.\n\n"
-            "**CRITICAL ANTI-HALLUCINATION RULE:**\n"
-            "If you decide to use a tool, YOU MUST STOP IMMEDIATELY after defining the action. "
-            "DO NOT continue writing the `<final_answer>`. "
-            "DO NOT guess or invent the output of the tool. Wait for the system to execute the tool "
-            "and provide the result back to you.\n\n"
-            "You must ALWAYS include both <title> and <thinking> before any "
-            "action or final answer.\n"
-            "Required skeleton:\n"
-            "<title>Short 1-15 word title</title>\n"
-            "<thinking>Your reasoning chain here.</thinking>\n"
-            "<final_answer>Your COMPLETE response here.</final_answer>"
-        )
+        template_name = "output_format_native" if native_tool_mode else "output_format"
+        template = self._data_registry.get_prompt_template(template_name)
+        # Avoid str.format because templates intentionally include JSON braces.
+        return template.replace("{title_max_words}", str(self._title_max_words))
 
     @staticmethod
     def _tools_section(tool_defs: List[Dict[str, Any]]) -> str:
@@ -229,15 +203,6 @@ class PromptBuilder:
 
         return "\n".join(lines)
 
-    @staticmethod
-    def _ask_user_policy_section() -> str:
+    def _ask_user_policy_section(self) -> str:
         """Hard policy for how the agent must ask user questions."""
-        return (
-            "# Clarification Policy\n"
-            "When you need to ask the user any question, you MUST use the "
-            "`ask_user` tool.\n"
-            "Do NOT ask questions directly in `<final_answer>` while the task is "
-            "still in progress.\n"
-            "Use 2-5 likely answer options in `ask_user` and wait for the tool "
-            "result before continuing."
-        )
+        return self._data_registry.get_prompt_template("clarification_policy")

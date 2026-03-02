@@ -501,77 +501,44 @@ You must ALWAYS include <thinking> before any action or final answer."""
 
 ---
 
-## 6. Working Memory Isolation (ExecutionPlan Handoff)
+## 6. Working Memory on Agent Switch
 
-When the Orchestrator runs multiple agents in an ExecutionPlan, each agent starts with **fresh Working Memory**. Results from previous agents are passed as a brief context summary — not the full memory dump.
+When the user switches agents via `!mention` tags (see `04_multi_agent_definitions.md`), the new agent starts with **fresh Working Memory**. The Orchestrator generates a brief LLM summary of the session conversation and injects it as context — not the raw message history.
 
 ```python
 class Orchestrator:
     
-    async def execute_plan(self, plan: "ExecutionPlan") -> str:
+    async def _switch_agent(self, target_name: str) -> None:
         """
-        Execute an ExecutionPlan's sub-tasks sequentially.
-        Each agent gets isolated Working Memory + brief prior context.
+        Switch to a different agent.
+        Generates a session summary and injects it into the new agent's context.
         """
-        prior_context = ""
+        # 1. Summarize conversation so far (fast LLM call)
+        summary = await self._generate_session_summary()
         
-        for subtask in plan.tasks:
-            agent = self._get_agent_for_task(subtask)
-            
-            # Resolve effort: task-level > agent config > global default
-            effort = subtask.effort_override or agent.config.effort_level
-            
-            # State transitions
-            await self.state_manager.transition(subtask.task_id, TaskState.WORKING)
-            
-            try:
-                result = await agent.handle_task(
-                    task_id=subtask.task_id,
-                    task_description=subtask.description,
-                    prior_context=prior_context,  # Summary from previous agents
-                    effort_override=effort
-                )
-                
-                await self.state_manager.transition(
-                    subtask.task_id, TaskState.SUCCESS, result=result
-                )
-                
-                # Build context summary for the NEXT agent
-                prior_context = self._summarize_for_handoff(
-                    agent_name=agent.name,
-                    task_description=subtask.description,
-                    result=result
-                )
-                
-            except AgentCLIError as e:
-                await self.state_manager.transition(
-                    subtask.task_id, TaskState.FAILED, error=e.user_message
-                )
-                await self._handle_retry_if_applicable(subtask, e)
-                return  # Don't continue if a subtask fails
+        # 2. Perform status switch (old → IDLE, new → ACTIVE)
+        new_agent = self.session_agents.switch_to(target_name)
         
-        # All subtasks done → parent task succeeds
-        await self.state_manager.transition(plan.parent_task_id, TaskState.SUCCESS)
-    
-    def _summarize_for_handoff(
-        self, agent_name: str, task_description: str, result: str
-    ) -> str:
-        """
-        Create a brief summary of what the previous agent did.
-        Injected into the next agent's Working Memory as context.
-        This is NOT the full memory — just a summary.
-        """
-        # Truncate long results
-        result_preview = result[:2000] if len(result) > 2000 else result
+        # 3. Reset new agent's Working Memory (stateless)
+        new_agent.memory.reset_working()
+        system_prompt = await new_agent.build_system_prompt("")
+        new_agent.memory.add_working_event({"role": "system", "content": system_prompt})
         
-        return (
-            f"--- Previous Step ---\n"
-            f"Agent: {agent_name}\n"
-            f"Task: {task_description}\n"
-            f"Result:\n{result_preview}\n"
-            f"--- End Previous Step ---"
-        )
+        # 4. Inject summary as context
+        if summary:
+            new_agent.memory.add_working_event({
+                "role": "system",
+                "content": f"[Session Context Summary]\n{summary}"
+            })
 ```
+
+### Why Summarize Instead of Passing Raw Messages?
+
+| Approach | Tokens | Quality |
+|---|---|---|
+| Pass all `session.messages` | 50K+ (blows budget) | Tool outputs pollute context |
+| Pass only user messages | ~5K | Missing agent reasoning and decisions |
+| **Summarize (chosen)** | **~500-1000** | **Compact, focused, decision-aware** |
 
 ---
 

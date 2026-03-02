@@ -17,8 +17,19 @@ from typing import Any, Optional, Type
 from pydantic import BaseModel, Field
 
 from agent_cli.core.error_handler.errors import ToolExecutionError
+from agent_cli.data import DataRegistry
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.workspace.base import BaseWorkspaceManager
+
+_FILE_TOOL_DEFAULTS = DataRegistry().get_tool_defaults().get("file_tools", {})
+_LIST_DIRECTORY_DEFAULT_DEPTH = int(
+    _FILE_TOOL_DEFAULTS.get("list_directory_default_depth", 2)
+)
+_SEARCH_FILES_DEFAULT_MAX_RESULTS = int(
+    _FILE_TOOL_DEFAULTS.get("search_files_default_max_results", 50)
+)
+_DIFF_CONTEXT_LINES = int(_FILE_TOOL_DEFAULTS.get("diff_context_lines", 2))
+_DIFF_MAX_LINES = int(_FILE_TOOL_DEFAULTS.get("diff_max_lines", 60))
 
 # ══════════════════════════════════════════════════════════════════════
 # ReadFile
@@ -233,8 +244,16 @@ class StrReplaceTool(BaseTool):
     is_safe = False
     category = ToolCategory.FILE
 
-    def __init__(self, workspace: BaseWorkspaceManager) -> None:
+    def __init__(
+        self,
+        workspace: BaseWorkspaceManager,
+        *,
+        diff_context_lines: int = _DIFF_CONTEXT_LINES,
+        diff_max_lines: int = _DIFF_MAX_LINES,
+    ) -> None:
         self.workspace = workspace
+        self._diff_context_lines = max(int(diff_context_lines), 0)
+        self._diff_max_lines = max(int(diff_max_lines), 1)
 
     @property
     def args_schema(self) -> Type[BaseModel]:
@@ -299,8 +318,8 @@ class StrReplaceTool(BaseTool):
             updated,
             fromfile=f"a/{path}",
             tofile=f"b/{path}",
-            context_lines=2,
-            max_lines=60,
+            context_lines=self._diff_context_lines,
+            max_lines=self._diff_max_lines,
         )
 
         if not diff.strip():
@@ -401,7 +420,7 @@ class ListDirectoryArgs(BaseModel):
         description="Directory path to list (relative to workspace root).",
     )
     max_depth: int = Field(
-        default=2,
+        default=_LIST_DIRECTORY_DEFAULT_DEPTH,
         description="Maximum depth to recurse (1 = immediate children only).",
     )
 
@@ -426,7 +445,7 @@ class ListDirectoryTool(BaseTool):
 
     async def execute(self, **kwargs: Any) -> str:
         path = str(kwargs.get("path", "."))
-        max_depth = int(kwargs.get("max_depth", 2))
+        max_depth = int(kwargs.get("max_depth", _LIST_DIRECTORY_DEFAULT_DEPTH))
 
         resolved = self.workspace.resolve_path(path, must_exist=True)
 
@@ -505,7 +524,7 @@ class SearchFilesArgs(BaseModel):
         description="Glob pattern to filter file names (e.g. '*.py').",
     )
     max_results: int = Field(
-        default=50,
+        default=_SEARCH_FILES_DEFAULT_MAX_RESULTS,
         description="Maximum number of matching lines to return.",
     )
 
@@ -533,7 +552,7 @@ class SearchFilesTool(BaseTool):
         pattern = str(kwargs.get("pattern", ""))
         path = str(kwargs.get("path", "."))
         file_pattern = str(kwargs.get("file_pattern", "*"))
-        max_results = int(kwargs.get("max_results", 50))
+        max_results = int(kwargs.get("max_results", _SEARCH_FILES_DEFAULT_MAX_RESULTS))
 
         resolved = self.workspace.resolve_path(path, must_exist=True)
 

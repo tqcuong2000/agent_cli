@@ -1,0 +1,23 @@
+[LOW]
+max_iterations = 30
+model_tier = "fast"
+reasoning_instruction = "Be concise. Act immediately when the path is clear."
+review_policy = "none"
+
+[MEDIUM]
+max_iterations = 50
+model_tier = "capable"
+reasoning_instruction = "Think step-by-step. Explain your reasoning before acting."
+review_policy = "standard"
+
+[HIGH]
+max_iterations = 100
+model_tier = "premium"
+reasoning_instruction = "Think deeply. Consider multiple approaches before choosing one. After completing the task, review your work for correctness."
+review_policy = "self_verify"
+
+[XHIGH]
+max_iterations = 250
+model_tier = "premium"
+reasoning_instruction = "Think exhaustively. Leave no stone unturned. Methodically plan every step, verify all assumptions, and rigorously double-check the final result."
+review_policy = "strict_self_verify"

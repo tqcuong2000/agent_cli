@@ -14,7 +14,6 @@ import os
 from pathlib import Path
 
 import pytest
-import tomllib
 from pydantic import ValidationError
 
 from agent_cli.core.config import (
@@ -39,7 +38,7 @@ def test_default_settings():
     # Default in code is MEDIUM, but config.toml might override to LOW
     assert settings.default_effort_level in (EffortLevel.MEDIUM, EffortLevel.LOW)
     assert settings.log_level == "INFO"
-    assert settings.llm_max_retries == 3
+    assert settings.max_task_retries == 1
 
 
 def test_env_var_override():
@@ -118,14 +117,14 @@ def test_toml_source_merge_precedence(tmp_path):
 # ── Validation Tests ──────────────────────────────────────────────────
 
 
-def test_budget_percentage_validation():
-    """Budget percentages must be <= 1.0."""
-    with pytest.raises(ValidationError) as exc_info:
-        AgentSettings(
-            context_budget_system_prompt_pct=15.0
-        )  # User passed 15 instead of 0.15
+def test_removed_internal_fields_are_not_exposed_on_settings():
+    """Internal tuning fields migrated to DataRegistry should not exist on settings."""
+    settings = AgentSettings()
 
-    assert "Input should be less than or equal to 0.5" in str(exc_info.value)
+    assert not hasattr(settings, "llm_max_retries")
+    assert not hasattr(settings, "context_compaction_threshold")
+    assert not hasattr(settings, "workspace_index_max_files")
+    assert not hasattr(settings, "session_auto_save_interval_seconds")
 
 
 def test_numeric_limits_validation():

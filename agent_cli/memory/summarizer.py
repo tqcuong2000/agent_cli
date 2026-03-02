@@ -7,6 +7,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from agent_cli.agent.memory import WorkingMemoryManager
+from agent_cli.data import DataRegistry
 from agent_cli.memory.token_counter import HeuristicTokenCounter
 
 logger = logging.getLogger(__name__)
@@ -23,28 +24,75 @@ class SummarizingMemoryManager(WorkingMemoryManager):
     def __init__(
         self,
         *args: Any,
-        keep_recent_turns: int = 5,
-        summarization_model: str = "gpt-4o-mini",
+        keep_recent_turns: int | None = None,
+        summarization_model: str | None = None,
         summarizer_provider_factory: Optional[SummarizerProviderFactory] = None,
-        summary_budget_tokens: int = 2000,
-        summary_response_tokens: int = 600,
+        summary_budget_tokens: int | None = None,
+        summary_response_tokens: int | None = None,
+        data_registry: Optional[DataRegistry] = None,
         **kwargs: Any,
     ) -> None:
+        registry = data_registry or DataRegistry()
+        summarizer_defaults = registry.get_summarizer_defaults()
+        internal_models = registry.get_internal_models()
+        heuristic_limits = summarizer_defaults.get("heuristic_limits", {})
+
+        effective_keep_recent_turns = int(
+            keep_recent_turns
+            if keep_recent_turns is not None
+            else summarizer_defaults.get("keep_recent_turns", 5)
+        )
+        effective_summarization_model = summarization_model or internal_models.get(
+            "summarization_model",
+            "gpt-4o-mini",
+        )
+        effective_summary_budget_tokens = int(
+            summary_budget_tokens
+            if summary_budget_tokens is not None
+            else summarizer_defaults.get("summary_budget_tokens", 2000)
+        )
+        effective_summary_response_tokens = int(
+            summary_response_tokens
+            if summary_response_tokens is not None
+            else summarizer_defaults.get("summary_response_tokens", 600)
+        )
+
         # Keep enough recent messages for emergency drop-based fallback.
-        keep_recent_messages = max(keep_recent_turns * 2, 6)
+        keep_recent_messages = max(effective_keep_recent_turns * 2, 6)
         if "keep_recent" not in kwargs:
             kwargs["keep_recent"] = keep_recent_messages
         super().__init__(*args, **kwargs)
 
-        self._keep_recent_turns = keep_recent_turns
-        self._summarization_model = summarization_model
+        self._keep_recent_turns = effective_keep_recent_turns
+        self._summarization_model = effective_summarization_model
         self._summarizer_provider_factory = summarizer_provider_factory
-        self._summary_budget_tokens = max(summary_budget_tokens, 400)
+        self._summary_budget_tokens = max(effective_summary_budget_tokens, 400)
         self._summary_response_tokens = max(
-            min(summary_response_tokens, self._summary_budget_tokens - 100),
+            min(effective_summary_response_tokens, self._summary_budget_tokens - 100),
             100,
         )
-        self._prompt_counter = HeuristicTokenCounter()
+        self._summary_max_words = int(summarizer_defaults.get("summary_max_words", 250))
+        self._min_summary_length = int(
+            summarizer_defaults.get("min_summary_length", 240)
+        )
+        self._summary_truncation_factor = float(
+            summarizer_defaults.get("summary_truncation_factor", 0.8)
+        )
+        self._heuristic_limits = {
+            "max_goals": int(heuristic_limits.get("max_goals", 4)),
+            "max_decisions": int(heuristic_limits.get("max_decisions", 4)),
+            "max_actions": int(heuristic_limits.get("max_actions", 6)),
+            "max_tools": int(heuristic_limits.get("max_tools", 6)),
+            "max_files": int(heuristic_limits.get("max_files", 8)),
+            "max_open_items": int(heuristic_limits.get("max_open_items", 4)),
+            "condensed_line_max_chars": int(
+                heuristic_limits.get("condensed_line_max_chars", 140)
+            ),
+            "single_line_max_chars": int(
+                heuristic_limits.get("single_line_max_chars", 500)
+            ),
+        }
+        self._prompt_counter = HeuristicTokenCounter(data_registry=registry)
         self._summarizer_provider: Any = None
 
     async def summarize_and_compact(self) -> None:
@@ -190,7 +238,7 @@ class SummarizingMemoryManager(WorkingMemoryManager):
             "4) Tool Usage\n"
             "5) Files Mentioned\n"
             "6) Open Items\n"
-            "Keep under 250 words.\n\n"
+            f"Keep under {self._summary_max_words} words.\n\n"
             "Messages:\n"
         )
 
@@ -202,7 +250,7 @@ class SummarizingMemoryManager(WorkingMemoryManager):
             if not content:
                 continue
             single_line = " ".join(content.split())
-            single_line = single_line[:500]
+            single_line = single_line[: self._heuristic_limits["single_line_max_chars"]]
             line = f"- [{role}] {single_line}"
             candidate = header + "\n".join(reversed(lines + [line]))
             prompt_tokens = self._prompt_counter.count(
@@ -242,9 +290,9 @@ class SummarizingMemoryManager(WorkingMemoryManager):
 
         # If still too large, shorten the summary text before falling back.
         summary_content = str(summary_msg.get("content", ""))
-        while self.should_compact() and len(summary_content) > 240:
+        while self.should_compact() and len(summary_content) > self._min_summary_length:
             summary_content = summary_content[
-                : int(len(summary_content) * 0.8)
+                : int(len(summary_content) * self._summary_truncation_factor)
             ].rstrip()
             summary_msg["content"] = (
                 summary_content + "\n[Summary truncated for token budget.]"
@@ -272,15 +320,21 @@ class SummarizingMemoryManager(WorkingMemoryManager):
             condensed = " ".join(content.split())
             lowered = condensed.lower()
 
-            if role == "user" and len(goals) < 4:
-                goals.append(condensed[:140])
+            if role == "user" and len(goals) < self._heuristic_limits["max_goals"]:
+                goals.append(
+                    condensed[: self._heuristic_limits["condensed_line_max_chars"]]
+                )
 
             if role == "assistant":
                 if any(
                     word in lowered for word in ("decided", "will", "plan", "approach")
                 ):
-                    if len(decisions) < 4:
-                        decisions.append(condensed[:140])
+                    if len(decisions) < self._heuristic_limits["max_decisions"]:
+                        decisions.append(
+                            condensed[
+                                : self._heuristic_limits["condensed_line_max_chars"]
+                            ]
+                        )
                 if any(
                     word in lowered
                     for word in (
@@ -291,27 +345,35 @@ class SummarizingMemoryManager(WorkingMemoryManager):
                         "added",
                     )
                 ):
-                    if len(actions) < 6:
-                        actions.append(condensed[:140])
+                    if len(actions) < self._heuristic_limits["max_actions"]:
+                        actions.append(
+                            condensed[
+                                : self._heuristic_limits["condensed_line_max_chars"]
+                            ]
+                        )
                 if any(
                     word in lowered for word in ("todo", "next", "pending", "follow-up")
                 ):
-                    if len(open_items) < 4:
-                        open_items.append(condensed[:140])
+                    if len(open_items) < self._heuristic_limits["max_open_items"]:
+                        open_items.append(
+                            condensed[
+                                : self._heuristic_limits["condensed_line_max_chars"]
+                            ]
+                        )
 
             if role == "tool":
                 match = _TOOL_PATTERN.search(condensed)
                 if match:
                     tools.append(match.group(1).strip())
-                elif len(tools) < 6:
+                elif len(tools) < self._heuristic_limits["max_tools"]:
                     tools.append("tool-output")
 
             for path in _PATH_PATTERN.findall(condensed):
                 if len(path) <= 120:
                     files.append(path)
 
-        tools = _dedupe_preserve_order(tools)[:6]
-        files = _dedupe_preserve_order(files)[:8]
+        tools = _dedupe_preserve_order(tools)[: self._heuristic_limits["max_tools"]]
+        files = _dedupe_preserve_order(files)[: self._heuristic_limits["max_files"]]
 
         lines = [
             "Goals:",

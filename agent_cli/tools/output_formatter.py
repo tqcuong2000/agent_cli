@@ -8,6 +8,7 @@ consistent formatting across all tools.
 
 from __future__ import annotations
 
+from agent_cli.data import DataRegistry
 
 # ══════════════════════════════════════════════════════════════════════
 # Output Formatter
@@ -22,8 +23,24 @@ class ToolOutputFormatter:
     the beginning and end of long output.
     """
 
-    def __init__(self, max_output_length: int = 5000) -> None:
+    def __init__(
+        self,
+        max_output_length: int = 5000,
+        *,
+        error_truncation_chars: int | None = None,
+        data_registry: DataRegistry | None = None,
+    ) -> None:
         self.max_output_length = max_output_length
+        defaults = (
+            (data_registry or DataRegistry())
+            .get_tool_defaults()
+            .get("output_formatter", {})
+        )
+        self.error_truncation_chars = int(
+            error_truncation_chars
+            if error_truncation_chars is not None
+            else defaults.get("error_truncation_chars", 2000)
+        )
 
     def format(
         self,
@@ -39,7 +56,10 @@ class ToolOutputFormatter:
         3. Mark errors clearly.
         """
         if not success:
-            return f"[Tool: {tool_name}] Error:\n{raw_output[:2000]}"
+            return (
+                f"[Tool: {tool_name}] Error:\n"
+                f"{raw_output[: self.error_truncation_chars]}"
+            )
 
         if len(raw_output) <= self.max_output_length:
             return f"[Tool: {tool_name}] Result:\n{raw_output}"

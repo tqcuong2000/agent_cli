@@ -346,3 +346,40 @@ def test_prompt_builder_skips_ask_user_policy_when_tool_missing():
         effort_constraints={"reasoning_instruction": "Think carefully."},
     )
     assert "# Clarification Policy" not in prompt
+
+
+def test_prompt_builder_renders_title_word_limit_from_template():
+    registry = ToolRegistry()
+    registry.register(MockMathTool())
+    prompt_builder = PromptBuilder(registry)
+
+    prompt = prompt_builder.build(
+        persona="You are a tester.",
+        tool_names=["add"],
+        effort_constraints={"reasoning_instruction": "Think carefully."},
+    )
+
+    assert "{title_max_words}" not in prompt
+    assert "1 to 15 words" in prompt
+
+
+def test_prompt_builder_switches_native_vs_xml_output_template():
+    registry = ToolRegistry()
+    registry.register(MockMathTool())
+    prompt_builder = PromptBuilder(registry)
+
+    xml_prompt = prompt_builder.build(
+        persona="You are a tester.",
+        tool_names=["add"],
+        effort_constraints={},
+        native_tool_mode=False,
+    )
+    native_prompt = prompt_builder.build(
+        persona="You are a tester.",
+        tool_names=["add"],
+        effort_constraints={},
+        native_tool_mode=True,
+    )
+
+    assert "wrap it in <action> tags" in xml_prompt
+    assert "DO NOT write an <action> XML tag" in native_prompt

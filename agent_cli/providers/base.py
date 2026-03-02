@@ -26,6 +26,7 @@ from agent_cli.core.error_handler.errors import (
 )
 from agent_cli.core.error_handler.retry import retry_with_backoff
 from agent_cli.core.events.event_bus import AbstractEventBus
+from agent_cli.data import DataRegistry
 from agent_cli.providers.cost import estimate_cost
 from agent_cli.providers.models import LLMResponse, StreamChunk
 
@@ -91,10 +92,12 @@ class BaseLLMProvider(ABC):
         model_name: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        data_registry: Optional[DataRegistry] = None,
     ) -> None:
         self.model_name = model_name
         self.api_key = api_key
         self.base_url = base_url
+        self._data_registry = data_registry
         self._runtime_provider_name: Optional[str] = None
         self._tool_formatter = self._create_tool_formatter()
 
@@ -176,7 +179,12 @@ class BaseLLMProvider(ABC):
 
         Override in subclasses for custom pricing logic.
         """
-        return estimate_cost(self.model_name, input_tokens, output_tokens)
+        return estimate_cost(
+            self.model_name,
+            input_tokens,
+            output_tokens,
+            data_registry=self._data_registry,
+        )
 
     # ── safe_generate: Retry Wrapper ─────────────────────────────
 
@@ -185,7 +193,9 @@ class BaseLLMProvider(ABC):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
-        max_retries: int = 3,
+        max_retries: Optional[int] = None,
+        base_delay: Optional[float] = None,
+        max_delay: Optional[float] = None,
         task_id: str = "",
         event_bus: Optional[AbstractEventBus] = None,
     ) -> LLMResponse:
@@ -207,11 +217,32 @@ class BaseLLMProvider(ABC):
             except Exception as e:
                 raise self._classify_error(e) from e
 
+        retry_defaults = (
+            self._data_registry.get_retry_defaults()
+            if self._data_registry is not None
+            else {}
+        )
+        retries = int(
+            max_retries
+            if max_retries is not None
+            else retry_defaults.get("llm_max_retries", 3)
+        )
+        base = float(
+            base_delay
+            if base_delay is not None
+            else retry_defaults.get("llm_retry_base_delay", 1.0)
+        )
+        delay_cap = float(
+            max_delay
+            if max_delay is not None
+            else retry_defaults.get("llm_retry_max_delay", 30.0)
+        )
+
         return await retry_with_backoff(
             _attempt,
-            max_retries=max_retries,
-            base_delay=1.0,
-            max_delay=30.0,
+            max_retries=retries,
+            base_delay=base,
+            max_delay=delay_cap,
             task_id=task_id,
             event_bus=event_bus,
         )

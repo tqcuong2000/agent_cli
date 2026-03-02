@@ -111,15 +111,15 @@ The concept doc says "immutable after construction" but doesn't enforce it mecha
 
 #### Tasks
 
-- [ ] Create `agent_cli/data/` package with `__init__.py`
-- [ ] Create all 5 TOML data files with exact values from current code
-- [ ] Create all 4 prompt template `.txt` files
-- [ ] Implement `DataRegistry` class in `registry.py`
+- [x] Create `agent_cli/data/` package with `__init__.py`
+- [x] Create all 5 TOML data files with exact values from current code
+- [x] Create all 4 prompt template `.txt` files
+- [x] Implement `DataRegistry` class in `registry.py`
   - All TOML loaded at `__init__`; prompts lazy-loaded
   - `importlib.resources` for file location
   - Error handling: `RuntimeError` for missing/malformed TOML, `FileNotFoundError` for missing prompt
-- [ ] Write unit tests for every accessor method
-- [ ] Write data integrity test that validates all TOML structure
+- [x] Write unit tests for every accessor method
+- [x] Write data integrity test that validates all TOML structure
 
 #### Verification
 

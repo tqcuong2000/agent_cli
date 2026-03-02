@@ -16,6 +16,7 @@ from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AsyncEventBus
 from agent_cli.core.events.events import TaskResultEvent
 from agent_cli.core.state.state_manager import TaskStateManager
+from agent_cli.data import DataRegistry
 from agent_cli.session.file_store import FileSessionManager
 
 
@@ -47,6 +48,7 @@ def _build_app_context(
     memory_manager = WorkingMemoryManager()
 
     return AppContext(
+        data_registry=DataRegistry(),
         settings=cfg,
         event_bus=event_bus,
         state_manager=state_manager,
@@ -75,14 +77,17 @@ def _build_parser(ctx: CommandContext) -> CommandParser:
 
 
 @pytest.mark.asyncio
-async def test_autosave_on_task_result_event(tmp_path: Path):
+async def test_autosave_on_task_result_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     session_dir = tmp_path / "sessions"
-    settings = AgentSettings(
-        default_model="gpt-4o-mini",
-        session_auto_save=True,
-        session_auto_save_interval_seconds=999.0,
-    )
+    settings = AgentSettings(default_model="gpt-4o-mini", session_auto_save=True)
     app_context = _build_app_context(session_dir=session_dir, settings=settings)
+    monkeypatch.setattr(
+        DataRegistry,
+        "get_session_defaults",
+        lambda self: {"auto_save_interval_seconds": 999.0},
+    )
     await app_context.startup()
 
     active = app_context.session_manager.create_session()
@@ -119,14 +124,15 @@ async def test_autosave_on_shutdown(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_periodic_autosave(tmp_path: Path):
+async def test_periodic_autosave(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     session_dir = tmp_path / "sessions"
-    settings = AgentSettings(
-        default_model="gpt-4o-mini",
-        session_auto_save=True,
-        session_auto_save_interval_seconds=0.1,
-    )
+    settings = AgentSettings(default_model="gpt-4o-mini", session_auto_save=True)
     app_context = _build_app_context(session_dir=session_dir, settings=settings)
+    monkeypatch.setattr(
+        DataRegistry,
+        "get_session_defaults",
+        lambda self: {"auto_save_interval_seconds": 0.1},
+    )
     await app_context.startup()
 
     active = app_context.session_manager.create_session()

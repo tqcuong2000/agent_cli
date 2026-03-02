@@ -35,6 +35,7 @@ from agent_cli.core.events.events import BaseEvent, TaskResultEvent
 from agent_cli.core.file_tracker import FileChangeTracker
 from agent_cli.core.orchestrator import Orchestrator
 from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
+from agent_cli.data import DataRegistry
 from agent_cli.memory.summarizer import SummarizingMemoryManager
 from agent_cli.providers.manager import ProviderManager
 from agent_cli.session.base import AbstractSessionManager
@@ -71,6 +72,7 @@ class AppContext:
     """
 
     # ── Phase 1 Core ─────────────────────────────────────────────
+    data_registry: DataRegistry
     settings: AgentSettings
     event_bus: AbstractEventBus
     state_manager: AbstractStateManager
@@ -129,8 +131,9 @@ class AppContext:
                     priority=90,
                 )
 
+            session_defaults = self.data_registry.get_session_defaults()
             interval_seconds = float(
-                getattr(self.settings, "session_auto_save_interval_seconds", 300.0)
+                session_defaults.get("auto_save_interval_seconds", 300.0)
             )
             if interval_seconds > 0 and self._autosave_task is None:
                 self._autosave_task = asyncio.create_task(
@@ -271,6 +274,11 @@ def create_app(
     Returns:
         A fully wired ``AppContext`` ready for ``startup()``.
     """
+    # 0. Data Registry (data-driven defaults)
+    data_registry = DataRegistry()
+    tool_defaults = data_registry.get_tool_defaults()
+    context_budget = data_registry.get_context_budget()
+
     # 1. Configuration
     if settings is None:
         settings = AgentSettings()
@@ -282,7 +290,7 @@ def create_app(
     state_manager = TaskStateManager(event_bus=event_bus)
 
     # 4. Provider Manager (depends on Settings)
-    providers = ProviderManager(settings)
+    providers = ProviderManager(settings, data_registry=data_registry)
 
     # 5. Tool System
     workspace_root = Path(root_folder) if root_folder else Path.cwd()
@@ -294,7 +302,7 @@ def create_app(
     workspace = SandboxWorkspaceManager(strict_workspace)
     file_indexer = FileIndexer(
         root_path=workspace.get_root(),
-        max_files=settings.workspace_index_max_files,
+        max_files=int(tool_defaults.get("workspace", {}).get("index_max_files", 5000)),
     )
 
     # 5.5 File Tracker (Phase 4.4)
@@ -304,6 +312,7 @@ def create_app(
     tool_registry = _build_tool_registry(workspace)
     output_formatter = ToolOutputFormatter(
         max_output_length=settings.tool_output_max_chars,
+        data_registry=data_registry,
     )
     tool_executor = ToolExecutor(
         registry=tool_registry,
@@ -311,11 +320,13 @@ def create_app(
         output_formatter=output_formatter,
         auto_approve=settings.auto_approve_tools,
         file_tracker=file_tracker,
+        data_registry=data_registry,
     )
 
     # 6. Schema Validator
     schema_validator = SchemaValidator(
         registered_tools=tool_registry.get_all_names(),
+        data_registry=data_registry,
     )
 
     # 7. Memory Manager (token-aware)
@@ -325,16 +336,20 @@ def create_app(
         token_budget=providers.get_token_budget(
             default_model,
             response_reserve=4096,
-            compaction_threshold=settings.context_compaction_threshold,
+            compaction_threshold=float(
+                context_budget.get("compaction_threshold", 0.80)
+            ),
         ),
         model_name=default_model,
-        keep_recent_turns=5,
-        summarization_model=settings.summarization_model,
         summarizer_provider_factory=providers.get_provider,
+        data_registry=data_registry,
     )
 
     # 8. Prompt Builder
-    prompt_builder = PromptBuilder(tool_registry=tool_registry)
+    prompt_builder = PromptBuilder(
+        tool_registry=tool_registry,
+        data_registry=data_registry,
+    )
 
     # 8.5 Session Manager (Phase 5.2.1)
     session_manager = FileSessionManager(default_model=settings.default_model)
@@ -353,6 +368,7 @@ def create_app(
     #    Orchestrator is None until an agent is registered via
     #    ``register_default_agent()``.
     context = AppContext(
+        data_registry=data_registry,
         settings=settings,
         event_bus=event_bus,
         state_manager=state_manager,
@@ -399,6 +415,7 @@ def create_app(
         state_manager=state_manager,
         prompt_builder=prompt_builder,
         settings=settings,
+        data_registry=data_registry,
     )
 
     register_default_agent(context, default_agent)

@@ -12,6 +12,7 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
@@ -68,8 +69,14 @@ class OllamaProvider(BaseLLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = "http://localhost:11434",
         native_tools: bool = False,
+        data_registry: Optional[DataRegistry] = None,
     ) -> None:
-        super().__init__(model_name, api_key, base_url)
+        super().__init__(
+            model_name,
+            api_key,
+            base_url,
+            data_registry=data_registry,
+        )
         self._native_tools = native_tools
 
         ollama_mod = importlib.import_module("ollama")

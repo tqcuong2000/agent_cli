@@ -25,6 +25,7 @@ from typing import Optional, Set
 
 from agent_cli.agent.parsers import AgentResponse, ParsedAction
 from agent_cli.core.error_handler.errors import SchemaValidationError
+from agent_cli.data import DataRegistry
 from agent_cli.providers.models import LLMResponse, ToolCallMode
 
 logger = logging.getLogger(__name__)
@@ -88,8 +89,16 @@ class SchemaValidator(BaseSchemaValidator):
                           Obtained from ``ToolRegistry.get_all_names()``.
     """
 
-    def __init__(self, registered_tools: list[str]) -> None:
+    def __init__(
+        self,
+        registered_tools: list[str],
+        data_registry: Optional[DataRegistry] = None,
+    ) -> None:
         self._registered_tools: Set[str] = set(registered_tools)
+        schema_defaults = (data_registry or DataRegistry()).get_schema_defaults()
+        title_defaults = schema_defaults.get("title", {})
+        self._title_min_words = int(title_defaults.get("min_words", 2))
+        self._title_max_words = int(title_defaults.get("max_words", 15))
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -153,15 +162,18 @@ class SchemaValidator(BaseSchemaValidator):
         if not title_match:
             raise SchemaValidationError(
                 "Missing <title> for <thinking>. "
-                 "Provide a short title (1 to 15 words).",
+                f"Provide a short title ({self._title_min_words} to "
+                f"{self._title_max_words} words).",
                 raw_response=text,
             )
 
         raw_title = title_match.group(1).strip()
         title_words = [w for w in raw_title.split() if w]
-        if not 2 <= len(title_words) <= 15:
+        if not self._title_min_words <= len(title_words) <= self._title_max_words:
             raise SchemaValidationError(
-                "Invalid <title> length. Title must be 2 to 15 words.",
+                "Invalid <title> length. "
+                f"Title must be {self._title_min_words} to "
+                f"{self._title_max_words} words.",
                 raw_response=text,
             )
 

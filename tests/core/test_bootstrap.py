@@ -19,6 +19,7 @@ from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.core.events.event_bus import AsyncEventBus, BusState
 from agent_cli.core.events.events import StateChangeEvent, UserRequestEvent
 from agent_cli.core.state.state_models import TaskState
+from agent_cli.data import DataRegistry
 from agent_cli.providers.manager import ProviderManager
 from agent_cli.workspace.sandbox import SandboxWorkspaceManager
 
@@ -30,6 +31,7 @@ def test_create_app_returns_app_context():
     ctx = create_app()
 
     assert isinstance(ctx, AppContext)
+    assert isinstance(ctx.data_registry, DataRegistry)
     assert isinstance(ctx.settings, AgentSettings)
     assert isinstance(ctx.event_bus, AsyncEventBus)
     assert ctx.state_manager is not None

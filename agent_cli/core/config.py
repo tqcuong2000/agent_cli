@@ -14,6 +14,7 @@ Loading order (lowest → highest precedence):
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 
@@ -26,6 +27,7 @@ from pydantic_settings import (
 )
 
 from agent_cli.core.models.config_models import EffortLevel, ProviderConfig
+from agent_cli.data import DataRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -100,14 +102,6 @@ class AgentSettings(BaseSettings):
         default="gemini-2.5-flash-lite",
         description="The default LLM model to use for agent tasks.",
     )
-    routing_model: str = Field(
-        default="gemini-2.5-flash-lite",
-        description="Fast/cheap model used for routing classification.",
-    )
-    summarization_model: str = Field(
-        default="gemini-2.5-flash-lite",
-        description="Fast/cheap model used for context summarization.",
-    )
     providers: Dict[str, Any] = Field(
         default_factory=dict,
         description="Raw provider configurations from TOML (e.g. [providers.ollama]).",
@@ -132,30 +126,6 @@ class AgentSettings(BaseSettings):
 
     # ── Memory & Context ─────────────────────────────────────────
 
-    context_budget_system_prompt_pct: float = Field(
-        default=0.15,
-        ge=0.05,
-        le=0.50,
-        description="Percentage of context window allocated to system prompt.",
-    )
-    context_budget_summary_pct: float = Field(
-        default=0.10,
-        ge=0.0,
-        le=0.30,
-        description="Percentage allocated to compacted summary block.",
-    )
-    context_budget_response_reserve_pct: float = Field(
-        default=0.20,
-        ge=0.10,
-        le=0.40,
-        description="Percentage reserved for LLM response generation.",
-    )
-    context_compaction_threshold: float = Field(
-        default=0.80,
-        ge=0.50,
-        le=0.95,
-        description="Trigger summarization when working memory exceeds this % of budget.",
-    )
     semantic_memory_enabled: bool = Field(
         default=True,
         description="Enable Mem0 semantic memory for cross-session learning.",
@@ -165,30 +135,6 @@ class AgentSettings(BaseSettings):
         description="Auto-summarize and store facts after every successful task.",
     )
 
-    # ── Retry Settings ───────────────────────────────────────────
-
-    llm_max_retries: int = Field(
-        default=3,
-        ge=0,
-        le=10,
-        description="Maximum retry attempts for transient LLM API errors.",
-    )
-    llm_retry_base_delay: float = Field(
-        default=1.0,
-        ge=0.1,
-        description="Base delay (seconds) for exponential backoff.",
-    )
-    llm_retry_max_delay: float = Field(
-        default=30.0,
-        description="Maximum delay cap (seconds) for exponential backoff.",
-    )
-    max_consecutive_schema_errors: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="Max consecutive malformed LLM responses before failing.",
-    )
-
     # ── Tool Execution ───────────────────────────────────────────
 
     tool_output_max_chars: int = Field(
@@ -196,18 +142,6 @@ class AgentSettings(BaseSettings):
         ge=500,
         le=50000,
         description="Max characters in a tool output before truncation.",
-    )
-    terminal_max_lines: int = Field(
-        default=2000,
-        ge=100,
-        le=50000,
-        description="Max lines kept in RAM per persistent terminal.",
-    )
-    workspace_index_max_files: int = Field(
-        default=5000,
-        ge=100,
-        le=50000,
-        description="Maximum number of files stored in the workspace file index.",
     )
     workspace_deny_patterns: List[str] = Field(
         default_factory=lambda: [".env", ".git/", "*.pem", "*.key"],
@@ -266,11 +200,6 @@ class AgentSettings(BaseSettings):
         default=True,
         description="Auto-save session after every message and state transition.",
     )
-    session_auto_save_interval_seconds: float = Field(
-        default=300.0,
-        ge=0.1,
-        description="Periodic session auto-save interval in seconds.",
-    )
     session_retention_days: int = Field(
         default=30,
         ge=1,
@@ -298,20 +227,6 @@ class AgentSettings(BaseSettings):
 
     # ── Validators (1.3.5) ───────────────────────────────────────
 
-    @field_validator(
-        "context_budget_system_prompt_pct",
-        "context_budget_summary_pct",
-        "context_budget_response_reserve_pct",
-    )
-    @classmethod
-    def _budget_percentages_sanity(cls, v: float) -> float:
-        """Ensure budget percentages are fractions, not whole numbers."""
-        if v > 1.0:
-            raise ValueError(
-                f"Budget percentage must be 0.0–1.0, got {v}. Use 0.15 instead of 15."
-            )
-        return v
-
     @field_validator("log_directory")
     @classmethod
     def _expand_log_directory(cls, v: str) -> str:
@@ -322,7 +237,7 @@ class AgentSettings(BaseSettings):
 
     def get_effort_config(self, level: EffortLevel) -> Dict[str, Any]:
         """Get effort constraints, prioritizing TOML [core.effort] over defaults."""
-        defaults = _DEFAULT_EFFORT_CONSTRAINTS[level]
+        defaults = _data_registry().get_effort_constraints(level)
 
         # Look for user overrides in core.effort.<LEVEL> (case-insensitive key)
         user_efforts = self.core.get("effort", {})
@@ -397,102 +312,18 @@ class AgentSettings(BaseSettings):
 # ══════════════════════════════════════════════════════════════════════
 
 
-# Built-in providers (always available — API key from env/keyring)
-_BUILTIN_PROVIDERS: Dict[str, ProviderConfig] = {
-    "openai": ProviderConfig(
-        adapter_type="openai",
-        models=["gpt-4o", "gpt-4o-mini", "o1", "o1-mini"],
-        default_model="gpt-4o",
-    ),
-    "anthropic": ProviderConfig(
-        adapter_type="anthropic",
-        models=[
-            "claude-3-5-sonnet-20241022",
-            "claude-3-5-haiku-20241022",
-            "claude-3-opus-20240229",
-        ],
-        default_model="claude-3-5-sonnet-20241022",
-    ),
-    "google": ProviderConfig(
-        adapter_type="google",
-        models=[
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-2.0-flash",
-            "gemini-2.0-pro",
-        ],
-        default_model="gemini-2.5-flash-lite",
-    ),
-    "huggingface": ProviderConfig(
-        adapter_type="openai_compatible",
-        base_url="https://router.huggingface.co/v1",
-        models=[
-            "mistralai/Mistral-7B-Instruct-v0.3",
-            "meta-llama/Llama-3.1-8B-Instruct",
-            "microsoft/Phi-3-mini-4k-instruct",
-        ],
-        default_model="mistralai/Mistral-7B-Instruct-v0.3",
-    ),
-    "openrouter": ProviderConfig(
-        adapter_type="openai_compatible",
-        base_url="https://openrouter.ai/api/v1",
-        models=[
-            "anthropic/claude-3.5-sonnet",
-            "deepseek/deepseek-chat",
-            "google/gemini-2.5-flash",
-            "meta-llama/llama-3.1-8b-instruct",
-        ],
-        default_model="anthropic/claude-3.5-sonnet",
-    ),
-}
-
-_DEFAULT_EFFORT_CONSTRAINTS: Dict[EffortLevel, Dict[str, Any]] = {
-    EffortLevel.LOW: {
-        "max_iterations": 30,
-        "model_tier": "fast",
-        "reasoning_instruction": (
-            "Be concise. Act immediately when the path is clear."
-        ),
-        "review_policy": "none",
-    },
-    EffortLevel.MEDIUM: {
-        "max_iterations": 50,
-        "model_tier": "capable",
-        "reasoning_instruction": (
-            "Think step-by-step. Explain your reasoning before acting."
-        ),
-        "review_policy": "standard",
-    },
-    EffortLevel.HIGH: {
-        "max_iterations": 100,
-        "model_tier": "premium",
-        "reasoning_instruction": (
-            "Think deeply. Consider multiple approaches before choosing one. "
-            "After completing the task, review your work for correctness."
-        ),
-        "review_policy": "self_verify",
-    },
-    EffortLevel.XHIGH: {
-        "max_iterations": 250,
-        "model_tier": "premium",
-        "reasoning_instruction": (
-            "Think exhaustively. Leave no stone unturned. Methodically plan every step, "
-            "verify all assumptions, and rigorously double-check the final result."
-        ),
-        "review_policy": "strict_self_verify",
-    },
-}
-
-
 def load_providers(
     config_data: Dict[str, Any] | None = None,
+    *,
+    data_registry: DataRegistry | None = None,
 ) -> Dict[str, ProviderConfig]:
     """Parse provider definitions from merged TOML config.
 
     Built-in providers are always registered.  Custom providers
     from the ``[providers.*]`` TOML sections extend the list.
     """
-    providers = dict(_BUILTIN_PROVIDERS)
+    registry = data_registry or DataRegistry()
+    providers = registry.get_builtin_providers()
 
     if config_data is None:
         return providers
@@ -561,3 +392,8 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
         else:
             result[key] = value
     return result
+
+
+@lru_cache(maxsize=1)
+def _data_registry() -> DataRegistry:
+    return DataRegistry()

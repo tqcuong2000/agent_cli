@@ -6,6 +6,8 @@ and performs standard tasks utilizing the available tools.
 
 from __future__ import annotations
 
+import platform
+
 from agent_cli.agent.base import BaseAgent
 
 
@@ -14,12 +16,7 @@ class DefaultAgent(BaseAgent):
 
     async def build_system_prompt(self, task_context: str) -> str:
         """Construct the system prompt for this agent."""
-        # The user's original roadmap mentions researchers/coders,
-        # but for now we provide a solid generalist.
-        persona = (
-            "You are a helpful, expert AI assistant. "
-            "You have access to tools that let you interact with the user's system."
-        )
+        persona = self._data_registry.get_prompt_template("default_persona").strip()
 
         effort_constraints = self.effort  # Resolved dynamic effort level
         constraints = self.settings.get_effort_config(effort_constraints)
@@ -30,7 +27,7 @@ class DefaultAgent(BaseAgent):
             persona=persona,
             tool_names=self.config.tools,
             effort_constraints=constraints,
-            workspace_context="Operating System: Windows",
+            workspace_context=f"Operating System: {platform.system() or 'Unknown'}",
             extra_instructions=(
                 "Answer carefully and accurately. "
                 "If required details are missing or ambiguous, call the "

@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional, Tuple, Type
 
 from agent_cli.core.config import AgentSettings, load_providers
 from agent_cli.core.models.config_models import ProviderConfig
+from agent_cli.data import DataRegistry
 from agent_cli.memory.budget import TokenBudget, budget_for_model
 from agent_cli.memory.token_counter import (
     AnthropicTokenCounter,
@@ -50,15 +51,24 @@ class ProviderManager:
     don't rebuild the adapter.
     """
 
-    def __init__(self, settings: AgentSettings) -> None:
+    def __init__(
+        self,
+        settings: AgentSettings,
+        *,
+        data_registry: Optional[DataRegistry] = None,
+    ) -> None:
         self._settings = settings
+        self._data_registry = data_registry or DataRegistry()
         self._providers: Dict[str, BaseLLMProvider] = {}
-        self._fallback_token_counter: BaseTokenCounter = HeuristicTokenCounter()
+        self._fallback_token_counter: BaseTokenCounter = HeuristicTokenCounter(
+            data_registry=self._data_registry
+        )
 
         # load_providers() expects a dict with a "providers" key
         # We wrap settings.providers to match the signature
         self._provider_configs: Dict[str, ProviderConfig] = load_providers(
-            {"providers": settings.providers}
+            {"providers": settings.providers},
+            data_registry=self._data_registry,
         )
         self._token_counters: Dict[str, BaseTokenCounter] = self._build_token_counters()
 
@@ -119,6 +129,7 @@ class ProviderManager:
             response_reserve=response_reserve,
             compaction_threshold=compaction_threshold,
             max_context_override=max_context_override,
+            data_registry=self._data_registry,
         )
 
     def _resolve_config_match(
@@ -156,6 +167,7 @@ class ProviderManager:
             "model_name": model_name,
             "api_key": api_key,
             "base_url": config.base_url,
+            "data_registry": self._data_registry,
         }
         if config.adapter_type in ["openai_compatible", "ollama"]:
             kwargs["native_tools"] = config.supports_native_tools
@@ -182,14 +194,19 @@ class ProviderManager:
         """Build adapter-type token counters shared across providers."""
         heuristic = self._fallback_token_counter
         return {
-            "openai": TiktokenCounter(fallback=heuristic),
+            "openai": TiktokenCounter(
+                fallback=heuristic,
+                data_registry=self._data_registry,
+            ),
             "anthropic": AnthropicTokenCounter(
                 api_key=self._settings.resolve_api_key("anthropic"),
                 fallback=heuristic,
+                data_registry=self._data_registry,
             ),
             "google": GeminiTokenCounter(
                 api_key=self._settings.resolve_api_key("google"),
                 fallback=heuristic,
+                data_registry=self._data_registry,
             ),
             "ollama": heuristic,
             "openai_compatible": heuristic,
@@ -215,19 +232,31 @@ class ProviderManager:
             config = self._provider_configs.get("openai")
             if config:
                 return self._create_provider("openai", config, model_name)
-            return OpenAIProvider(model_name, self._settings.openai_api_key)
+            return OpenAIProvider(
+                model_name,
+                self._settings.openai_api_key,
+                data_registry=self._data_registry,
+            )
 
         elif provider_key == "anthropic":
             config = self._provider_configs.get("anthropic")
             if config:
                 return self._create_provider("anthropic", config, model_name)
-            return AnthropicProvider(model_name, self._settings.anthropic_api_key)
+            return AnthropicProvider(
+                model_name,
+                self._settings.anthropic_api_key,
+                data_registry=self._data_registry,
+            )
 
         elif provider_key == "google":
             config = self._provider_configs.get("google")
             if config:
                 return self._create_provider("google", config, model_name)
-            return GoogleProvider(model_name, self._settings.google_api_key)
+            return GoogleProvider(
+                model_name,
+                self._settings.google_api_key,
+                data_registry=self._data_registry,
+            )
 
         raise ValueError(
             f"Cannot strictly infer provider for model '{model_name}'. "

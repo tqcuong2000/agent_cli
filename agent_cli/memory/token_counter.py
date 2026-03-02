@@ -7,7 +7,10 @@ import json
 import logging
 import math
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Sequence
+
+from agent_cli.data import DataRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +32,19 @@ class HeuristicTokenCounter(BaseTokenCounter):
     per-message overhead to mimic chat serialization framing.
     """
 
-    def __init__(self, chars_per_token: float = 4.0) -> None:
-        self._chars_per_token = max(chars_per_token, 1.0)
+    def __init__(
+        self,
+        chars_per_token: float | None = None,
+        *,
+        data_registry: DataRegistry | None = None,
+    ) -> None:
+        registry = data_registry or _default_data_registry()
+        configured = registry.get_token_counter_defaults().get(
+            "heuristic_chars_per_token",
+            4.0,
+        )
+        value = configured if chars_per_token is None else chars_per_token
+        self._chars_per_token = max(float(value), 1.0)
 
     def count(self, messages: Sequence[Message], model_name: str) -> int:
         if not messages:
@@ -52,17 +66,16 @@ class TiktokenCounter(BaseTokenCounter):
     if any runtime counting error occurs.
     """
 
-    _O200K_PREFIXES = (
-        "gpt-4o",
-        "gpt-4.1",
-        "gpt-5",
-        "o1",
-        "o3",
-        "o4",
-    )
-
-    def __init__(self, fallback: Optional[BaseTokenCounter] = None) -> None:
-        self._fallback = fallback or HeuristicTokenCounter()
+    def __init__(
+        self,
+        fallback: Optional[BaseTokenCounter] = None,
+        *,
+        data_registry: DataRegistry | None = None,
+    ) -> None:
+        self._data_registry = data_registry or _default_data_registry()
+        self._fallback = fallback or HeuristicTokenCounter(
+            data_registry=self._data_registry
+        )
 
     def count(self, messages: Sequence[Message], model_name: str) -> int:
         if not messages:
@@ -90,10 +103,7 @@ class TiktokenCounter(BaseTokenCounter):
             return self._fallback.count(messages, model_name)
 
     def _encoding_name(self, model_name: str) -> str:
-        lower = model_name.lower()
-        if lower.startswith(self._O200K_PREFIXES):
-            return "o200k_base"
-        return "cl100k_base"
+        return self._data_registry.get_tokenizer_encoding(model_name)
 
 
 class AnthropicTokenCounter(BaseTokenCounter):
@@ -103,9 +113,13 @@ class AnthropicTokenCounter(BaseTokenCounter):
         self,
         api_key: Optional[str] = None,
         fallback: Optional[BaseTokenCounter] = None,
+        *,
+        data_registry: DataRegistry | None = None,
     ) -> None:
         self._api_key = api_key
-        self._fallback = fallback or HeuristicTokenCounter()
+        self._fallback = fallback or HeuristicTokenCounter(
+            data_registry=data_registry or _default_data_registry()
+        )
         self._client: Any = None
         self._client_ready = False
 
@@ -157,9 +171,13 @@ class GeminiTokenCounter(BaseTokenCounter):
         self,
         api_key: Optional[str] = None,
         fallback: Optional[BaseTokenCounter] = None,
+        *,
+        data_registry: DataRegistry | None = None,
     ) -> None:
         self._api_key = api_key
-        self._fallback = fallback or HeuristicTokenCounter()
+        self._fallback = fallback or HeuristicTokenCounter(
+            data_registry=data_registry or _default_data_registry()
+        )
         self._client: Any = None
         self._client_ready = False
 
@@ -267,3 +285,8 @@ def _value_to_text(value: Any) -> str:
     if isinstance(value, dict):
         return json.dumps(value, sort_keys=True, ensure_ascii=True)
     return str(value)
+
+
+@lru_cache(maxsize=1)
+def _default_data_registry() -> DataRegistry:
+    return DataRegistry()

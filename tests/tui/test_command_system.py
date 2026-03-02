@@ -42,7 +42,6 @@ class _MockSettings:
         self.show_agent_thinking = True
         self.log_level = "INFO"
         self.tool_output_max_chars = 5000
-        self.context_compaction_threshold = 0.80
 
 
 class _MockMemoryManager:
@@ -209,6 +208,9 @@ async def test_model_command_updates_model_and_emits_settings_event(
     ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
         orchestrator=None,
         providers=_MockProviders(),
+        data_registry=SimpleNamespace(
+            get_context_budget=lambda: {"compaction_threshold": 0.80}
+        ),
     )
 
     result = await parser.execute("/model gpt-4o-mini")

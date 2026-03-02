@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_cli.core.config import AgentSettings
 from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.workspace.strict import StrictWorkspaceManager
 
@@ -28,7 +29,10 @@ def test_strict_workspace_blocks_absolute_escape(tmp_path: Path):
 
 
 def test_strict_workspace_denies_sensitive_patterns(tmp_path: Path):
-    manager = StrictWorkspaceManager(root_path=tmp_path)
+    manager = StrictWorkspaceManager(
+        root_path=tmp_path,
+        deny_patterns=AgentSettings().workspace_deny_patterns,
+    )
 
     (tmp_path / ".env").write_text("TOKEN=secret", encoding="utf-8")
     (tmp_path / ".git").mkdir()
@@ -46,6 +50,7 @@ def test_strict_workspace_denies_sensitive_patterns(tmp_path: Path):
 def test_strict_workspace_allow_override_can_permit_denied_path(tmp_path: Path):
     manager = StrictWorkspaceManager(
         root_path=tmp_path,
+        deny_patterns=(".env",),
         allow_overrides=(".env",),
     )
     env_file = tmp_path / ".env"

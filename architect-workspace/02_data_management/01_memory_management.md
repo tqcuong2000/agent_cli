@@ -626,13 +626,16 @@ self.memory.add_working_event({"role": "tool", "content": result})
 await self.memory.summarize_and_compact()
 ```
 
-### B. Orchestrator Routing (`04_multi_agent_definitions.md`)
+### B. Orchestrator Agent Switching (`04_multi_agent_definitions.md`)
 
 ```python
-# During ROUTING, enrich prompt with Mem0 context
+# When user switches agents via !mention, enrich new agent with Mem0 context
 semantic_context = await self.memory.get_relevant_context(user_request)
 if semantic_context:
-    routing_prompt += f"\n\n{semantic_context}"
+    new_agent.memory.add_working_event({
+        "role": "system",
+        "content": semantic_context
+    })
 ```
 
 ### C. Orchestrator Task Completion

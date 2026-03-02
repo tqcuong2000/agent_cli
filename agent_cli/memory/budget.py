@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+
+from agent_cli.data import DataRegistry
 
 
 @dataclass(frozen=True)
@@ -24,27 +27,8 @@ class TokenBudget:
 
 
 def infer_model_max_context(model_name: str) -> int:
-    """Infer max context window size for common model families."""
-    lower = model_name.lower()
-
-    # OpenAI families
-    if lower.startswith(("gpt-4o", "gpt-4.1", "gpt-5")):
-        return 128_000
-    if lower.startswith(("o1", "o3", "o4")):
-        return 200_000
-
-    # Anthropic families
-    if "claude-3-5" in lower or "claude-3.5" in lower or lower.startswith("claude"):
-        return 200_000
-
-    # Gemini families (examples include Gemini 1.5 Pro = 2M)
-    if "gemini-1.5-pro" in lower:
-        return 2_000_000
-    if lower.startswith("gemini"):
-        return 1_000_000
-
-    # Conservative default for unknown providers/models.
-    return 128_000
+    """Infer max context window size from the data registry."""
+    return _default_data_registry().get_context_window(model_name)
 
 
 def budget_for_model(
@@ -53,11 +37,21 @@ def budget_for_model(
     response_reserve: int = 4096,
     compaction_threshold: float = 0.80,
     max_context_override: int | None = None,
+    data_registry: DataRegistry | None = None,
 ) -> TokenBudget:
     """Build a TokenBudget for a model with optional provider override."""
-    max_context = max_context_override or infer_model_max_context(model_name)
+    if max_context_override is not None:
+        max_context = max_context_override
+    else:
+        registry = data_registry or _default_data_registry()
+        max_context = registry.get_context_window(model_name)
     return TokenBudget(
         max_context=max_context,
         response_reserve=response_reserve,
         compaction_threshold=compaction_threshold,
     )
+
+
+@lru_cache(maxsize=1)
+def _default_data_registry() -> DataRegistry:
+    return DataRegistry()

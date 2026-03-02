@@ -219,11 +219,14 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
     # Refresh memory token counter + budget for the new model and compact if needed.
     if ctx.app_context:
         try:
+            context_budget = ctx.app_context.data_registry.get_context_budget()
             token_counter = ctx.app_context.providers.get_token_counter(model_name)
             token_budget = ctx.app_context.providers.get_token_budget(
                 model_name,
                 response_reserve=4096,
-                compaction_threshold=ctx.settings.context_compaction_threshold,
+                compaction_threshold=float(
+                    context_budget.get("compaction_threshold", 0.80)
+                ),
             )
             await ctx.memory_manager.on_model_changed(
                 model_name,

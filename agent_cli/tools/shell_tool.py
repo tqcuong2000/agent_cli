@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import re
+from functools import lru_cache
 from typing import Any, Type
 
 from pydantic import BaseModel, Field
 
 from agent_cli.core.error_handler.errors import ToolExecutionError
+from agent_cli.data import DataRegistry
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.workspace.base import BaseWorkspaceManager
 
@@ -25,19 +27,9 @@ from agent_cli.workspace.base import BaseWorkspaceManager
 # Safe Command Patterns
 # ══════════════════════════════════════════════════════════════════════
 
-# Commands matching any of these patterns are considered safe and
-# skip the user-approval gate.
-_SAFE_COMMAND_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(p)
-    for p in [
-        r"^(ls|dir|cat|type|echo|pwd|cd|head|tail|wc|grep|find|which|whoami|date|env)\b",
-        r"^python\s+-c\s+['\"]print\b",
-        r"^(git\s+(status|log|diff|branch|show))\b",
-        r"^(pip|uv)\s+(list|show|freeze)\b",
-        r"^pytest\b",
-        r"^(node|python|ruby|go)\s+--version\b",
-    ]
-]
+_SHELL_DEFAULTS = DataRegistry().get_tool_defaults().get("shell", {})
+_DEFAULT_TIMEOUT = int(_SHELL_DEFAULTS.get("default_timeout", 30))
+_MAX_TIMEOUT = int(_SHELL_DEFAULTS.get("max_timeout", 120))
 
 
 def is_safe_command(command: str) -> bool:
@@ -46,7 +38,7 @@ def is_safe_command(command: str) -> bool:
     Returns ``True`` if the command is safe (no approval needed).
     """
     stripped = command.strip()
-    return any(pattern.match(stripped) for pattern in _SAFE_COMMAND_PATTERNS)
+    return any(pattern.match(stripped) for pattern in _compiled_safe_patterns())
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -59,7 +51,7 @@ class RunCommandArgs(BaseModel):
 
     command: str = Field(description="The shell command to execute.")
     timeout: int = Field(
-        default=30,
+        default=_DEFAULT_TIMEOUT,
         description="Timeout in seconds (max 120).",
     )
 
@@ -93,8 +85,13 @@ class RunCommandTool(BaseTool):
     def args_schema(self) -> Type[BaseModel]:
         return RunCommandArgs
 
-    async def execute(self, command: str = "", timeout: int = 30, **kwargs: Any) -> str:
-        timeout = min(max(int(timeout), 1), 120)  # Clamp to [1, 120]
+    async def execute(
+        self,
+        command: str = "",
+        timeout: int = _DEFAULT_TIMEOUT,
+        **kwargs: Any,
+    ) -> str:
+        timeout = min(max(int(timeout), 1), _MAX_TIMEOUT)  # Clamp to [1, max]
 
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -124,3 +121,9 @@ class RunCommandTool(BaseTool):
             output_parts.append(f"[stderr]\n{stderr_text}")
 
         return "\n".join(output_parts)
+
+
+@lru_cache(maxsize=1)
+def _compiled_safe_patterns() -> tuple[re.Pattern[str], ...]:
+    defaults = DataRegistry().get_safe_command_patterns()
+    return tuple(re.compile(pattern) for pattern in defaults)

@@ -1,0 +1,21 @@
+# Output Format
+You MUST structure every response as follows:
+
+1. **Title**: Provide a short title in <title> tags (1 to {title_max_words} words).
+2. **Thinking**: Wrap your reasoning chain in <thinking> tags.
+3. **Action**: To use a tool, call the function natively (as defined by the API). DO NOT write an <action> XML tag.
+4. **Final Answer**: When the task is complete AND you are absolutely done, provide your **COMPLETE** response (including all tables, lists, and code) strictly inside <final_answer> tags:
+   <final_answer>Your response to the user.</final_answer>
+
+**STRICT TAG ENFORCEMENT:**
+- EVERYTHING you want the user to see MUST be inside <final_answer>.
+- Content outside of <thinking>, <action>, or <final_answer> WILL BE DISCARDED.
+
+**CRITICAL ANTI-HALLUCINATION RULE:**
+If you decide to use a tool, YOU MUST STOP IMMEDIATELY after defining the action. DO NOT continue writing the `<final_answer>`. DO NOT guess or invent the output of the tool. Wait for the system to execute the tool and provide the result back to you.
+
+You must ALWAYS include both <title> and <thinking> before any action or final answer.
+Required skeleton:
+<title>Short 1-{title_max_words} word title</title>
+<thinking>Your reasoning chain here.</thinking>
+<final_answer>Your COMPLETE response here.</final_answer>

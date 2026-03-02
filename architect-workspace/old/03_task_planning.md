@@ -3,7 +3,7 @@
 ## Overview
 A naive ReAct loop struggles with "Long-Horizon Execution" — tasks requiring dozens of steps across a vast codebase. The Agent forgets its original goal, gets distracted by minor bugs, and burns through the API budget.
 
-This architecture introduces **Two-Phase Task Execution**: a lightweight routing LLM decides if a request needs a plan, and if so, a dedicated **Planner Agent** explores the codebase with read-only tools to produce a structured `ExecutionPlan`. Worker Agents then execute each step sequentially with isolated Working Memory.
+This architecture introduces **Two-Phase Task Execution**, controlled explicitly by the user via the command system (`/mode`). If the user selects PLAN mode, a dedicated **Planner Agent** explores the codebase with read-only tools to produce a structured `ExecutionPlan`. Worker Agents then execute each step sequentially with isolated Working Memory. If the user selects FAST_PATH mode, tasks are routed directly to a built-in or user-defined agent without planning overhead.
 
 ---
 
@@ -11,22 +11,23 @@ This architecture introduces **Two-Phase Task Execution**: a lightweight routing
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| **Plan Creation** | Two-phase: Routing LLM → Planner Agent | Routing is cheap (LOW effort). Planning is thorough (read-only tools, capable model). |
+| **Execution Mode** | User-controlled (`/mode`) | Eliminates ambiguity, puts user in explicit control over cost and overhead. |
 | **Task Ordering** | Sequential only (no dependency DAG) | Simpler to implement and reason about. Most plans are sequential in practice. |
 | **Task Model** | Unified — uses `TaskRecord` from State Management | One source of truth. No separate `TaskDef`. |
 
 ---
 
-## 2. Two Operational Modes
+## 2. User-Controlled Operational Modes
 
-When a user submits a prompt, the system operates in one of two modes:
+When a user submits a prompt, the system operates in one of two modes, determined by the user's current execution mode (`/mode fast` or `/mode plan`):
 
 ### A. Fast-Path (No Plan Needed)
 For simple requests that a single agent can handle directly.
 
 ```
 User: "What does main() do?"
-  → Routing LLM: FAST_PATH
+  → Configuration: FAST_PATH (Default)
+  → Routing LLM selects Researcher agent
   → Researcher agent handles it directly
 ```
 
@@ -37,7 +38,7 @@ For requests requiring codebase exploration, multiple file changes, or sequentia
 
 ```
 User: "Refactor the auth module to use JWT"
-  → Routing LLM: PLAN
+  → Configuration: PLAN (User ran `/mode plan`)
   → Planner Agent explores codebase → generates ExecutionPlan
   → User approves the plan
   → Worker Agents execute each step sequentially
@@ -50,15 +51,15 @@ User: "Refactor the auth module to use JWT"
                           │
                           ▼
               ┌───────────────────────┐
-              │   Routing LLM (LOW)   │  Phase 1: Cheap classification
-              │   FAST_PATH or PLAN?  │
+              │  AgentSettings.mode   │  User explicitly selects
+              │   FAST_PATH or PLAN   │  execution mode
               └─────┬───────────┬─────┘
                     │           │
-               FAST_PATH      PLAN
+               FAST_PATH      PLAN Mode
                     │           │
                     ▼           ▼
               Single Agent  ┌───────────────────────┐
-              executes      │  Planner Agent (MED)  │  Phase 2: Thorough planning
+              executes      │  Planner Agent (MED)  │  Phase 1: Thorough planning
               directly      │  Read-only tools      │
                             │  Explores codebase    │
                             └───────────┬───────────┘
@@ -368,7 +369,7 @@ The Orchestrator from `04_multi_agent_definitions.md` is extended with the plann
 class Orchestrator:
     
     async def on_user_request(self, event: "UserRequestEvent") -> None:
-        """Updated flow with two-phase planning."""
+        """Updated flow with explicit user execution mode."""
         user_message = event.content
         
         # Persist user message
@@ -379,22 +380,21 @@ class Orchestrator:
         await self.state_manager.transition(parent_task.task_id, TaskState.ROUTING)
         
         try:
-            # ── Phase 1: Quick Classification (Routing LLM) ──
-            mode = await self._classify_request(user_message)
+            mode = getattr(self.config, 'force_mode', 'fast').upper()
             
-            if mode == "FAST_PATH":
-                # Simple request → route directly to an agent
+            if mode == "FAST":
+                # User config is fast mode → Single agent routing & execution
                 decision = await self._route_fast_path(user_message)
                 await self._execute_fast_path(parent_task, decision)
-            else:
-                # Complex request → engage the Planner Agent
-                # ── Phase 2: Detailed Planning (Planner Agent) ──
+            elif mode == "PLAN":
+                # User config is plan mode → Engage Planner
+                # ── Phase 1: Detailed Planning (Planner Agent) ──
                 plan = await self._generate_plan(parent_task, user_message)
                 
                 # ── Human Approval ──
                 approved_plan = await self._request_plan_approval(parent_task, plan)
                 
-                # ── Execute the approved plan ──
+                # ── Phase 2: Execute the approved plan ──
                 await self._execute_plan(parent_task, approved_plan)
                 
         except TaskCancelledError:
@@ -403,28 +403,8 @@ class Orchestrator:
             await self.state_manager.transition(
                 parent_task.task_id, TaskState.FAILED, error=e.user_message
             )
-    
-    async def _classify_request(self, user_message: str) -> str:
-        """
-        Phase 1: Lightweight LLM call to decide FAST_PATH or PLAN.
-        Uses a fast model (LOW effort). Does NOT generate the plan.
-        """
-        catalogue = self.agents.get_catalogue()
-        response = await self.routing_provider.safe_generate(
-            context=[{
-                "role": "system",
-                "content": (
-                    "Classify this request as FAST_PATH (simple, single agent) "
-                    "or PLAN (complex, requires multiple steps).\n"
-                    f"Available agents: {catalogue}\n"
-                    "Respond with only: FAST_PATH or PLAN"
-                )
-            }, {
-                "role": "user",
-                "content": user_message
-            }]
-        )
-        return "PLAN" if "PLAN" in response.text_content.upper() else "FAST_PATH"
+            
+    # Note: _route_fast_path is defined in 04_multi_agent_definitions.md
     
     async def _generate_plan(
         self, parent_task: "TaskRecord", user_message: str
@@ -471,12 +451,12 @@ This ensures:
 Users can explicitly request plan mode for any request:
 
 ```bash
-# Normal mode — Orchestrator decides FAST_PATH or PLAN automatically
-> Refactor the auth module
+# Normal fast-path mode (Default)
+> Refactor the auth module  # (Will just be handled by a single agent)
 
-# Explicit plan mode — always generates a plan even for simple requests
+# Explicit plan mode — enforces planner agent
 > /mode plan
-> Add a hello world endpoint
+> Add a hello world endpoint # (Will generate a plan first)
 ```
 
 ```python
@@ -485,11 +465,11 @@ class ModeCommand:
     
     def execute(self, args: List[str]):
         if args[0] == "plan":
-            self.orchestrator.force_plan_mode = True
+            self.orchestrator.force_mode = "plan"
             return "Plan mode enabled. All requests will generate an execution plan."
-        elif args[0] == "auto":
-            self.orchestrator.force_plan_mode = False
-            return "Auto mode restored. Orchestrator decides FAST_PATH vs PLAN."
+        elif args[0] == "fast":
+            self.orchestrator.force_mode = "fast"
+            return "Fast-path mode restored. All requests will use single-agent execution without plans."
 ```
 
 ---
@@ -544,19 +524,12 @@ async def test_plan_approval_cancel():
         await orchestrator._request_plan_approval(task, plan)
 
 @pytest.mark.asyncio
-async def test_classify_simple_request_as_fast_path():
-    mode = await orchestrator._classify_request("What is 2+2?")
-    assert mode == "FAST_PATH"
+async def test_fast_path_mode():
+    orchestrator.config.force_mode = "fast"
+    # Execute should use single-agent path directly
 
 @pytest.mark.asyncio
-async def test_classify_complex_request_as_plan():
-    mode = await orchestrator._classify_request(
-        "Refactor the entire auth module, add JWT, and write integration tests"
-    )
-    assert mode == "PLAN"
-
-@pytest.mark.asyncio
-async def test_force_plan_mode_overrides_classification():
-    orchestrator.force_plan_mode = True
-    # Even simple requests should generate a plan
+async def test_plan_mode_triggers_planner():
+    orchestrator.config.force_mode = "plan"
+    # Even simple requests generate a plan
 ```

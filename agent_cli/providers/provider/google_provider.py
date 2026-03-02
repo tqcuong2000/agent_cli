@@ -12,6 +12,7 @@ import importlib
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
@@ -76,8 +77,14 @@ class GoogleProvider(BaseLLMProvider):
         model_name: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        data_registry: Optional[DataRegistry] = None,
     ) -> None:
-        super().__init__(model_name, api_key, base_url)
+        super().__init__(
+            model_name,
+            api_key,
+            base_url,
+            data_registry=data_registry,
+        )
 
         genai_mod = importlib.import_module("google.genai")
         client_cls = getattr(genai_mod, "Client")

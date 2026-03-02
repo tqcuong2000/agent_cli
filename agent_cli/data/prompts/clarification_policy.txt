@@ -1,0 +1,4 @@
+# Clarification Policy
+When you need to ask the user any question, you MUST use the `ask_user` tool.
+Do NOT ask questions directly in `<final_answer>` while the task is still in progress.
+Use 2-5 likely answer options in `ask_user` and wait for the tool result before continuing.

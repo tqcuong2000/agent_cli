@@ -35,6 +35,7 @@ from agent_cli.core.interaction import (
     InteractionType,
     UserInteractionRequest,
 )
+from agent_cli.data import DataRegistry
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
 from agent_cli.tools.shell_tool import is_safe_command
@@ -75,6 +76,8 @@ class ToolExecutor:
         auto_approve: bool = False,
         interaction_handler: Optional["BaseInteractionHandler"] = None,
         file_tracker: Optional[FileChangeTracker] = None,
+        approval_timeout_seconds: float | None = None,
+        data_registry: DataRegistry | None = None,
     ) -> None:
         self.registry = registry
         self.event_bus = event_bus
@@ -82,6 +85,14 @@ class ToolExecutor:
         self._auto_approve = auto_approve
         self._interaction_handler = interaction_handler
         self._file_tracker = file_tracker
+        defaults = (
+            (data_registry or DataRegistry()).get_tool_defaults().get("executor", {})
+        )
+        self._approval_timeout_seconds = float(
+            approval_timeout_seconds
+            if approval_timeout_seconds is not None
+            else defaults.get("approval_timeout_seconds", 300.0)
+        )
 
         # Approval response handling (Phase 4 HITL will improve this)
         self._pending_approvals: Dict[str, asyncio.Event] = {}
@@ -319,9 +330,15 @@ class ToolExecutor:
             )
         )
 
-        # Wait for response (timeout after 5 minutes)
+        # Wait for response (timeout from tools defaults, <=0 means wait forever)
         try:
-            await asyncio.wait_for(wait_event.wait(), timeout=300.0)
+            if self._approval_timeout_seconds <= 0:
+                await wait_event.wait()
+            else:
+                await asyncio.wait_for(
+                    wait_event.wait(),
+                    timeout=self._approval_timeout_seconds,
+                )
         except asyncio.TimeoutError:
             logger.warning("Approval timeout for tool '%s'", tool_name)
             return False

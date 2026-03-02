@@ -408,11 +408,14 @@ class SessionOverlay(Container):
                 return str(exc)
 
         try:
+            context_budget = app_context.data_registry.get_context_budget()
             token_counter = app_context.providers.get_token_counter(model_name)
             token_budget = app_context.providers.get_token_budget(
                 model_name,
                 response_reserve=4096,
-                compaction_threshold=app_context.settings.context_compaction_threshold,
+                compaction_threshold=float(
+                    context_budget.get("compaction_threshold", 0.80)
+                ),
             )
             await app_context.memory_manager.on_model_changed(
                 model_name,

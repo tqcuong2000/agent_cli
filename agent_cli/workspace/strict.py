@@ -12,8 +12,6 @@ from agent_cli.workspace.base import BaseWorkspaceManager
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DENY_PATTERNS = (".env", ".git/", "*.pem", "*.key")
-
 
 class StrictWorkspaceManager(BaseWorkspaceManager):
     """Enforce strict in-workspace path access with deny-list patterns."""
@@ -26,7 +24,7 @@ class StrictWorkspaceManager(BaseWorkspaceManager):
         allow_overrides: Sequence[str] | None = None,
     ) -> None:
         self._root = root_path.resolve()
-        self._deny_patterns = tuple(deny_patterns or _DEFAULT_DENY_PATTERNS)
+        self._deny_patterns = tuple(deny_patterns or ())
         self._allow_overrides = tuple(allow_overrides or ())
 
     def resolve_path(
