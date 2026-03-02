@@ -42,7 +42,14 @@ def test_models_toml_structure() -> None:
     assert isinstance(tokenizer["default_encoding"], str)
 
     providers = data["providers"]
-    for name in ("openai", "anthropic", "google", "huggingface", "openrouter"):
+    for name in (
+        "openai",
+        "azure",
+        "anthropic",
+        "google",
+        "huggingface",
+        "openrouter",
+    ):
         assert name in providers
         assert "adapter_type" in providers[name]
         assert "models" in providers[name]
@@ -82,6 +89,8 @@ def test_tools_toml_structure() -> None:
         "search_files_default_max_results",
         "diff_context_lines",
         "diff_max_lines",
+        "read_file_max_bytes",
+        "search_files_max_file_bytes",
     }
 
     executor = data["executor"]
@@ -159,6 +168,8 @@ def test_prompt_templates_exist_and_are_non_empty() -> None:
         "output_format_native.txt",
         "clarification_policy.txt",
         "default_persona.txt",
+        "coder_persona.txt",
+        "researcher_persona.txt",
     )
 
     for filename in prompt_files:

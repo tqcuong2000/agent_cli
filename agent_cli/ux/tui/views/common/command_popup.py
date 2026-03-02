@@ -28,12 +28,12 @@ class CommandInfo:
 
 # ── Static command registry (will be replaced by dynamic registry later) ──
 _COMMANDS: List[CommandInfo] = [
-    # Navigation
-    CommandInfo("mode", "Set execution mode (plan/fast)", "ctrl+m", "Navigation"),
-    CommandInfo("agent", "Force a specific agent", "", "Navigation"),
+    # Agent
+    CommandInfo("agent", "Manage agents in this session", "", "Agent"),
     # Model
     CommandInfo("model", "Switch LLM model", "", "Model"),
     CommandInfo("effort", "Set effort level", "ctrl+e", "Model"),
+    CommandInfo("debug", "Toggle debug logging", "", "Model"),
     # Configuration
     CommandInfo("config", "View or modify settings", "", "Configuration"),
     # Session

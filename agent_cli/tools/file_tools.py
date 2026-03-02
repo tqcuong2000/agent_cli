@@ -30,6 +30,33 @@ _SEARCH_FILES_DEFAULT_MAX_RESULTS = int(
 )
 _DIFF_CONTEXT_LINES = int(_FILE_TOOL_DEFAULTS.get("diff_context_lines", 2))
 _DIFF_MAX_LINES = int(_FILE_TOOL_DEFAULTS.get("diff_max_lines", 60))
+_READ_FILE_MAX_BYTES = int(_FILE_TOOL_DEFAULTS.get("read_file_max_bytes", 1_048_576))
+_SEARCH_FILES_MAX_FILE_BYTES = int(
+    _FILE_TOOL_DEFAULTS.get("search_files_max_file_bytes", 524_288)
+)
+
+
+def _is_probably_binary(data: bytes) -> bool:
+    """Heuristic check for binary content."""
+    if not data:
+        return False
+    sample = data[:4096]
+    if b"\x00" in sample:
+        return True
+    text_bytes = sum(
+        byte in (9, 10, 13) or 32 <= byte <= 126 or byte >= 128 for byte in sample
+    )
+    ratio = text_bytes / max(len(sample), 1)
+    return ratio < 0.80
+
+
+def _decode_text_bytes(data: bytes) -> tuple[str, bool]:
+    """Decode text bytes with UTF-8 fallback replacement."""
+    try:
+        return data.decode("utf-8"), False
+    except UnicodeDecodeError:
+        return data.decode("utf-8", errors="replace"), True
+
 
 # ══════════════════════════════════════════════════════════════════════
 # ReadFile
@@ -83,13 +110,16 @@ class ReadFileTool(BaseTool):
                 tool_name=self.name,
             )
 
-        try:
-            content = resolved.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
+        raw = resolved.read_bytes()
+        if _is_probably_binary(raw):
             raise ToolExecutionError(
-                f"Cannot read '{path}': file appears to be binary.",
+                f"Cannot read '{path}': file appears to be binary or unsupported text.",
                 tool_name=self.name,
             )
+        was_truncated = len(raw) > _READ_FILE_MAX_BYTES
+        clipped = raw[:_READ_FILE_MAX_BYTES]
+        content, had_decode_replacement = _decode_text_bytes(clipped)
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
 
         # Optional line slicing
         if start_line is not None or end_line is not None:
@@ -104,6 +134,15 @@ class ReadFileTool(BaseTool):
                 f"Showing lines {start + 1}-{end} of {total} total lines:\n{content}"
             )
 
+        notices: list[str] = []
+        if was_truncated:
+            notices.append(
+                f"File is large ({len(raw):,} bytes). Showing first {_READ_FILE_MAX_BYTES:,} bytes."
+            )
+        if had_decode_replacement:
+            notices.append("Non-UTF-8 bytes were decoded with replacement characters.")
+        if notices:
+            return "\n".join(notices) + "\n\n" + content
         return content
 
 
@@ -564,6 +603,8 @@ class SearchFilesTool(BaseTool):
 
         search_lower = pattern.lower()
         matches: list[str] = []
+        skipped_large_files = 0
+        skipped_binary_files = 0
 
         for root, _dirs, files in os.walk(resolved):
             # Skip hidden directories and common noise
@@ -586,9 +627,22 @@ class SearchFilesTool(BaseTool):
                     continue
 
                 try:
-                    text = file_path.read_text(encoding="utf-8", errors="ignore")
+                    size_bytes = file_path.stat().st_size
                 except (PermissionError, OSError):
                     continue
+
+                if size_bytes > _SEARCH_FILES_MAX_FILE_BYTES:
+                    skipped_large_files += 1
+                    continue
+
+                try:
+                    raw = file_path.read_bytes()
+                except (PermissionError, OSError):
+                    continue
+                if _is_probably_binary(raw):
+                    skipped_binary_files += 1
+                    continue
+                text, _ = _decode_text_bytes(raw)
 
                 for line_num, line in enumerate(text.splitlines(), start=1):
                     if search_lower in line.lower():
@@ -600,9 +654,21 @@ class SearchFilesTool(BaseTool):
                                 f"\n[Stopped at {max_results} results. "
                                 f"Narrow your search pattern.]"
                             )
+                            if skipped_large_files or skipped_binary_files:
+                                matches.append(
+                                    f"[Skipped files: large={skipped_large_files}, binary={skipped_binary_files}]"
+                                )
                             return "\n".join(matches)
 
         if not matches:
-            return f"No matches found for '{pattern}' in '{path}'."
+            suffix = ""
+            if skipped_large_files or skipped_binary_files:
+                suffix = f" Skipped files: large={skipped_large_files}, binary={skipped_binary_files}."
+            return f"No matches found for '{pattern}' in '{path}'.{suffix}"
 
-        return f"Found {len(matches)} matches:\n" + "\n".join(matches)
+        prefix = f"Found {len(matches)} matches:"
+        if skipped_large_files or skipped_binary_files:
+            prefix += (
+                f" (skipped large={skipped_large_files}, binary={skipped_binary_files})"
+            )
+        return prefix + "\n" + "\n".join(matches)

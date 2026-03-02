@@ -15,7 +15,7 @@ import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Protocol
 
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.events.events import StateChangeEvent
@@ -25,8 +25,17 @@ from agent_cli.core.state.state_models import (
     TaskRecord,
     TaskState,
 )
+from agent_cli.core.tracing import start_span
 
 logger = logging.getLogger(__name__)
+
+
+class SupportsTaskObservability(Protocol):
+    """Minimal observability hooks used by the state manager."""
+
+    def record_task_created(self) -> None: ...
+
+    def record_task_result(self, *, is_success: bool) -> None: ...
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -103,8 +112,13 @@ class TaskStateManager(AbstractStateManager):
     to the Event Bus.
     """
 
-    def __init__(self, event_bus: AbstractEventBus) -> None:
+    def __init__(
+        self,
+        event_bus: AbstractEventBus,
+        observability: SupportsTaskObservability | None = None,
+    ) -> None:
         self._event_bus = event_bus
+        self._observability = observability
 
         # Task registry: task_id -> TaskRecord
         self._tasks: dict[str, TaskRecord] = {}
@@ -120,6 +134,7 @@ class TaskStateManager(AbstractStateManager):
         parent_id: Optional[str] = None,
         assigned_agent: str = "",
     ) -> TaskRecord:
+        span = start_span("state_transition")
         task = TaskRecord(
             description=description,
             parent_id=parent_id,
@@ -149,8 +164,25 @@ class TaskStateManager(AbstractStateManager):
                 to_state=TaskState.PENDING.name,
             )
         )
+        timing = span.finish()
 
-        logger.info("Task created: %s (%s)", task.task_id, description[:50])
+        if self._observability is not None:
+            self._observability.record_task_created()
+
+        logger.info(
+            "Task created",
+            extra={
+                "source": "state_manager",
+                "task_id": task.task_id,
+                "span_id": timing["span_id"],
+                "span_type": timing["span_type"],
+                "data": {
+                    "description_preview": description[:50],
+                    "assigned_agent": assigned_agent,
+                    "duration_ms": timing["duration_ms"],
+                },
+            },
+        )
         return task
 
     # ── State Transitions ────────────────────────────────────────
@@ -162,7 +194,9 @@ class TaskStateManager(AbstractStateManager):
         result: Optional[str] = None,
         error: Optional[str] = None,
     ) -> TaskRecord:
+        span = start_span("state_transition", task_id=task_id)
         if task_id not in self._tasks:
+            span.finish()
             raise KeyError(f"Task '{task_id}' not found in state manager.")
 
         async with self._locks[task_id]:
@@ -171,6 +205,7 @@ class TaskStateManager(AbstractStateManager):
 
             # ── Validate transition ──
             if to_state not in VALID_TRANSITIONS.get(from_state, set()):
+                span.finish()
                 raise InvalidTransitionError(task_id, from_state, to_state)
 
             # ── Commit transition ──
@@ -190,10 +225,6 @@ class TaskStateManager(AbstractStateManager):
             if to_state == TaskState.FAILED and error is not None:
                 task.error = error
 
-            logger.info(
-                "Task %s: %s → %s", task_id, from_state.name, to_state.name
-            )
-
         # Auto-publish outside the lock to avoid deadlocks (1.2.4)
         await self._event_bus.publish(
             StateChangeEvent(
@@ -202,6 +233,28 @@ class TaskStateManager(AbstractStateManager):
                 from_state=from_state.name,
                 to_state=to_state.name,
             )
+        )
+        timing = span.finish()
+
+        if self._observability is not None:
+            if to_state == TaskState.SUCCESS:
+                self._observability.record_task_result(is_success=True)
+            elif to_state == TaskState.FAILED:
+                self._observability.record_task_result(is_success=False)
+
+        logger.info(
+            "Task transition",
+            extra={
+                "source": "state_manager",
+                "task_id": task_id,
+                "span_id": timing["span_id"],
+                "span_type": timing["span_type"],
+                "data": {
+                    "from_state": from_state.name,
+                    "to_state": to_state.name,
+                    "duration_ms": timing["duration_ms"],
+                },
+            },
         )
 
         return task
@@ -215,11 +268,7 @@ class TaskStateManager(AbstractStateManager):
         parent = self._tasks.get(parent_id)
         if not parent:
             return []
-        return [
-            self._tasks[cid]
-            for cid in parent.children_ids
-            if cid in self._tasks
-        ]
+        return [self._tasks[cid] for cid in parent.children_ids if cid in self._tasks]
 
     def get_active_tasks(self) -> List[TaskRecord]:
         return [t for t in self._tasks.values() if not t.is_terminal]

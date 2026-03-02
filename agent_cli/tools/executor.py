@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from agent_cli.core.error_handler.errors import ToolExecutionError
@@ -35,6 +34,8 @@ from agent_cli.core.interaction import (
     InteractionType,
     UserInteractionRequest,
 )
+from agent_cli.core.logging import get_observability
+from agent_cli.core.tracing import start_span
 from agent_cli.data import DataRegistry
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
@@ -172,7 +173,7 @@ class ToolExecutor:
             )
         )
 
-        start_time = time.monotonic()
+        span = start_span("tool_exec", task_id=task_id)
         success = True
         raw_result = ""
 
@@ -242,16 +243,39 @@ class ToolExecutor:
                 "Unexpected error in tool '%s': %s", tool_name, e, exc_info=True
             )
 
-        duration_ms = (time.monotonic() - start_time) * 1000
+        timing = span.finish()
+        duration_ms = int(timing["duration_ms"])
 
         # ── 4. Log ───────────────────────────────────────────────
-        logger.info(
-            "Tool '%s' %s in %.1fms (result_len=%d)",
-            tool_name,
-            "completed" if success else "failed",
-            duration_ms,
-            len(raw_result),
-        )
+        observability = get_observability()
+        if observability is not None:
+            observability.record_tool_call(
+                task_id=task_id,
+                tool_name=tool_name,
+                success=success,
+                duration_ms=duration_ms,
+                result_length=len(raw_result),
+            )
+        else:
+            logger.info(
+                "Tool '%s' %s in %dms (result_len=%d)",
+                tool_name,
+                "completed" if success else "failed",
+                duration_ms,
+                len(raw_result),
+                extra={
+                    "source": "tool_executor",
+                    "task_id": task_id,
+                    "span_id": timing["span_id"],
+                    "span_type": timing["span_type"],
+                    "data": {
+                        "tool": tool_name,
+                        "success": success,
+                        "duration_ms": duration_ms,
+                        "result_length": len(raw_result),
+                    },
+                },
+            )
 
         # ── 5. Format output ─────────────────────────────────────
         formatted = self.output_formatter.format(tool_name, raw_result, success)

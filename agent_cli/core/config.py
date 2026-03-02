@@ -178,9 +178,13 @@ class AgentSettings(BaseSettings):
         default=True,
         description="Show agent's <thinking> monologue in the TUI.",
     )
-    execution_mode: str = Field(
-        default="plan",
-        description="Execution mode: 'plan' or 'fast'.",
+    default_agent: str = Field(
+        default="default",
+        description="Agent name activated by default on session start.",
+    )
+    agents: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="User-defined agents from [agents.*] TOML sections.",
     )
 
     # ── Observability ────────────────────────────────────────────
@@ -188,6 +192,12 @@ class AgentSettings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
         default="INFO",
         description="Minimum log level for structured JSON logging.",
+    )
+    log_max_file_size_mb: int = Field(
+        default=50,
+        ge=1,
+        le=1024,
+        description="Max JSONL log file size (MB) before rotation.",
     )
     log_directory: str = Field(
         default="~/.agent_cli/logs",
@@ -211,6 +221,10 @@ class AgentSettings(BaseSettings):
 
     anthropic_api_key: Optional[str] = Field(default=None, alias="ANTHROPIC_API_KEY")
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+    azure_openai_api_key: Optional[str] = Field(
+        default=None,
+        alias="AZURE_OPENAI_API_KEY",
+    )
     google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
     huggingface_api_key: Optional[str] = Field(default=None, alias="HF_TOKEN")
     openrouter_api_key: Optional[str] = Field(default=None, alias="OPENROUTER_API_KEY")
@@ -260,6 +274,7 @@ class AgentSettings(BaseSettings):
         key_map = {
             "anthropic": self.anthropic_api_key,
             "openai": self.openai_api_key,
+            "azure": self.azure_openai_api_key,
             "google": self.google_api_key,
             "huggingface": self.huggingface_api_key,
             "openrouter": self.openrouter_api_key,
@@ -352,9 +367,11 @@ _DEFAULT_CONFIG_CONTENT = """\
 # See documentation for all available options.
 
 default_model = "gemini-2.5-flash-lite"
+default_agent = "default"
 default_effort_level = "MEDIUM"
 show_agent_thinking = true
 log_level = "INFO"
+log_max_file_size_mb = 50
 session_retention_days = 30
 """
 

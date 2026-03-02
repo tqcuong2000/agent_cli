@@ -97,7 +97,7 @@ class OpenAIProvider(BaseLLMProvider):
 
     @property
     def provider_name(self) -> str:
-        return "openai"
+        return self._runtime_provider_name or "openai"
 
     @property
     def supports_native_tools(self) -> bool:
@@ -152,7 +152,7 @@ class OpenAIProvider(BaseLLMProvider):
             output_tokens=response.usage.completion_tokens,
             cost_usd=cost,
             model=self.model_name,
-            provider="openai",
+            provider=self.provider_name,
             stop_reason=stop,
         )
 
@@ -260,7 +260,7 @@ class OpenAIProvider(BaseLLMProvider):
             output_tokens=self._buffered_usage["output"],
             cost_usd=cost,
             model=self.model_name,
-            provider="openai",
+            provider=self.provider_name,
             stop_reason=self._buffered_stop_reason,
         )
 

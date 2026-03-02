@@ -257,20 +257,28 @@ class SchemaValidator(BaseSchemaValidator):
     # ── Final Answer Extraction ──────────────────────────────────
 
     def _extract_final_answer(self, text: str) -> Optional[str]:
-        """Extract ``<final_answer>`` or treat remaining text as answer.
-
-        Priority:
-        1. Explicit ``<final_answer>`` tags (preferred).
-        2. Clean text (with ``<title>``/``<thinking>`` removed) as implicit answer.
-        """
+        """Extract explicit ``<final_answer>``."""
         match = _FINAL_ANSWER_PATTERN.search(text)
         if match:
             return match.group(1).strip()
 
-        # If no tags, the clean text (minus <title>/<thinking>) might be answer
+        # If no explicit tags, check if they dumped text outside of <thinking>
         clean = _THINKING_PATTERN.sub("", text).strip()
         clean = _TITLE_PATTERN.sub("", clean).strip()
-        return clean if clean else None
+        
+        # Strip out prompt template regurgitation if any
+        clean = clean.replace("// STOP HERE. Let the tool execute natively. DO NOT write <final_answer>.", "").strip()
+        clean = clean.replace("SCENARIO 1", "").replace("SCENARIO 2", "").strip()
+
+        if clean and len(clean) > 10:
+            raise SchemaValidationError(
+                "Found raw text outside of <thinking> or <final_answer> tags. "
+                "You MUST use the proper format: either invoke a tool correctly, "
+                "or wrap your final response in <final_answer> tags.",
+                raw_response=text,
+            )
+
+        return None
 
     # ── JSON Parsing + Coercion ──────────────────────────────────
 

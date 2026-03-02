@@ -21,10 +21,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
-# Phase 3 imports
 from agent_cli.agent.memory import BaseMemoryManager
 from agent_cli.agent.react_loop import PromptBuilder
+
+# Phase 3 imports
+from agent_cli.agent.registry import AgentRegistry
 from agent_cli.agent.schema import BaseSchemaValidator, SchemaValidator
+from agent_cli.agent.session_registry import SessionAgentRegistry
 
 # Phase 4.2 imports
 from agent_cli.commands.base import CommandContext, CommandRegistry
@@ -33,6 +36,7 @@ from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
 from agent_cli.core.events.events import BaseEvent, TaskResultEvent
 from agent_cli.core.file_tracker import FileChangeTracker
+from agent_cli.core.logging import configure_observability
 from agent_cli.core.orchestrator import Orchestrator
 from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
 from agent_cli.data import DataRegistry
@@ -51,6 +55,7 @@ from agent_cli.workspace.strict import StrictWorkspaceManager
 if TYPE_CHECKING:
     from agent_cli.agent.base import BaseAgent
     from agent_cli.core.interaction import BaseInteractionHandler
+    from agent_cli.core.logging import ObservabilityManager
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +91,13 @@ class AppContext:
     schema_validator: BaseSchemaValidator
     memory_manager: BaseMemoryManager
     prompt_builder: PromptBuilder
+    agent_registry: Optional[AgentRegistry] = None
+    session_agents: Optional[SessionAgentRegistry] = None
     workspace_manager: Optional[BaseWorkspaceManager] = None
     file_indexer: Optional[FileIndexer] = None
     orchestrator: Optional[Orchestrator] = None  # None until an agent is registered
     session_manager: Optional[AbstractSessionManager] = None
+    observability: Optional["ObservabilityManager"] = None
 
     # ── Phase 4.2 Command System ─────────────────────────────────
     command_registry: Optional[CommandRegistry] = None
@@ -145,6 +153,11 @@ class AppContext:
             self.file_indexer.start(self.event_bus)
 
         self._started = True
+        if self.observability is not None:
+            logger.info(
+                "Observability session active: %s",
+                self.observability.session_id,
+            )
         logger.info(
             "AppContext ready (model=%s, tools=%d)",
             self.settings.default_model,
@@ -180,12 +193,13 @@ class AppContext:
         if self.file_indexer is not None:
             await self.file_indexer.shutdown()
 
-        # Drain the Event Bus (waits for background tasks)
-        await self.event_bus.drain()
-
-        # Shut down orchestrator
+        # Shut down orchestrator before draining the bus so in-flight
+        # request callbacks can be cancelled promptly.
         if self.orchestrator:
             await self.orchestrator.shutdown()
+
+        # Drain the Event Bus (waits for background tasks)
+        await self.event_bus.drain()
 
         # Shut down interaction handler if present
         if self.interaction_handler is not None and hasattr(
@@ -201,6 +215,9 @@ class AppContext:
         # - Persist session
         # - Close HTTP clients
         # - Close terminal processes
+
+        if self.observability is not None:
+            self.observability.shutdown()
 
         self._started = False
         logger.info("AppContext shutdown complete.")
@@ -238,6 +255,8 @@ class AppContext:
             return False
 
         try:
+            if self.observability is not None:
+                active.total_cost = self.observability.metrics.total_cost_usd
             self.session_manager.save(active)
         except Exception:
             logger.exception(
@@ -283,11 +302,16 @@ def create_app(
     if settings is None:
         settings = AgentSettings()
 
+    observability = configure_observability(settings, data_registry=data_registry)
+
     # 2. Event Bus
     event_bus = AsyncEventBus()
 
     # 3. State Manager (depends on Event Bus)
-    state_manager = TaskStateManager(event_bus=event_bus)
+    state_manager = TaskStateManager(
+        event_bus=event_bus,
+        observability=observability,
+    )
 
     # 4. Provider Manager (depends on Settings)
     providers = ProviderManager(settings, data_registry=data_registry)
@@ -364,20 +388,21 @@ def create_app(
     )
     cmd_parser = CommandParser(registry=cmd_registry, context=cmd_context)
 
-    # 10. Assemble context
-    #    Orchestrator is None until an agent is registered via
-    #    ``register_default_agent()``.
+    # 10. Assemble context (orchestrator wired after agent setup)
     context = AppContext(
         data_registry=data_registry,
         settings=settings,
         event_bus=event_bus,
         state_manager=state_manager,
+        observability=observability,
         providers=providers,
         tool_registry=tool_registry,
         tool_executor=tool_executor,
         schema_validator=schema_validator,
         memory_manager=memory_manager,
         prompt_builder=prompt_builder,
+        agent_registry=None,
+        session_agents=None,
         workspace_manager=workspace,
         file_indexer=file_indexer,
         orchestrator=None,
@@ -391,37 +416,196 @@ def create_app(
     # Wire up the back-reference so commands can access providers and orchestrator
     cmd_context.app_context = context
 
-    # 11. Create and register the Default Agent
+    # 11. Multi-agent setup
+    from agent_cli.agent.agents.coder import CoderAgent
+    from agent_cli.agent.agents.researcher import ResearcherAgent
     from agent_cli.agent.base import AgentConfig
     from agent_cli.agent.default import DefaultAgent
+    from agent_cli.core.models.config_models import EffortLevel
 
-    # The default provider is initialized automatically by LLMProviderManager.get_provider()
-    provider = providers.get_provider(settings.default_model)
+    def _parse_effort_level(raw: object) -> Optional[EffortLevel]:
+        effort_raw = str(raw or "").upper().strip()
+        if effort_raw in EffortLevel.__members__:
+            return EffortLevel(effort_raw)
+        return None
 
-    agent_config = AgentConfig(
-        name="Generalist",
-        description="A helpful general-purpose AI assistant",
-        model=settings.default_model,
-        tools=tool_registry.get_all_names(),  # Give access to all registered tools
+    def _resolve_agent_config(
+        *,
+        name: str,
+        description: str,
+        persona: str = "",
+    ) -> AgentConfig:
+        override_raw = settings.agents.get(name, {})
+        override = override_raw if isinstance(override_raw, dict) else {}
+
+        model_name = str(override.get("model") or settings.default_model)
+        tools = override.get("tools", all_tools)
+        if not isinstance(tools, list):
+            tools = all_tools
+
+        return AgentConfig(
+            name=name,
+            description=str(override.get("description", description)),
+            persona=str(override.get("persona", persona)).strip(),
+            model=model_name,
+            effort_level=_parse_effort_level(override.get("effort_level")),
+            tools=[str(tool) for tool in tools],
+            show_thinking=bool(override.get("show_thinking", True)),
+        )
+
+    def _create_agent_instance(
+        *,
+        config: AgentConfig,
+        agent_cls: type[DefaultAgent],
+    ) -> DefaultAgent:
+        model_name = config.model or settings.default_model
+        config.model = model_name
+        provider = providers.get_provider(model_name)
+        agent_memory = _create_agent_memory(
+            providers=providers,
+            data_registry=data_registry,
+            model_name=model_name,
+        )
+        return agent_cls(
+            config=config,
+            provider=provider,
+            tool_executor=tool_executor,
+            schema_validator=schema_validator,
+            memory_manager=agent_memory,
+            event_bus=event_bus,
+            state_manager=state_manager,
+            prompt_builder=prompt_builder,
+            settings=settings,
+            data_registry=data_registry,
+        )
+
+    all_tools = tool_registry.get_all_names()
+    agent_registry = AgentRegistry()
+
+    builtins = [
+        (
+            DefaultAgent,
+            _resolve_agent_config(
+                name="default",
+                description="General-purpose assistant",
+            ),
+        ),
+        (
+            CoderAgent,
+            _resolve_agent_config(
+                name="coder",
+                description="Implementation and refactoring specialist",
+            ),
+        ),
+        (
+            ResearcherAgent,
+            _resolve_agent_config(
+                name="researcher",
+                description="Analysis and research specialist",
+            ),
+        ),
+    ]
+
+    for cls, cfg in builtins:
+        agent_registry.register(_create_agent_instance(config=cfg, agent_cls=cls))
+
+    # User-defined agents from [agents.*]
+    builtin_names = {"default", "coder", "researcher"}
+    for name, raw in settings.agents.items():
+        if name in builtin_names:
+            continue
+        if agent_registry.has(name):
+            logger.warning("Skipping user agent '%s': name already registered", name)
+            continue
+        if not isinstance(raw, dict):
+            logger.warning("Skipping user agent '%s': config must be a mapping", name)
+            continue
+
+        effort_level = _parse_effort_level(raw.get("effort_level"))
+        model_name = str(raw.get("model") or settings.default_model)
+        tools = raw.get("tools", all_tools)
+        if not isinstance(tools, list):
+            tools = all_tools
+
+        user_config = AgentConfig(
+            name=name,
+            description=str(raw.get("description", f"User-defined agent '{name}'")),
+            persona=str(raw.get("persona", "")).strip(),
+            model=model_name,
+            effort_level=effort_level,
+            tools=[str(tool) for tool in tools],
+            show_thinking=bool(raw.get("show_thinking", True)),
+        )
+        agent_registry.register(
+            _create_agent_instance(config=user_config, agent_cls=DefaultAgent)
+        )
+
+    session_agents = SessionAgentRegistry()
+    default_name = str(getattr(settings, "default_agent", "default"))
+    resolved_default_name = (
+        default_name if agent_registry.has(default_name) else "default"
+    )
+    if not agent_registry.has(resolved_default_name):
+        raise RuntimeError("No default agent is registered.")
+
+    if resolved_default_name != default_name:
+        logger.warning(
+            "Configured default_agent '%s' not found. Falling back to '%s'.",
+            default_name,
+            resolved_default_name,
+        )
+
+    default_agent = agent_registry.get(resolved_default_name)
+    assert default_agent is not None
+
+    session_agents.add(default_agent, activate=True)
+
+    # Shared command context should target the active agent memory by default.
+    context.memory_manager = default_agent.memory
+    cmd_context.memory_manager = default_agent.memory
+
+    context.agent_registry = agent_registry
+    context.session_agents = session_agents
+
+    context.orchestrator = Orchestrator(
+        event_bus=context.event_bus,
+        state_manager=context.state_manager,
+        default_agent=default_agent,
+        command_parser=context.command_parser,
+        session_manager=context.session_manager,
+        agent_registry=agent_registry,
+        session_agents=session_agents,
     )
 
-    default_agent = DefaultAgent(
-        config=agent_config,
-        provider=provider,
-        tool_executor=tool_executor,
-        schema_validator=schema_validator,
-        memory_manager=memory_manager,
-        event_bus=event_bus,
-        state_manager=state_manager,
-        prompt_builder=prompt_builder,
-        settings=settings,
+    logger.info(
+        "AppContext created with multi-agent registry (default=%s, total=%d).",
+        resolved_default_name,
+        len(agent_registry.get_all()),
+    )
+    return context
+
+
+def _create_agent_memory(
+    *,
+    providers: ProviderManager,
+    data_registry: DataRegistry,
+    model_name: str,
+) -> SummarizingMemoryManager:
+    """Create a per-agent memory manager with model-aware budget/token tools."""
+    context_budget = data_registry.get_context_budget()
+    return SummarizingMemoryManager(
+        token_counter=providers.get_token_counter(model_name),
+        token_budget=providers.get_token_budget(
+            model_name,
+            response_reserve=4096,
+            compaction_threshold=float(
+                context_budget.get("compaction_threshold", 0.80)
+            ),
+        ),
+        model_name=model_name,
+        summarizer_provider_factory=providers.get_provider,
         data_registry=data_registry,
     )
-
-    register_default_agent(context, default_agent)
-
-    logger.info("AppContext created and default agent registered.")
-    return context
 
 
 def register_default_agent(context: AppContext, agent: BaseAgent) -> None:
@@ -491,6 +675,7 @@ def _build_command_registry() -> CommandRegistry:
     ``CommandRegistry`` instance.
     """
     # Import triggers @command decorator registration
+    import agent_cli.commands.handlers.agent  # noqa: F401
     import agent_cli.commands.handlers.core  # noqa: F401
     import agent_cli.commands.handlers.sandbox  # noqa: F401
     import agent_cli.commands.handlers.session  # noqa: F401

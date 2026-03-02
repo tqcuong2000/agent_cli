@@ -26,6 +26,8 @@ from agent_cli.core.error_handler.errors import (
 )
 from agent_cli.core.error_handler.retry import retry_with_backoff
 from agent_cli.core.events.event_bus import AbstractEventBus
+from agent_cli.core.logging import get_observability
+from agent_cli.core.tracing import start_span
 from agent_cli.data import DataRegistry
 from agent_cli.providers.cost import estimate_cost
 from agent_cli.providers.models import LLMResponse, StreamChunk
@@ -237,15 +239,47 @@ class BaseLLMProvider(ABC):
             if max_delay is not None
             else retry_defaults.get("llm_retry_max_delay", 30.0)
         )
+        span = start_span("llm_call", task_id=task_id)
+        try:
+            response = await retry_with_backoff(
+                _attempt,
+                max_retries=retries,
+                base_delay=base,
+                max_delay=delay_cap,
+                task_id=task_id,
+                event_bus=event_bus,
+            )
+        except Exception:
+            timing = span.finish()
+            logger.error(
+                "LLM call failed",
+                extra={
+                    "source": self.provider_name,
+                    "task_id": task_id,
+                    "span_id": timing["span_id"],
+                    "span_type": timing["span_type"],
+                    "data": {
+                        "model": self.model_name,
+                        "duration_ms": timing["duration_ms"],
+                    },
+                },
+                exc_info=True,
+            )
+            raise
 
-        return await retry_with_backoff(
-            _attempt,
-            max_retries=retries,
-            base_delay=base,
-            max_delay=delay_cap,
-            task_id=task_id,
-            event_bus=event_bus,
-        )
+        timing = span.finish()
+        observability = get_observability()
+        if observability is not None:
+            observability.record_llm_call(
+                task_id=task_id,
+                model=self.model_name,
+                provider=self.provider_name,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                duration_ms=int(timing["duration_ms"]),
+                cost_usd=response.cost_usd,
+            )
+        return response
 
     # ── Error Classification ─────────────────────────────────────
 

@@ -38,6 +38,10 @@ def test_create_app_returns_app_context():
     assert isinstance(ctx.providers, ProviderManager)
     assert ctx.session_manager is not None
     assert ctx.file_indexer is not None
+    assert ctx.agent_registry is not None
+    assert ctx.session_agents is not None
+    assert ctx.orchestrator is not None
+    assert ctx.orchestrator.active_agent_name == "default"
     assert ctx.is_running is False  # Not started yet
 
 
@@ -48,6 +52,26 @@ def test_create_app_accepts_custom_settings():
 
     assert ctx.settings.default_model == "gpt-4o"
     assert ctx.settings.log_level == "DEBUG"
+
+
+def test_create_app_applies_built_in_agent_overrides_from_settings():
+    custom = AgentSettings(
+        default_model="gpt-4o-mini",
+        agents={
+            "coder": {
+                "model": "gpt-5-mini",
+                "effort_level": "HIGH",
+            }
+        },
+    )
+    ctx = create_app(settings=custom)
+    assert ctx.agent_registry is not None
+
+    coder = ctx.agent_registry.get("coder")
+    assert coder is not None
+    assert coder.config.model == "gpt-5-mini"
+    assert coder.config.effort_level is not None
+    assert coder.config.effort_level.value == "HIGH"
 
 
 def test_create_app_registers_ask_user_tool():

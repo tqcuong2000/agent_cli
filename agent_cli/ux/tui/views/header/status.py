@@ -8,13 +8,17 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widgets import Static
 
-from agent_cli.core.events.events import BaseEvent, StateChangeEvent
+from agent_cli.core.events.events import (
+    BaseEvent,
+    SettingsChangedEvent,
+    StateChangeEvent,
+)
 
 
 class StatusContainer(Container):
     """A container to display status information.
 
-    Mode, model, and effort are **reactive** — changing them
+    Active agent, model, and effort are **reactive** — changing them
     automatically updates the corresponding ``Static`` widget.
     """
 
@@ -57,17 +61,17 @@ class StatusContainer(Container):
         width: auto;
     }
 
-    StatusContainer .mode {
-        color: $accent;
-        width: auto;
-    }
-
     StatusContainer .model {
         color: $text;
         width: auto;
     }
 
     StatusContainer .effort {
+        color: $accent;
+        width: auto;
+    }
+
+    StatusContainer .active_agent {
         color: $accent;
         width: auto;
     }
@@ -89,7 +93,7 @@ class StatusContainer(Container):
 
     # ── Reactive state ───────────────────────────────────────────
 
-    mode: reactive[str] = reactive("Plan")
+    active_agent: reactive[str] = reactive("default")
     model: reactive[str] = reactive("gemini-3.1-pro-preview")
     effort: reactive[str] = reactive("xHigh")
     agent_state: reactive[str] = reactive("Idle")
@@ -113,7 +117,7 @@ class StatusContainer(Container):
                 self.agent_indicator, id="agent_indicator", classes="agent_indicator"
             )
             yield Static(" ", id="agent_sep_1", classes="shortcut_separator")
-            yield Static(self.mode, id="mode", classes="mode")
+            yield Static(self.active_agent, id="active_agent", classes="active_agent")
             yield Static(" ● ", classes="shortcut_separator")
             yield Static(self.model, id="model", classes="model")
             yield Static(" ● ", classes="shortcut_separator")
@@ -122,7 +126,7 @@ class StatusContainer(Container):
             yield Static(self.agent_state, id="agent_state", classes="agent_state")
             yield Static(" ", id="spacer", classes="spacer")
             yield Static("tab ", classes="shortcut_key")
-            yield Static("mode", classes="shortcut_action")
+            yield Static("agent", classes="shortcut_action")
             yield Static(" | ", classes="shortcut_separator")
             yield Static("ctrl+p ", classes="shortcut_key")
             yield Static("commands", classes="shortcut_action")
@@ -139,7 +143,15 @@ class StatusContainer(Container):
         self._subscriptions.append(
             event_bus.subscribe("StateChangeEvent", self._on_state_change, priority=40)
         )
+        self._subscriptions.append(
+            event_bus.subscribe(
+                "SettingsChangedEvent",
+                self._on_settings_changed,
+                priority=40,
+            )
+        )
         self.call_after_refresh(self._sync_agent_status)
+        self.call_after_refresh(self._sync_active_agent)
 
     def on_unmount(self) -> None:
         self._stop_spinner()
@@ -155,12 +167,6 @@ class StatusContainer(Container):
 
     # ── Watchers ─────────────────────────────────────────────────
 
-    def watch_mode(self, value: str) -> None:
-        try:
-            self.query_one("#mode", Static).update(value)
-        except Exception:
-            pass  # Widget not mounted yet
-
     def watch_model(self, value: str) -> None:
         try:
             self.query_one("#model", Static).update(value)
@@ -170,6 +176,12 @@ class StatusContainer(Container):
     def watch_effort(self, value: str) -> None:
         try:
             self.query_one("#effort", Static).update(value)
+        except Exception:
+            pass
+
+    def watch_active_agent(self, value: str) -> None:
+        try:
+            self.query_one("#active_agent", Static).update(value)
         except Exception:
             pass
 
@@ -187,10 +199,6 @@ class StatusContainer(Container):
 
     # ── Public API (called by command handlers) ──────────────────
 
-    def update_mode(self, value: str) -> None:
-        """Update the displayed execution mode."""
-        self.mode = value.capitalize()
-
     def update_model(self, value: str) -> None:
         """Update the displayed model name."""
         self.model = value
@@ -198,6 +206,10 @@ class StatusContainer(Container):
     def update_effort(self, value: str) -> None:
         """Update the displayed effort level."""
         self.effort = value.upper()
+
+    def update_active_agent(self, value: str) -> None:
+        """Update the displayed active agent name."""
+        self.active_agent = value
 
     # ── Event handlers ───────────────────────────────────────────
 
@@ -219,6 +231,22 @@ class StatusContainer(Container):
             self._paused_task_ids.discard(task_id)
 
         self._sync_agent_status()
+
+    async def _on_settings_changed(self, event: BaseEvent) -> None:
+        if not isinstance(event, SettingsChangedEvent):
+            return
+        if event.setting_name == "active_agent":
+            self.update_active_agent(str(event.new_value))
+
+    def _sync_active_agent(self) -> None:
+        app_context = getattr(self.app, "app_context", None)
+        orchestrator = getattr(app_context, "orchestrator", None)
+        if orchestrator is None:
+            return
+        try:
+            self.update_active_agent(orchestrator.active_agent_name)
+        except Exception:
+            return
 
     def _sync_agent_status(self) -> None:
         working_count = len(self._working_task_ids)

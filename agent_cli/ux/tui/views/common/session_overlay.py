@@ -402,8 +402,9 @@ class SessionOverlay(Container):
 
         if app_context.orchestrator:
             try:
-                agent = app_context.orchestrator._default_agent
+                agent = app_context.orchestrator.active_agent
                 agent.provider = app_context.providers.get_provider(model_name)
+                agent.config.model = model_name
             except Exception as exc:
                 return str(exc)
 

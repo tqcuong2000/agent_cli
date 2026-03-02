@@ -38,6 +38,7 @@ def test_builtin_providers(registry: DataRegistry) -> None:
     providers = registry.get_builtin_providers()
     assert set(providers.keys()) == {
         "openai",
+        "azure",
         "anthropic",
         "google",
         "huggingface",
@@ -127,6 +128,9 @@ def test_prompt_template_loading_and_missing_file(registry: DataRegistry) -> Non
 
     persona = registry.get_prompt_template("default_persona")
     assert "helpful, expert AI assistant" in persona
+
+    coder_persona = registry.get_prompt_template("coder_persona")
+    assert "software engineer" in coder_persona
 
     with pytest.raises(FileNotFoundError):
         registry.get_prompt_template("does_not_exist")

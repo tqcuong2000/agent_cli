@@ -30,7 +30,9 @@ class ProviderConfig:
     Users add custom providers via TOML ``[providers.<name>]`` sections.
     """
 
-    adapter_type: str  # "openai" | "anthropic" | "google" | "openai_compatible"
+    adapter_type: (
+        str  # "openai" | "azure" | "anthropic" | "google" | "openai_compatible"
+    )
     base_url: Optional[str] = None  # Required for openai_compatible
     models: List[str] = field(default_factory=list)
     api_key_env: Optional[str] = None  # Custom env var name for API key

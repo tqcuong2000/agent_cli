@@ -13,6 +13,7 @@ from agent_cli.memory.token_counter import (
 )
 from agent_cli.providers.manager import ProviderManager
 from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
+from agent_cli.providers.provider.azure_provider import AzureProvider
 from agent_cli.providers.provider.google_provider import GoogleProvider
 from agent_cli.providers.provider.openai_compat import OpenAICompatibleProvider
 from agent_cli.providers.provider.openai_provider import OpenAIProvider
@@ -95,6 +96,9 @@ def test_manager_returns_token_counters_by_provider():
 
     assert isinstance(manager.get_token_counter("gpt-4o"), TiktokenCounter)
     assert isinstance(
+        manager.get_token_counter("azure/gpt-4o-deployment"), TiktokenCounter
+    )
+    assert isinstance(
         manager.get_token_counter("claude-3-5-sonnet-20241022"),
         AnthropicTokenCounter,
     )
@@ -126,3 +130,25 @@ def test_manager_token_budget_uses_provider_override():
     assert budget.max_context == 42_000
     assert budget.response_reserve == 1024
     assert budget.compaction_threshold == 0.75
+
+
+def test_manager_creates_azure_provider_from_prefix():
+    settings = AgentSettings(azure_openai_api_key="az-test-key")
+    settings.providers = {
+        "azure": {
+            "adapter_type": "azure",
+            "base_url": "https://example-resource.openai.azure.com/openai/v1",
+            "models": [],
+            "default_model": "azure/default-deployment",
+        }
+    }
+    manager = ProviderManager(settings)
+
+    provider = manager.get_provider("azure/my-deployment")
+
+    assert isinstance(provider, AzureProvider)
+    assert provider.provider_name == "azure"
+    assert provider.model_name == "my-deployment"
+    assert str(provider.client.base_url).startswith(
+        "https://example-resource.openai.azure.com/openai/v1"
+    )

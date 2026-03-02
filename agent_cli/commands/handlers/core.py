@@ -1,5 +1,5 @@
 """
-Core command handlers — /help, /clear, /exit, /mode, /model,
+Core command handlers — /help, /clear, /exit, /model,
 /effort, /config, /cost, /context.
 
 All handlers are registered at import time via the ``@command``
@@ -13,6 +13,7 @@ from typing import List
 
 from agent_cli.commands.base import CommandContext, CommandResult, command
 from agent_cli.core.events.events import SettingsChangedEvent
+from agent_cli.core.logging import get_observability
 
 # ══════════════════════════════════════════════════════════════════════
 # System
@@ -131,53 +132,25 @@ async def cmd_context(args: List[str], ctx: CommandContext) -> CommandResult:
     category="Memory",
 )
 async def cmd_cost(args: List[str], ctx: CommandContext) -> CommandResult:
-    """Show session cost information (placeholder)."""
+    """Show session cost information."""
+    observability = get_observability()
+    if observability is None:
+        return CommandResult(
+            success=True,
+            message="Cost tracking is not initialized.",
+        )
+
+    metrics = observability.metrics.to_summary()
     return CommandResult(
         success=True,
         message=(
             "Cost tracking:\n"
-            "  Session cost data will be available when provider "
-            "cost tracking is wired."
+            f"  Total cost: ${metrics['cost_usd']:.6f}\n"
+            f"  LLM calls: {metrics['llm_calls']}\n"
+            f"  Input tokens: {metrics['tokens']['input']}\n"
+            f"  Output tokens: {metrics['tokens']['output']}\n"
+            f"  Total tokens: {metrics['tokens']['total']}"
         ),
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════
-# Navigation & Mode
-# ══════════════════════════════════════════════════════════════════════
-
-
-@command(
-    name="mode",
-    description="Set execution mode (plan/fast)",
-    usage="/mode <plan|fast>",
-    shortcut="ctrl+m",
-    category="Navigation",
-)
-async def cmd_mode(args: List[str], ctx: CommandContext) -> CommandResult:
-    """Set execution mode for the next request."""
-    if not args:
-        current = getattr(ctx.settings, "execution_mode", "plan")
-        return CommandResult(
-            success=True,
-            message=f"Current mode: {current.upper()}",
-        )
-
-    mode = args[0].lower()
-    if mode not in ("plan", "fast"):
-        return CommandResult(
-            success=False,
-            message="Usage: /mode <plan|fast>",
-        )
-
-    ctx.settings.execution_mode = mode
-
-    # Update status bar if app is available
-    _update_status_bar(ctx, mode=mode)
-
-    return CommandResult(
-        success=True,
-        message=f"Execution mode set to: {mode.upper()}",
     )
 
 
@@ -193,8 +166,18 @@ async def cmd_mode(args: List[str], ctx: CommandContext) -> CommandResult:
     category="Model",
 )
 async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
-    """Switch the default LLM model."""
+    """Switch model for the active agent."""
+    active_agent = None
+    if ctx.app_context and ctx.app_context.orchestrator:
+        active_agent = ctx.app_context.orchestrator.active_agent
+
     if not args:
+        if active_agent is not None:
+            current = active_agent.config.model or ctx.settings.default_model
+            return CommandResult(
+                success=True,
+                message=f"Current model ({active_agent.name}): {current}",
+            )
         current = ctx.settings.default_model
         return CommandResult(
             success=True,
@@ -202,19 +185,30 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
         )
 
     model_name = args[0]
-    ctx.settings.default_model = model_name
+    target_agent_name = "global"
+    target_memory = ctx.memory_manager
 
     # Check if we have app_context and orchestrator connected
     if ctx.app_context and ctx.app_context.orchestrator:
         try:
-            agent = ctx.app_context.orchestrator._default_agent
+            agent = ctx.app_context.orchestrator.active_agent
             new_provider = ctx.app_context.providers.get_provider(model_name)
             agent.provider = new_provider
+            agent.config.model = model_name
+            target_agent_name = agent.name
+            target_memory = agent.memory
+            _persist_agent_model_override(ctx, agent.name, model_name)
+
+            # Keep legacy default_model behavior only for the default agent.
+            if agent.name == getattr(ctx.settings, "default_agent", "default"):
+                ctx.settings.default_model = model_name
         except Exception as e:
             return CommandResult(
                 success=False,
                 message=f"Failed to load provider for '{model_name}': {e}",
             )
+    else:
+        ctx.settings.default_model = model_name
 
     # Refresh memory token counter + budget for the new model and compact if needed.
     if ctx.app_context:
@@ -228,11 +222,14 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
                     context_budget.get("compaction_threshold", 0.80)
                 ),
             )
-            await ctx.memory_manager.on_model_changed(
+            await target_memory.on_model_changed(
                 model_name,
                 token_counter=token_counter,
                 token_budget=token_budget,
             )
+            if target_memory is not ctx.memory_manager:
+                ctx.memory_manager = target_memory
+                ctx.app_context.memory_manager = target_memory
         except Exception as e:
             return CommandResult(
                 success=False,
@@ -250,11 +247,15 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
         )
 
     # Update status bar
-    _update_status_bar(ctx, model=model_name)
+    _update_status_bar(
+        ctx,
+        model=model_name,
+        active_agent=target_agent_name,
+    )
 
     return CommandResult(
         success=True,
-        message=f"Switched model to: {model_name}",
+        message=f"Switched model for '{target_agent_name}' to: {model_name}",
     )
 
 
@@ -304,6 +305,48 @@ async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
     )
 
 
+@command(
+    name="debug",
+    description="Toggle debug logging",
+    usage="/debug [on|off]",
+    category="Model",
+)
+async def cmd_debug(args: List[str], ctx: CommandContext) -> CommandResult:
+    """Enable/disable DEBUG log level at runtime."""
+    observability = get_observability()
+    if not args:
+        return CommandResult(
+            success=True,
+            message=f"Current log level: {ctx.settings.log_level}",
+        )
+
+    value = args[0].lower()
+    if value not in ("on", "off"):
+        return CommandResult(
+            success=False,
+            message="Usage: /debug [on|off]",
+        )
+
+    level = "DEBUG" if value == "on" else "INFO"
+    ctx.settings.log_level = level
+    if observability is not None:
+        observability.set_level(level)
+
+    if ctx.event_bus:
+        await ctx.event_bus.publish(
+            SettingsChangedEvent(
+                setting_name="log_level",
+                new_value=level,
+                source="cmd_debug",
+            )
+        )
+
+    return CommandResult(
+        success=True,
+        message=f"Log level set to: {level}",
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Configuration
 # ══════════════════════════════════════════════════════════════════════
@@ -321,8 +364,8 @@ async def cmd_config(args: List[str], ctx: CommandContext) -> CommandResult:
     lines = [
         "Current configuration:",
         f"  default_model:        {s.default_model}",
+        f"  default_agent:        {getattr(s, 'default_agent', 'default')}",
         f"  default_effort_level: {s.default_effort_level.value}",
-        f"  execution_mode:       {getattr(s, 'execution_mode', 'plan')}",
         f"  auto_approve_tools:   {s.auto_approve_tools}",
         f"  show_agent_thinking:  {s.show_agent_thinking}",
         f"  log_level:            {s.log_level}",
@@ -339,22 +382,41 @@ async def cmd_config(args: List[str], ctx: CommandContext) -> CommandResult:
 def _update_status_bar(
     ctx: CommandContext,
     *,
-    mode: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    active_agent: str | None = None,
 ) -> None:
     """Update the TUI status bar if app is available."""
     if ctx.app is None:
         return
     try:
+        from agent_cli.ux.tui.views.header.agent_badge import AgentBadgeComponent
         from agent_cli.ux.tui.views.header.status import StatusContainer
 
         status = ctx.app.query_one(StatusContainer)
-        if mode is not None:
-            status.update_mode(mode)
         if model is not None:
             status.update_model(model)
         if effort is not None:
             status.update_effort(effort)
+        if active_agent is not None:
+            status.update_active_agent(active_agent)
+            badge = ctx.app.query_one(AgentBadgeComponent)
+            badge.update(active_agent)
     except Exception:
         pass  # Status bar may not be mounted in test environments
+
+
+def _persist_agent_model_override(
+    ctx: CommandContext,
+    agent_name: str,
+    model_name: str,
+) -> None:
+    """Persist model override under settings.agents.<name>.model."""
+    agents = getattr(ctx.settings, "agents", None)
+    if not isinstance(agents, dict):
+        return
+
+    raw_entry = agents.get(agent_name)
+    entry = raw_entry if isinstance(raw_entry, dict) else {}
+    entry["model"] = model_name
+    agents[agent_name] = entry

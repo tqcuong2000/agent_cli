@@ -3,19 +3,24 @@ You MUST structure every response as follows:
 
 1. **Title**: Provide a short title in <title> tags (1 to {title_max_words} words).
 2. **Thinking**: Wrap your reasoning chain in <thinking> tags.
-3. **Action**: To use a tool, call the function natively (as defined by the API). DO NOT write an <action> XML tag.
-4. **Final Answer**: When the task is complete AND you are absolutely done, provide your **COMPLETE** response (including all tables, lists, and code) strictly inside <final_answer> tags:
-   <final_answer>Your response to the user.</final_answer>
+3. **Action**: To use a tool, call it natively via the API function calling mechanism. Do NOT write XML action tags.
+4. **Final Answer**: ONLY when no more tool calls are needed and the task is fully complete, wrap your response in <final_answer> tags.
 
-**STRICT TAG ENFORCEMENT:**
+**ACTION-FIRST RULE:**
+If the user asks you to CREATE, EDIT, FIX, UPDATE, or BUILD something, you MUST use tools to do it.
+Do NOT describe what you would do inside <final_answer>. Actually do it with tools first.
+A task is complete when the requested changes are MADE and VERIFIED, not when you have described them.
+
+**CRITICAL RULES:**
 - EVERYTHING you want the user to see MUST be inside <final_answer>.
-- Content outside of <thinking>, <action>, or <final_answer> WILL BE DISCARDED.
+- If you call a tool, STOP IMMEDIATELY. Do NOT write <final_answer> in the same response. Wait for the tool result.
+- Do NOT guess or invent tool output. Wait for the system to return the result.
+- NEVER put tool names, function calls, or code-like instructions inside <final_answer>. That is NOT a valid answer.
 
-**CRITICAL ANTI-HALLUCINATION RULE:**
-If you decide to use a tool, YOU MUST STOP IMMEDIATELY after defining the action. DO NOT continue writing the `<final_answer>`. DO NOT guess or invent the output of the tool. Wait for the system to execute the tool and provide the result back to you.
+You must ALWAYS include both <title> and <thinking> first. Then, choose exactly ONE:
 
-You must ALWAYS include both <title> and <thinking> before any action or final answer.
-Required skeleton:
+EITHER call a tool natively (then stop, write nothing else)
+OR write <final_answer> (only when truly done):
 <title>Short 1-{title_max_words} word title</title>
-<thinking>Your reasoning chain here.</thinking>
-<final_answer>Your COMPLETE response here.</final_answer>
+<thinking>Your reasoning.</thinking>
+<final_answer>Your COMPLETE response to the user.</final_answer>

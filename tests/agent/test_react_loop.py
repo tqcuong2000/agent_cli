@@ -176,6 +176,32 @@ def base_deps():
 # ── Integration Tests ────────────────────────────────────────────────
 
 
+def test_effort_resolution_prefers_agent_override(base_deps):
+    provider = MockLLMProvider([])
+    base_deps["settings"].default_effort_level = EffortLevel.XHIGH
+
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add"], effort_level=EffortLevel.LOW),
+        provider=provider,
+        **base_deps,
+    )
+
+    assert agent.effort == EffortLevel.LOW
+
+
+def test_effort_resolution_falls_back_to_global_default(base_deps):
+    provider = MockLLMProvider([])
+    base_deps["settings"].default_effort_level = EffortLevel.HIGH
+
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add"]),
+        provider=provider,
+        **base_deps,
+    )
+
+    assert agent.effort == EffortLevel.HIGH
+
+
 @pytest.mark.asyncio
 async def test_react_loop_successful_task(base_deps):
     """Test a full ReAct loop where the agent thinks, uses a tool,

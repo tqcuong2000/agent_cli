@@ -25,7 +25,7 @@ class AgentCLIApp(App):
     BINDINGS = [
         Binding("ctrl+p", "open_command_palette", "Commands", show=True),
         Binding("ctrl+e", "cycle_effort", "Effort", show=True),
-        Binding("ctrl+m", "toggle_mode", "Mode", show=False),
+        Binding("escape", "interrupt_agent", "Stop", show=False),
         Binding("ctrl+l", "clear_context", "Clear", show=False),
         Binding("ctrl+q", "quit_app", "Quit", show=False),
         ("shift+up", "show_error_popup", "Show Error Popup (Temp)"),
@@ -104,13 +104,19 @@ class AgentCLIApp(App):
     def _init_status_bar(self) -> None:
         """Push current settings into the reactive status bar."""
         try:
+            from agent_cli.ux.tui.views.header.agent_badge import AgentBadgeComponent
             from agent_cli.ux.tui.views.header.status import StatusContainer
 
             status = self.query_one(StatusContainer)
             s = self.app_context.settings
-            status.update_mode(getattr(s, "execution_mode", "plan"))
             status.update_model(s.default_model)
             status.update_effort(s.default_effort_level.value)
+            active_name = "default"
+            if self.app_context.orchestrator is not None:
+                active_name = self.app_context.orchestrator.active_agent_name
+            status.update_active_agent(active_name)
+            badge = self.query_one(AgentBadgeComponent)
+            badge.update(active_name)
         except Exception:
             pass  # StatusContainer may not be mounted
 
@@ -163,15 +169,6 @@ class AgentCLIApp(App):
         if parser:
             await parser.execute(f"/effort {next_level}")
 
-    async def action_toggle_mode(self) -> None:
-        """Toggle between fast and plan mode."""
-        current = getattr(self.app_context.settings, "execution_mode", "plan")
-        new_mode = "plan" if current == "fast" else "fast"
-
-        parser = self.app_context.command_parser
-        if parser:
-            await parser.execute(f"/mode {new_mode}")
-
     async def action_clear_context(self) -> None:
         """Clear working memory."""
         parser = self.app_context.command_parser
@@ -182,6 +179,15 @@ class AgentCLIApp(App):
     async def action_quit_app(self) -> None:
         """Exit the application."""
         self.exit()
+
+    async def action_interrupt_agent(self) -> None:
+        """Interrupt the currently running agent task."""
+        orchestrator = getattr(self.app_context, "orchestrator", None)
+        if orchestrator is None:
+            return
+        interrupted = await orchestrator.interrupt_active_task()
+        if interrupted:
+            self.notify("Stopping current task...")
 
     # ── Legacy actions ───────────────────────────────────────────
 

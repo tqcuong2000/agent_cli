@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+from agent_cli.agent.registry import AgentRegistry
+from agent_cli.agent.session_registry import SessionAgentRegistry
 from agent_cli.commands.base import (
     CommandContext,
     CommandDef,
@@ -36,11 +38,13 @@ class _MockSettings:
         from agent_cli.core.models.config_models import EffortLevel
 
         self.default_model = "gpt-4o"
+        self.default_agent = "default"
         self.default_effort_level = EffortLevel.MEDIUM
-        self.execution_mode = "plan"
+        self.agents = {}
         self.auto_approve_tools = False
         self.show_agent_thinking = True
         self.log_level = "INFO"
+        self.log_max_file_size_mb = 50
         self.tool_output_max_chars = 5000
 
 
@@ -80,6 +84,11 @@ class _MockStateManager:
     pass
 
 
+class _SimpleAgent:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
@@ -87,6 +96,7 @@ class _MockStateManager:
 def registry() -> CommandRegistry:
     """Build a registry with the core handlers pre-loaded."""
     # Importing triggers @command decorators
+    import agent_cli.commands.handlers.agent  # noqa: F401
     import agent_cli.commands.handlers.core  # noqa: F401
     import agent_cli.commands.handlers.sandbox  # noqa: F401
     import agent_cli.commands.handlers.session  # noqa: F401
@@ -123,9 +133,10 @@ def test_command_decorator_registers_into_registry(registry: CommandRegistry):
     assert "help" in names
     assert "clear" in names
     assert "exit" in names
-    assert "mode" in names
+    assert "agent" in names
     assert "model" in names
     assert "effort" in names
+    assert "debug" in names
     assert "config" in names
     assert "cost" in names
     assert "context" in names
@@ -176,12 +187,17 @@ async def test_parser_execute_effort_updates_settings(
 
 
 def test_get_suggestions_prefix_match(parser: CommandParser):
-    """get_suggestions('mo') returns /mode and /model."""
+    """get_suggestions('mo') returns /model."""
     suggestions = parser.get_suggestions("mo")
     names = [s.name for s in suggestions]
 
-    assert "mode" in names
     assert "model" in names
+
+
+def test_get_suggestions_agent_prefix(parser: CommandParser):
+    suggestions = parser.get_suggestions("ag")
+    names = [s.name for s in suggestions]
+    assert "agent" in names
 
 
 @pytest.mark.asyncio
@@ -224,7 +240,122 @@ async def test_model_command_updates_model_and_emits_settings_event(
 
 
 @pytest.mark.asyncio
+async def test_debug_command_updates_log_level(
+    parser: CommandParser, ctx: CommandContext
+):
+    result = await parser.execute("/debug on")
+    assert result.success is True
+    assert ctx.settings.log_level == "DEBUG"
+
+
+@pytest.mark.asyncio
+async def test_model_command_updates_active_agent_and_persists_override(
+    parser: CommandParser, ctx: CommandContext
+):
+    class _MockProvider:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+
+    class _MockProviders:
+        def get_provider(self, model_name: str) -> _MockProvider:
+            return _MockProvider(model_name)
+
+        def get_token_counter(self, model_name: str) -> object:
+            return object()
+
+        def get_token_budget(self, model_name: str, **kwargs: Any) -> object:
+            return object()
+
+    @dataclass
+    class _AgentConfig:
+        model: str = "gpt-4o"
+
+    @dataclass
+    class _MockAgent:
+        name: str = "coder"
+        config: _AgentConfig = field(default_factory=_AgentConfig)
+        memory: Any = field(default_factory=_MockMemoryManager)
+        provider: Any = field(default_factory=lambda: _MockProvider("gpt-4o"))
+
+    active_agent = _MockAgent()
+
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        orchestrator=SimpleNamespace(active_agent=active_agent),
+        providers=_MockProviders(),
+        data_registry=SimpleNamespace(
+            get_context_budget=lambda: {"compaction_threshold": 0.80}
+        ),
+    )
+
+    result = await parser.execute("/model gpt-4o-mini")
+
+    assert result.success is True
+    assert active_agent.config.model == "gpt-4o-mini"
+    assert active_agent.provider.model_name == "gpt-4o-mini"
+    assert ctx.settings.agents["coder"]["model"] == "gpt-4o-mini"
+
+
+@pytest.mark.asyncio
 async def test_sandbox_command_reports_missing_manager(parser: CommandParser):
     result = await parser.execute("/sandbox on")
     assert result.success is False
     assert "not configured" in result.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_agent_command_list_add_and_default(
+    parser: CommandParser, ctx: CommandContext
+):
+    global_registry = AgentRegistry()
+    default_agent = _SimpleAgent("default")
+    coder_agent = _SimpleAgent("coder")
+    global_registry.register(default_agent)  # type: ignore[arg-type]
+    global_registry.register(coder_agent)  # type: ignore[arg-type]
+
+    session_registry = SessionAgentRegistry()
+    session_registry.add(default_agent, activate=True)  # type: ignore[arg-type]
+
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        orchestrator=SimpleNamespace(
+            session_agents=session_registry,
+            agent_registry=global_registry,
+        )
+    )
+
+    listed = await parser.execute("/agent")
+    assert listed.success is True
+    assert "default [ACTIVE]" in listed.message
+
+    added = await parser.execute("/agent add coder")
+    assert added.success is True
+    assert "Added agent 'coder'" in added.message
+
+    listed2 = await parser.execute("/agent")
+    assert "coder [IDLE]" in listed2.message
+
+    set_default = await parser.execute("/agent default coder")
+    assert set_default.success is True
+    assert ctx.settings.default_agent == "coder"
+
+
+@pytest.mark.asyncio
+async def test_agent_command_cannot_disable_active(
+    parser: CommandParser, ctx: CommandContext
+):
+    global_registry = AgentRegistry()
+    default_agent = _SimpleAgent("default")
+    global_registry.register(default_agent)  # type: ignore[arg-type]
+
+    session_registry = SessionAgentRegistry()
+    session_registry.add(default_agent, activate=True)  # type: ignore[arg-type]
+
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        orchestrator=SimpleNamespace(
+            session_agents=session_registry,
+            agent_registry=global_registry,
+        )
+    )
+
+    result = await parser.execute("/agent disable default")
+    assert result.success is False
+    assert "Cannot disable the active agent" in result.message

@@ -12,6 +12,7 @@ import logging
 import shlex
 from typing import TYPE_CHECKING, List
 
+from agent_cli.agent.memory import BaseMemoryManager
 from agent_cli.commands.base import (
     CommandContext,
     CommandDef,
@@ -46,6 +47,10 @@ class CommandParser:
     def set_app(self, app: "App | None") -> None:
         """Attach the active Textual app so handlers can update UI widgets."""
         self._context.app = app
+
+    def set_memory_manager(self, memory_manager: BaseMemoryManager) -> None:
+        """Update command context memory manager (active-agent aware)."""
+        self._context.memory_manager = memory_manager
 
     @staticmethod
     def is_command(text: str) -> bool:

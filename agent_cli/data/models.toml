@@ -87,6 +87,13 @@ adapter_type = "openai"
 models = ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini"]
 default_model = "gpt-4o"
 
+[providers.azure]
+adapter_type = "azure"
+base_url = "https://YOUR-RESOURCE.openai.azure.com/openai/v1"
+api_key_env = "AZURE_OPENAI_API_KEY"
+models = []
+default_model = "default-deployment"
+
 [providers.anthropic]
 adapter_type = "anthropic"
 models = [

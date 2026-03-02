@@ -38,6 +38,7 @@ def test_default_settings():
     # Default in code is MEDIUM, but config.toml might override to LOW
     assert settings.default_effort_level in (EffortLevel.MEDIUM, EffortLevel.LOW)
     assert settings.log_level == "INFO"
+    assert settings.log_max_file_size_mb == 50
     assert settings.max_task_retries == 1
 
 
@@ -174,6 +175,7 @@ def test_load_providers_with_custom_toml():
 
     assert "anthropic" in providers  # Built-in is kept
     assert "google" in providers  # Built-in is kept
+    assert "azure" in providers  # Built-in is kept
 
     assert "local_llama" in providers
     assert providers["local_llama"].adapter_type == "openai_compatible"
@@ -189,6 +191,12 @@ def test_resolve_api_key_from_env():
     """API key should be returned directly if supplied via settings/env."""
     settings = AgentSettings(openai_api_key="sk-test-key")
     assert settings.resolve_api_key("openai") == "sk-test-key"
+
+
+def test_resolve_azure_api_key_from_env():
+    """Azure API key should resolve from settings/env alias."""
+    settings = AgentSettings(azure_openai_api_key="az-test-key")
+    assert settings.resolve_api_key("azure") == "az-test-key"
 
 
 def test_resolve_api_key_from_keyring(monkeypatch):

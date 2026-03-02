@@ -29,12 +29,12 @@ async def test_status_bar_manual_update_helpers():
     async with app.run_test() as pilot:
         status = app.query_one(StatusContainer)
 
-        status.update_mode("fast")
+        status.update_active_agent("coder")
         status.update_model("gpt-4o")
         status.update_effort("high")
         await pilot.pause()
 
-        assert str(status.query_one("#mode", Static).content) == "Fast"
+        assert str(status.query_one("#active_agent", Static).content) == "coder"
         assert str(status.query_one("#model", Static).content) == "gpt-4o"
         assert str(status.query_one("#effort", Static).content) == "HIGH"
 

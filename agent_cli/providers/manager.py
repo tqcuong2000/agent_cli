@@ -24,6 +24,7 @@ from agent_cli.memory.token_counter import (
 )
 from agent_cli.providers.base import BaseLLMProvider
 from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
+from agent_cli.providers.provider.azure_provider import AzureProvider
 from agent_cli.providers.provider.google_provider import GoogleProvider
 from agent_cli.providers.provider.ollama_provider import OllamaProvider
 from agent_cli.providers.provider.openai_compat import OpenAICompatibleProvider
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 # Registry of available adapter classes
 ADAPTER_TYPES: Dict[str, Type[BaseLLMProvider]] = {
     "openai": OpenAIProvider,
+    "azure": AzureProvider,
     "anthropic": AnthropicProvider,
     "google": GoogleProvider,
     "ollama": OllamaProvider,
@@ -195,6 +197,10 @@ class ProviderManager:
         heuristic = self._fallback_token_counter
         return {
             "openai": TiktokenCounter(
+                fallback=heuristic,
+                data_registry=self._data_registry,
+            ),
+            "azure": TiktokenCounter(
                 fallback=heuristic,
                 data_registry=self._data_registry,
             ),

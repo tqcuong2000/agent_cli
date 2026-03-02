@@ -70,6 +70,27 @@ async def test_read_file_tool(workspace, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_read_file_tool_truncates_large_files(workspace, tmp_path):
+    tool = ReadFileTool(workspace)
+    file_path = tmp_path / "large.txt"
+    file_path.write_text("A" * (1_048_576 + 10), encoding="utf-8")
+
+    content = await tool.execute(path="large.txt")
+    assert "File is large" in content
+    assert "Showing first 1,048,576 bytes" in content
+
+
+@pytest.mark.asyncio
+async def test_read_file_tool_handles_non_utf8_text(workspace, tmp_path):
+    tool = ReadFileTool(workspace)
+    file_path = tmp_path / "latin1.txt"
+    file_path.write_bytes("caf\xe9".encode("latin-1"))
+
+    content = await tool.execute(path="latin1.txt")
+    assert "replacement characters" in content
+
+
+@pytest.mark.asyncio
 async def test_write_file_tool(workspace, tmp_path):
     tool = WriteFileTool(workspace)
 
@@ -244,3 +265,15 @@ async def test_search_files_skips_denied_paths(workspace, tmp_path):
     res = await tool.execute(pattern="needle")
     assert "app.txt" in res
     assert ".env" not in res
+
+
+@pytest.mark.asyncio
+async def test_search_files_skips_large_files(workspace, tmp_path):
+    tool = SearchFilesTool(workspace)
+
+    (tmp_path / "large.txt").write_text("needle\n" * 120_000, encoding="utf-8")
+    (tmp_path / "small.txt").write_text("needle small", encoding="utf-8")
+
+    res = await tool.execute(pattern="needle")
+    assert "small.txt" in res
+    assert "large=1" in res

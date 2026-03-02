@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING, DefaultDict, List, Optional, Tuple
 
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.css.query import NoMatches
@@ -116,6 +117,7 @@ class TextWindowContainer(Container):
                 priority=50,
             )
         )
+        self._show_empty_state()
 
     def on_unmount(self) -> None:
         if self._app_context is None:
@@ -190,7 +192,10 @@ class TextWindowContainer(Container):
         if not isinstance(event, TaskResultEvent):
             return
 
-        if not event.is_success:
+        is_user_cancel = (
+            (event.result or "").strip().lower().startswith("task cancelled by user")
+        )
+        if not event.is_success and not is_user_cancel:
             self._show_error(
                 title="Task Failed",
                 message=event.result,
@@ -335,6 +340,10 @@ class TextWindowContainer(Container):
     def _scroll_to_end(self) -> None:
         self._messages.scroll_end(animate=False)
 
+    def on_resize(self, event: events.Resize) -> None:
+        _ = event  # resize details currently not needed
+        self.call_after_refresh(self._scroll_to_end)
+
     def add_user_message(self, text: str) -> None:
         """Mount a user message bubble directly (called by footer before emitting event).
 
@@ -374,6 +383,17 @@ class TextWindowContainer(Container):
             self._active_task_id = ""
 
         self._messages.mount(SystemMessageContainer(content))
+        self.call_after_refresh(self._scroll_to_end)
+
+    def _show_empty_state(self) -> None:
+        if list(self._messages.children):
+            return
+        welcome = (
+            "Welcome to Agent CLI.\n"
+            "Try: ask a task, use !coder / !researcher, or /agent list.\n"
+            "Useful commands: /help, /model <name>, /effort <level>, /sessions."
+        )
+        self._messages.mount(SystemMessageContainer(welcome))
         self.call_after_refresh(self._scroll_to_end)
 
     @property

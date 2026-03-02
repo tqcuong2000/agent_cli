@@ -345,6 +345,8 @@ class BaseAgent(ABC):
                         max_delay=float(
                             self._retry_defaults.get("llm_retry_max_delay", 30.0)
                         ),
+                        task_id=task_id,
+                        event_bus=self.event_bus,
                     )
 
                     # INTERCEPT: Extract and save raw response for debugging

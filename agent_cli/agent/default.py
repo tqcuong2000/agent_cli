@@ -14,9 +14,15 @@ from agent_cli.agent.base import BaseAgent
 class DefaultAgent(BaseAgent):
     """A general-purpose agent implementing the ReAct loop."""
 
+    persona_template_name = "default_persona"
+
     async def build_system_prompt(self, task_context: str) -> str:
         """Construct the system prompt for this agent."""
-        persona = self._data_registry.get_prompt_template("default_persona").strip()
+        persona = self.config.persona.strip() if self.config.persona else ""
+        if not persona:
+            persona = self._data_registry.get_prompt_template(
+                self.persona_template_name
+            ).strip()
 
         effort_constraints = self.effort  # Resolved dynamic effort level
         constraints = self.settings.get_effort_config(effort_constraints)
@@ -28,11 +34,6 @@ class DefaultAgent(BaseAgent):
             tool_names=self.config.tools,
             effort_constraints=constraints,
             workspace_context=f"Operating System: {platform.system() or 'Unknown'}",
-            extra_instructions=(
-                "Answer carefully and accurately. "
-                "If required details are missing or ambiguous, call the "
-                "ask_user tool instead of guessing."
-            ),
             native_tool_mode=native_tools,
         )
         return prompt
