@@ -22,6 +22,7 @@ from agent_cli.core.events.events import (
 )
 from agent_cli.ux.tui.views.body.messages.agent_response import AgentResponseContainer
 from agent_cli.ux.tui.views.body.messages.changed_file_detail_block import DiffLine
+from agent_cli.ux.tui.views.body.messages.system_message import SystemMessageContainer
 from agent_cli.ux.tui.views.body.messages.tool_step import ToolStepWidget
 from agent_cli.ux.tui.views.body.messages.user_message import UserMessageContainer
 from agent_cli.ux.tui.views.common.error_popup import ErrorPopup
@@ -134,6 +135,9 @@ class TextWindowContainer(Container):
 
     async def _on_agent_message(self, event: BaseEvent) -> None:
         if not isinstance(event, AgentMessageEvent):
+            return
+        if self._is_system_message(event):
+            self._add_system_message(event.content)
             return
         response = self._ensure_current_response()
         if event.is_monologue:
@@ -351,6 +355,25 @@ class TextWindowContainer(Container):
         self._active_task_id = ""
 
         self._messages.mount(UserMessageContainer(text))
+        self.call_after_refresh(self._scroll_to_end)
+
+    def _is_system_message(self, event: AgentMessageEvent) -> bool:
+        return (not event.is_monologue) and event.source == "command_system"
+
+    def _add_system_message(self, content: str) -> None:
+        if not content:
+            return
+
+        # Ensure command/system output appears as a standalone message,
+        # not inside an in-progress agent arc.
+        if self._current_arc is not None:
+            active_thinking = self._current_arc.get_active_thinking()
+            if active_thinking is not None:
+                active_thinking.finish_streaming()
+            self._current_arc = None
+            self._active_task_id = ""
+
+        self._messages.mount(SystemMessageContainer(content))
         self.call_after_refresh(self._scroll_to_end)
 
     @property

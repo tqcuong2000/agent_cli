@@ -15,6 +15,7 @@ from agent_cli.core.events.events import (
 )
 from agent_cli.ux.tui.views.body.messages.agent_response import AgentResponseContainer
 from agent_cli.ux.tui.views.body.messages.answer_block import AnswerBlock
+from agent_cli.ux.tui.views.body.messages.system_message import SystemMessageContainer
 from agent_cli.ux.tui.views.body.messages.thinking_block import ThinkingBlock
 from agent_cli.ux.tui.views.body.messages.tool_step import ToolStepWidget
 from agent_cli.ux.tui.views.body.text_window import TextWindowContainer
@@ -239,3 +240,29 @@ async def test_text_window_auto_scroll_triggers_across_event_flow():
         await pilot.pause()
         c6 = len(scroll_calls)
         assert c6 > c5
+
+
+@pytest.mark.asyncio
+async def test_command_system_message_uses_system_message_container():
+    bus = AsyncEventBus()
+    app = _TextWindowHostApp(bus)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await bus.publish(
+            AgentMessageEvent(
+                source="command_system",
+                content="Effort level set to: HIGH",
+                is_monologue=False,
+            )
+        )
+        await pilot.pause()
+
+        text_window = app.query_one(TextWindowContainer)
+        system_messages = list(text_window.query(SystemMessageContainer))
+        assert len(system_messages) == 1
+        assert system_messages[0].message_text == "Effort level set to: HIGH"
+
+        # Command/system messages should not be rendered as answer blocks.
+        assert len(list(text_window.query(AnswerBlock))) == 0

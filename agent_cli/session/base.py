@@ -25,6 +25,11 @@ class Session:
     active_model: str = ""
     total_cost: float = 0.0
     task_ids: List[str] = field(default_factory=list)
+    # UI-friendly metadata for session manager overlays/lists.
+    # `last_activity_at` is a stable source for "time ago" and date rendering.
+    # `last_message_preview` can be shown as a one-line summary.
+    last_activity_at: datetime = field(default_factory=utc_now)
+    last_message_preview: str = ""
 
 
 @dataclass
@@ -35,9 +40,13 @@ class SessionSummary:
     name: Optional[str]
     created_at: datetime
     updated_at: datetime
+    last_activity_at: datetime
     message_count: int
     active_model: str
     total_cost: float
+    display_name: str
+    is_active: bool
+    last_message_preview: str
 
 
 class AbstractSessionManager(ABC):

@@ -7,6 +7,7 @@ as structured JSON; text content is streamed chunk-by-chunk.
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -70,7 +71,8 @@ class OpenAIProvider(BaseLLMProvider):
     ) -> None:
         super().__init__(model_name, api_key, base_url)
 
-        from openai import AsyncOpenAI
+        openai_mod = importlib.import_module("openai")
+        async_openai_cls = getattr(openai_mod, "AsyncOpenAI")
 
         kwargs: Dict[str, Any] = {}
         if api_key:
@@ -78,7 +80,7 @@ class OpenAIProvider(BaseLLMProvider):
         if base_url:
             kwargs["base_url"] = base_url
 
-        self.client = AsyncOpenAI(**kwargs)
+        self.client = async_openai_cls(**kwargs)
 
         # Streaming buffer (populated during stream(), read by get_buffered_response())
         self._buffered_text: List[str] = []

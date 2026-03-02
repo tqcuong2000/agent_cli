@@ -45,12 +45,17 @@ class FileSessionManager(AbstractSessionManager):
             active_model=self._default_model,
             total_cost=0.0,
             task_ids=[],
+            last_activity_at=now,
+            last_message_preview="",
         )
         self._active_session = session
         return session
 
     def save(self, session: Session) -> None:
-        session.updated_at = utc_now()
+        now = utc_now()
+        session.updated_at = now
+        session.last_activity_at = now
+        session.last_message_preview = _derive_last_message_preview(session.messages)
         path = self._session_path(session.session_id)
         payload = self._session_to_dict(session)
         self._atomic_write_json(path, payload)
@@ -71,6 +76,7 @@ class FileSessionManager(AbstractSessionManager):
 
     def list(self) -> List[SessionSummary]:
         summaries: List[SessionSummary] = []
+        active_id = self._get_active_id() or ""
 
         for path in self._session_dir.glob("*.json"):
             if path.name == self._active_index_path.name:
@@ -84,15 +90,19 @@ class FileSessionManager(AbstractSessionManager):
                         name=session.name,
                         created_at=session.created_at,
                         updated_at=session.updated_at,
+                        last_activity_at=session.last_activity_at,
                         message_count=len(session.messages),
                         active_model=session.active_model,
                         total_cost=session.total_cost,
+                        display_name=session.name or session.session_id,
+                        is_active=(session.session_id == active_id),
+                        last_message_preview=session.last_message_preview,
                     )
                 )
             except Exception as exc:
                 logger.warning("Skipping unreadable session file '%s': %s", path, exc)
 
-        summaries.sort(key=lambda s: s.updated_at, reverse=True)
+        summaries.sort(key=lambda s: s.last_activity_at, reverse=True)
         return summaries
 
     def delete(self, session_id: str) -> bool:
@@ -174,6 +184,8 @@ class FileSessionManager(AbstractSessionManager):
             "name": session.name,
             "created_at": session.created_at.isoformat(),
             "updated_at": session.updated_at.isoformat(),
+            "last_activity_at": session.last_activity_at.isoformat(),
+            "last_message_preview": session.last_message_preview,
             "messages": session.messages,
             "active_model": session.active_model,
             "total_cost": session.total_cost,
@@ -182,12 +194,24 @@ class FileSessionManager(AbstractSessionManager):
 
     @staticmethod
     def _session_from_dict(payload: Dict[str, Any]) -> Session:
+        updated_at = _parse_datetime(payload.get("updated_at"))
+        last_activity_at = _parse_datetime(payload.get("last_activity_at"))
+        if "last_activity_at" not in payload:
+            last_activity_at = updated_at
+
+        messages = _coerce_messages(payload.get("messages"))
         return Session(
             session_id=str(payload.get("session_id", "")),
             name=payload.get("name"),
             created_at=_parse_datetime(payload.get("created_at")),
-            updated_at=_parse_datetime(payload.get("updated_at")),
-            messages=_coerce_messages(payload.get("messages")),
+            updated_at=updated_at,
+            last_activity_at=last_activity_at,
+            last_message_preview=str(
+                payload.get(
+                    "last_message_preview", _derive_last_message_preview(messages)
+                )
+            ),
+            messages=messages,
             active_model=str(payload.get("active_model", "")),
             total_cost=float(payload.get("total_cost", 0.0)),
             task_ids=[str(v) for v in payload.get("task_ids", [])],
@@ -207,3 +231,15 @@ def _coerce_messages(value: Any) -> List[Dict[str, Any]]:
     if isinstance(value, list):
         return [m for m in value if isinstance(m, dict)]
     return []
+
+
+def _derive_last_message_preview(messages: List[Dict[str, Any]]) -> str:
+    """Return one-line preview text from the latest non-empty message content."""
+    for message in reversed(messages):
+        content = message.get("content", "")
+        if not isinstance(content, str):
+            content = str(content)
+        text = " ".join(content.strip().split())
+        if text:
+            return text[:120]
+    return ""

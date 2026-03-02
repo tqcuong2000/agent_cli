@@ -14,6 +14,7 @@ Registered via TOML::
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -21,8 +22,8 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
-    StreamChunk,
     StopReason,
+    StreamChunk,
     ToolCall,
     ToolCallMode,
 )
@@ -51,9 +52,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self._native_tools = native_tools
         super().__init__(model_name, api_key, base_url)
 
-        from openai import AsyncOpenAI
+        openai_mod = importlib.import_module("openai")
+        async_openai_cls = getattr(openai_mod, "AsyncOpenAI")
 
-        self.client = AsyncOpenAI(
+        self.client = async_openai_cls(
             api_key=api_key or "ollama",  # Many local servers don't need a key
             base_url=base_url,
         )
@@ -99,8 +101,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         choice = response.choices[0]
 
         # Extract usage if available (some local servers don't report it)
-        input_tokens = getattr(response.usage, "prompt_tokens", 0) if response.usage else 0
-        output_tokens = getattr(response.usage, "completion_tokens", 0) if response.usage else 0
+        input_tokens = (
+            getattr(response.usage, "prompt_tokens", 0) if response.usage else 0
+        )
+        output_tokens = (
+            getattr(response.usage, "completion_tokens", 0) if response.usage else 0
+        )
 
         # Parse native tool calls if applicable
         tool_calls = []

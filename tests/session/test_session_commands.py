@@ -1,4 +1,4 @@
-"""Tests for `/session` commands and auto-save lifecycle hooks."""
+"""Tests for `/sessions` UI command and session auto-save lifecycle hooks."""
 
 from __future__ import annotations
 
@@ -16,13 +16,20 @@ from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AsyncEventBus
 from agent_cli.core.events.events import TaskResultEvent
 from agent_cli.core.state.state_manager import TaskStateManager
-from agent_cli.memory.token_counter import HeuristicTokenCounter
 from agent_cli.session.file_store import FileSessionManager
 
 
 class _DummyToolRegistry:
     def get_all_names(self):
         return []
+
+
+class _DummySessionOverlay:
+    def __init__(self) -> None:
+        self.opened = False
+
+    def show_overlay(self) -> None:
+        self.opened = True
 
 
 def _build_app_context(
@@ -65,98 +72,6 @@ def _build_parser(ctx: CommandContext) -> CommandParser:
     registry = CommandRegistry()
     registry.absorb(_DEFAULT_REGISTRY)
     return CommandParser(registry=registry, context=ctx)
-
-
-@pytest.mark.asyncio
-async def test_session_commands_save_list_info_restore(tmp_path: Path):
-    session_dir = tmp_path / "sessions"
-    app_context = _build_app_context(session_dir=session_dir)
-    await app_context.startup()
-
-    ctx = CommandContext(
-        settings=app_context.settings,
-        event_bus=app_context.event_bus,
-        state_manager=app_context.state_manager,
-        memory_manager=app_context.memory_manager,
-        app_context=SimpleNamespace(
-            session_manager=app_context.session_manager,
-            providers=SimpleNamespace(
-                get_token_counter=lambda _model: HeuristicTokenCounter()
-            ),
-            orchestrator=None,
-        ),
-    )
-    parser = _build_parser(ctx)
-
-    save_result = await parser.execute("/session save alpha")
-    assert save_result.success is True
-    active = app_context.session_manager.get_active()
-    assert active is not None
-    first_session_id = active.session_id
-
-    active.messages.append({"role": "user", "content": "remember this"})
-    app_context.session_manager.save(active)
-
-    new_result = await parser.execute("/session new beta")
-    assert new_result.success is True
-    second_session = app_context.session_manager.get_active()
-    assert second_session is not None
-    assert second_session.session_id != first_session_id
-
-    list_result = await parser.execute("/session list")
-    assert list_result.success is True
-    assert first_session_id in list_result.message
-    assert second_session.session_id in list_result.message
-
-    restore_result = await parser.execute(f"/session restore {first_session_id[:8]}")
-    assert restore_result.success is True
-    working_context = app_context.memory_manager.get_working_context()
-    assert any(msg.get("content") == "remember this" for msg in working_context)
-
-    info_result = await parser.execute("/session info")
-    assert info_result.success is True
-    assert "messages: 1" in info_result.message
-
-    await app_context.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_session_delete_active_creates_replacement(tmp_path: Path):
-    session_dir = tmp_path / "sessions"
-    app_context = _build_app_context(session_dir=session_dir)
-    await app_context.startup()
-
-    ctx = CommandContext(
-        settings=app_context.settings,
-        event_bus=app_context.event_bus,
-        state_manager=app_context.state_manager,
-        memory_manager=app_context.memory_manager,
-        app_context=SimpleNamespace(
-            session_manager=app_context.session_manager,
-            providers=SimpleNamespace(
-                get_token_counter=lambda _model: HeuristicTokenCounter()
-            ),
-            orchestrator=None,
-        ),
-    )
-    parser = _build_parser(ctx)
-
-    save_result = await parser.execute("/session save temp")
-    assert save_result.success is True
-
-    active_before = app_context.session_manager.get_active()
-    assert active_before is not None
-    old_id = active_before.session_id
-
-    delete_result = await parser.execute(f"/session delete {old_id}")
-    assert delete_result.success is True
-
-    active_after = app_context.session_manager.get_active()
-    assert active_after is not None
-    assert active_after.session_id != old_id
-
-    assert app_context.session_manager.delete(old_id) is False
-    await app_context.shutdown()
 
 
 @pytest.mark.asyncio
@@ -224,5 +139,62 @@ async def test_periodic_autosave(tmp_path: Path):
     reloader = FileSessionManager(session_dir=session_dir, default_model="gpt-4o-mini")
     restored = reloader.load(active_id)
     assert restored.total_cost == pytest.approx(7.89)
+
+    await app_context.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_sessions_command_opens_overlay(tmp_path: Path):
+    session_dir = tmp_path / "sessions"
+    app_context = _build_app_context(session_dir=session_dir)
+    await app_context.startup()
+
+    overlay = _DummySessionOverlay()
+    dummy_app = SimpleNamespace(session_overlay=overlay)
+
+    ctx = CommandContext(
+        settings=app_context.settings,
+        event_bus=app_context.event_bus,
+        state_manager=app_context.state_manager,
+        memory_manager=app_context.memory_manager,
+        app=dummy_app,
+        app_context=SimpleNamespace(
+            session_manager=app_context.session_manager,
+            providers=SimpleNamespace(),
+            orchestrator=None,
+        ),
+    )
+    parser = _build_parser(ctx)
+
+    result = await parser.execute("/sessions")
+    assert result.success is True
+    assert result.message == ""
+    assert overlay.opened is True
+
+    await app_context.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_session_command_is_removed(tmp_path: Path):
+    session_dir = tmp_path / "sessions"
+    app_context = _build_app_context(session_dir=session_dir)
+    await app_context.startup()
+
+    ctx = CommandContext(
+        settings=app_context.settings,
+        event_bus=app_context.event_bus,
+        state_manager=app_context.state_manager,
+        memory_manager=app_context.memory_manager,
+        app_context=SimpleNamespace(
+            session_manager=app_context.session_manager,
+            providers=SimpleNamespace(),
+            orchestrator=None,
+        ),
+    )
+    parser = _build_parser(ctx)
+
+    result = await parser.execute("/session list")
+    assert result.success is False
+    assert "Unknown command: /session" in result.message
 
     await app_context.shutdown()

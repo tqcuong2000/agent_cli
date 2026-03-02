@@ -140,7 +140,7 @@ class BaseLLMProvider(ABC):
         ...
 
     @abstractmethod
-    async def stream(
+    def stream(
         self,
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,

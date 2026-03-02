@@ -8,14 +8,15 @@ declarations and streaming.
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
-    StreamChunk,
     StopReason,
+    StreamChunk,
     ToolCall,
     ToolCallMode,
 )
@@ -38,7 +39,7 @@ class GoogleToolFormatter(BaseToolFormatter):
         Returns a list of function declarations that can be passed
         to the ``tools`` parameter of ``generate_content``.
         """
-        from google.genai import types
+        types = _google_types_module()
 
         declarations = []
         for t in tools:
@@ -78,9 +79,9 @@ class GoogleProvider(BaseLLMProvider):
     ) -> None:
         super().__init__(model_name, api_key, base_url)
 
-        from google import genai
-
-        self.client = genai.Client(api_key=api_key)
+        genai_mod = importlib.import_module("google.genai")
+        client_cls = getattr(genai_mod, "Client")
+        self.client = client_cls(api_key=api_key)
 
         # Streaming buffer
         self._buffered_text: List[str] = []
@@ -103,7 +104,7 @@ class GoogleProvider(BaseLLMProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        from google.genai import types
+        types = _google_types_module()
 
         system_msg, gemini_history = self._convert_messages(context)
 
@@ -163,7 +164,7 @@ class GoogleProvider(BaseLLMProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
     ) -> AsyncGenerator[StreamChunk, None]:
-        from google.genai import types
+        types = _google_types_module()
 
         self._buffered_text = []
         self._buffered_tool_calls = []
@@ -259,3 +260,8 @@ class GoogleProvider(BaseLLMProvider):
                 converted.append({"role": "user", "parts": [{"text": content}]})
 
         return system, converted
+
+
+def _google_types_module() -> Any:
+    genai_mod = importlib.import_module("google.genai")
+    return getattr(genai_mod, "types")

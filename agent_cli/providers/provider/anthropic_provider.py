@@ -7,14 +7,15 @@ system message to be passed separately from the messages array.
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
-    StreamChunk,
     StopReason,
+    StreamChunk,
     ToolCall,
     ToolCallMode,
 )
@@ -64,7 +65,8 @@ class AnthropicProvider(BaseLLMProvider):
     ) -> None:
         super().__init__(model_name, api_key, base_url)
 
-        from anthropic import AsyncAnthropic
+        anthropic_mod = importlib.import_module("anthropic")
+        async_anthropic_cls = getattr(anthropic_mod, "AsyncAnthropic")
 
         kwargs: Dict[str, Any] = {}
         if api_key:
@@ -72,7 +74,7 @@ class AnthropicProvider(BaseLLMProvider):
         if base_url:
             kwargs["base_url"] = base_url
 
-        self.client = AsyncAnthropic(**kwargs)
+        self.client = async_anthropic_cls(**kwargs)
 
         # Streaming buffer
         self._buffered_text: List[str] = []

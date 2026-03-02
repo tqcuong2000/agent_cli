@@ -117,7 +117,7 @@ class AppContext:
         # - Semantic memory connection
         # - Session database
         # Session creation is lazy and happens on first routed user request
-        # (or explicit /session command actions).
+        # (or explicit session actions from the UI overlay).
         if self.session_manager is not None:
             self.session_manager.clear_active()
 

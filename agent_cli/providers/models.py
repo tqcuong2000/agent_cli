@@ -8,9 +8,8 @@ The Agent only ever constructs ``LLMRequest`` and receives ``LLMResponse``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from typing import Any, Dict, List, Optional
-
 
 # ══════════════════════════════════════════════════════════════════════
 # Enums
@@ -20,8 +19,8 @@ from typing import Any, Dict, List, Optional
 class ToolCallMode(str, Enum):
     """How tool calls were delivered in this response."""
 
-    NATIVE = "NATIVE"   # Structured JSON from native function calling API
-    XML = "XML"         # Parsed from XML <action> tags in text
+    NATIVE = "NATIVE"  # Structured JSON from native function calling API
+    XML = "XML"  # Parsed from XML <action> tags in text
 
 
 class MessageRole(str, Enum):
@@ -36,9 +35,9 @@ class MessageRole(str, Enum):
 class StopReason(str, Enum):
     """Why the model stopped generating."""
 
-    END_TURN = "end_turn"       # Natural completion
-    TOOL_USE = "tool_use"       # Model wants to call a tool
-    MAX_TOKENS = "max_tokens"   # Hit the token limit
+    END_TURN = "end_turn"  # Natural completion
+    TOOL_USE = "tool_use"  # Model wants to call a tool
+    MAX_TOKENS = "max_tokens"  # Hit the token limit
     STOP_SEQUENCE = "stop_sequence"
 
 
@@ -68,8 +67,10 @@ class Message:
 
     role: MessageRole
     content: str
-    tool_call_id: str = ""              # If role == TOOL, the call this responds to
-    tool_calls: List[ToolCall] = field(default_factory=list)  # If role == ASSISTANT with FC
+    tool_call_id: str = ""  # If role == TOOL, the call this responds to
+    tool_calls: List[ToolCall] = field(
+        default_factory=list
+    )  # If role == ASSISTANT with FC
 
 
 @dataclass
@@ -151,9 +152,11 @@ class StreamChunk:
     """
 
     text: str = ""
-    is_thinking: bool = False   # True if inside <thinking> tags
+    is_thinking: bool = False  # True if inside <thinking> tags
     is_tool_call: bool = False  # True if this is a tool call block (buffered)
-    is_final: bool = False      # True for the last chunk in the stream
+    is_final: bool = False  # True for the last chunk in the stream
 
     # Only populated on the final chunk
-    usage: Optional[Dict[str, int]] = None  # {"input_tokens": ..., "output_tokens": ...}
+    usage: Optional[Dict[str, int]] = (
+        None  # {"input_tokens": ..., "output_tokens": ...}
+    )

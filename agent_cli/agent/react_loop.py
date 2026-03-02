@@ -186,8 +186,12 @@ class PromptBuilder:
             "2. **Thinking**: Wrap your reasoning chain in <thinking> tags.\n"
             f"{action_step}"
             "4. **Final Answer**: When the task is complete AND you are absolutely done, "
-            "provide your answer in <final_answer> tags:\n"
+            "provide your **COMPLETE** response (including all tables, lists, and code) "
+            "strictly inside <final_answer> tags:\n"
             "   <final_answer>Your response to the user.</final_answer>\n\n"
+            "**STRICT TAG ENFORCEMENT:**\n"
+            "- EVERYTHING you want the user to see MUST be inside <final_answer>.\n"
+            "- Content outside of <thinking>, <action>, or <final_answer> WILL BE DISCARDED.\n\n"
             "**CRITICAL ANTI-HALLUCINATION RULE:**\n"
             "If you decide to use a tool, YOU MUST STOP IMMEDIATELY after defining the action. "
             "DO NOT continue writing the `<final_answer>`. "
@@ -197,7 +201,8 @@ class PromptBuilder:
             "action or final answer.\n"
             "Required skeleton:\n"
             "<title>Short 1-15 word title</title>\n"
-            "<thinking>Your reasoning chain here.</thinking>"
+            "<thinking>Your reasoning chain here.</thinking>\n"
+            "<final_answer>Your COMPLETE response here.</final_answer>"
         )
 
     @staticmethod

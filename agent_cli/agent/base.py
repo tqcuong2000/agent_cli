@@ -17,8 +17,11 @@ See ``01_reasoning_loop.md`` for the full specification.
 from __future__ import annotations
 
 import logging
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 from agent_cli.agent.memory import BaseMemoryManager
@@ -332,6 +335,9 @@ class BaseAgent(ABC):
                         tools=self._get_tool_definitions(),
                     )
 
+                    # INTERCEPT: Extract and save raw response for debugging
+                    self._debug_intercept_response(task_id, iteration, llm_response.text_content)
+
                     # ── STEP 2: Stream Thinking to TUI ───────────────
                     thinking_text = self.validator.extract_thinking(
                         llm_response.text_content
@@ -530,3 +536,21 @@ class BaseAgent(ABC):
         if not self.config.tools:
             return []
         return self.tool_executor.registry.get_definitions_for_llm(self.config.tools)
+
+    def _debug_intercept_response(self, task_id: str, iteration: int, raw_content: str) -> None:
+        """Utility to intercept and save raw LLM responses to a debug file."""
+        debug_path = Path.home() / ".agent_cli" / "debug" / "agent_response.txt"
+        try:
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(debug_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"TIMESTAMP: {timestamp}\n")
+                f.write(f"AGENT:     {self.name}\n")
+                f.write(f"TASK_ID:   {task_id}\n")
+                f.write(f"ITERATION: {iteration}\n")
+                f.write(f"{'-'*80}\n")
+                f.write(raw_content)
+                f.write(f"\n{'='*80}\n")
+        except Exception as e:
+            logger.error(f"Failed to save debug interception: {e}")

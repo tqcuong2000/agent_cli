@@ -8,7 +8,7 @@ Triggered when the user types '/' in the input bar.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from agent_cli.ux.tui.views.common.popup_list import BasePopupListView, PopupItem
 
@@ -37,7 +37,7 @@ _COMMANDS: List[CommandInfo] = [
     # Configuration
     CommandInfo("config", "View or modify settings", "", "Configuration"),
     # Session
-    CommandInfo("session", "Manage sessions", "ctrl+s", "Session"),
+    CommandInfo("sessions", "Open session manager overlay", "", "Session"),
     # Workspace
     CommandInfo("sandbox", "Toggle sandbox mode", "", "Workspace"),
     # Memory
@@ -117,7 +117,6 @@ class CommandPopup(BasePopupListView):
         bg = "[on #1a3a5c]" if is_selected else ""
         bg_end = "[/]" if is_selected else ""
 
-        name = f"[bold cyan]/{item.label}[/]"
         desc = f"[dim]{item.description}[/]"
 
         # Pad name to fixed width for alignment

@@ -7,6 +7,7 @@ Uses ``ollama.AsyncClient`` for all operations.
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -71,8 +72,9 @@ class OllamaProvider(BaseLLMProvider):
         super().__init__(model_name, api_key, base_url)
         self._native_tools = native_tools
 
-        from ollama import AsyncClient
-        self.client = AsyncClient(host=base_url)
+        ollama_mod = importlib.import_module("ollama")
+        async_client_cls = getattr(ollama_mod, "AsyncClient")
+        self.client = async_client_cls(host=base_url)
 
         # Streaming buffer
         self._buffered_text: List[str] = []
@@ -105,7 +107,7 @@ class OllamaProvider(BaseLLMProvider):
             context = self._inject_tools_into_system_prompt(context, tool_text)
 
         options = {"num_predict": max_tokens}
-        
+
         response = await self.client.chat(
             model=self.model_name,
             messages=context,
@@ -117,7 +119,7 @@ class OllamaProvider(BaseLLMProvider):
 
     def _normalize(self, response: Any) -> LLMResponse:
         msg = response.message
-        
+
         tool_calls = []
         if msg.tool_calls:
             for tc in msg.tool_calls:
@@ -126,7 +128,7 @@ class OllamaProvider(BaseLLMProvider):
                         tool_name=tc.function.name,
                         arguments=tc.function.arguments or {},
                         mode=ToolCallMode.NATIVE,
-                        native_call_id="", # Ollama doesn't always provide IDs
+                        native_call_id="",  # Ollama doesn't always provide IDs
                     )
                 )
 
@@ -140,7 +142,7 @@ class OllamaProvider(BaseLLMProvider):
             tool_mode=ToolCallMode.NATIVE if tool_calls else ToolCallMode.XML,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cost_usd=0.0, # Local is free
+            cost_usd=0.0,  # Local is free
             model=self.model_name,
             provider="ollama",
         )
@@ -207,7 +209,9 @@ class OllamaProvider(BaseLLMProvider):
         return LLMResponse(
             text_content=text,
             tool_calls=self._buffered_tool_calls,
-            tool_mode=ToolCallMode.NATIVE if self._buffered_tool_calls else ToolCallMode.XML,
+            tool_mode=ToolCallMode.NATIVE
+            if self._buffered_tool_calls
+            else ToolCallMode.XML,
             input_tokens=self._buffered_usage["input"],
             output_tokens=self._buffered_usage["output"],
             cost_usd=0.0,

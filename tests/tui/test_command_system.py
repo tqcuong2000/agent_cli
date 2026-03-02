@@ -131,7 +131,7 @@ def test_command_decorator_registers_into_registry(registry: CommandRegistry):
     assert "cost" in names
     assert "context" in names
     assert "sandbox" in names
-    assert "session" in names
+    assert "sessions" in names
 
 
 def test_parser_is_command_true_false():

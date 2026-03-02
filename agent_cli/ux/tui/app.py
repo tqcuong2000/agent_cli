@@ -11,6 +11,7 @@ from agent_cli.ux.tui.views.common.command_popup import CommandPopup
 from agent_cli.ux.tui.views.common.error_popup import ErrorPopup
 from agent_cli.ux.tui.views.common.file_popup import FileDiscoveryPopup
 from agent_cli.ux.tui.views.common.popup_list import BasePopupListView
+from agent_cli.ux.tui.views.common.session_overlay import SessionOverlay
 from agent_cli.ux.tui.views.footer.footer import FooterContainer
 from agent_cli.ux.tui.views.header.header import HeaderContainer
 
@@ -55,17 +56,19 @@ class AgentCLIApp(App):
         self.command_popup = CommandPopup(registry=registry)
         self.file_popup = FileDiscoveryPopup(app_context=self.app_context)
         self.error_popup = ErrorPopup(id="error_popup")
+        self.session_overlay = SessionOverlay()
         self._bind_command_parser_context()
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield HeaderContainer()
         yield BodyContainer(app_context=self.app_context)
+        yield FooterContainer()
         # Popups at App level — true floating overlays
         yield self.command_popup
         yield self.file_popup
         yield self.error_popup
-        yield FooterContainer()
+        yield self.session_overlay
 
     async def on_mount(self) -> None:
         await self.app_context.startup()
