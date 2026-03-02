@@ -4,7 +4,6 @@ Covers:
 - @command decorator registration
 - CommandParser.is_command()
 - CommandParser.execute() — success, failure, unknown
-- /effort updates settings
 - get_suggestions() prefix matching
 - /clear resets memory manager
 """
@@ -35,11 +34,9 @@ class _MockSettings:
     """Minimal settings stand-in."""
 
     def __init__(self) -> None:
-        from agent_cli.core.models.config_models import EffortLevel
-
         self.default_model = "gpt-4o"
         self.default_agent = "default"
-        self.default_effort_level = EffortLevel.MEDIUM
+        self.max_iterations = 100
         self.agents = {}
         self.auto_approve_tools = False
         self.show_agent_thinking = True
@@ -135,7 +132,6 @@ def test_command_decorator_registers_into_registry(registry: CommandRegistry):
     assert "exit" in names
     assert "agent" in names
     assert "model" in names
-    assert "effort" in names
     assert "debug" in names
     assert "config" in names
     assert "cost" in names
@@ -170,20 +166,6 @@ async def test_parser_execute_unknown_returns_failure(parser: CommandParser):
 
     assert result.success is False
     assert "Unknown command" in result.message
-
-
-@pytest.mark.asyncio
-async def test_parser_execute_effort_updates_settings(
-    parser: CommandParser, ctx: CommandContext
-):
-    """/effort high updates settings.default_effort_level."""
-    result = await parser.execute("/effort high")
-
-    assert result.success is True
-
-    from agent_cli.core.models.config_models import EffortLevel
-
-    assert ctx.settings.default_effort_level == EffortLevel.HIGH
 
 
 def test_get_suggestions_prefix_match(parser: CommandParser):

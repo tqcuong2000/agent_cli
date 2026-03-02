@@ -18,7 +18,7 @@ from agent_cli.core.events.events import (
 class StatusContainer(Container):
     """A container to display status information.
 
-    Active agent, model, and effort are **reactive** — changing them
+    Active agent and model are **reactive** — changing them
     automatically updates the corresponding ``Static`` widget.
     """
 
@@ -66,11 +66,6 @@ class StatusContainer(Container):
         width: auto;
     }
 
-    StatusContainer .effort {
-        color: $accent;
-        width: auto;
-    }
-
     StatusContainer .active_agent {
         color: $accent;
         width: auto;
@@ -95,7 +90,6 @@ class StatusContainer(Container):
 
     active_agent: reactive[str] = reactive("default")
     model: reactive[str] = reactive("gemini-3.1-pro-preview")
-    effort: reactive[str] = reactive("xHigh")
     agent_state: reactive[str] = reactive("Idle")
     agent_indicator: reactive[str] = reactive(".")
 
@@ -120,8 +114,6 @@ class StatusContainer(Container):
             yield Static(self.active_agent, id="active_agent", classes="active_agent")
             yield Static(" ● ", classes="shortcut_separator")
             yield Static(self.model, id="model", classes="model")
-            yield Static(" ● ", classes="shortcut_separator")
-            yield Static(self.effort, id="effort", classes="effort")
             yield Static(" ● ", id="agent_sep_2", classes="shortcut_separator")
             yield Static(self.agent_state, id="agent_state", classes="agent_state")
             yield Static(" ", id="spacer", classes="spacer")
@@ -130,9 +122,6 @@ class StatusContainer(Container):
             yield Static(" | ", classes="shortcut_separator")
             yield Static("ctrl+p ", classes="shortcut_key")
             yield Static("commands", classes="shortcut_action")
-            yield Static(" | ", classes="shortcut_separator")
-            yield Static("ctrl+e ", classes="shortcut_key")
-            yield Static("efforts", classes="shortcut_action")
 
     def on_mount(self) -> None:
         app_context = getattr(self.app, "app_context", None)
@@ -173,12 +162,6 @@ class StatusContainer(Container):
         except Exception:
             pass
 
-    def watch_effort(self, value: str) -> None:
-        try:
-            self.query_one("#effort", Static).update(value)
-        except Exception:
-            pass
-
     def watch_active_agent(self, value: str) -> None:
         try:
             self.query_one("#active_agent", Static).update(value)
@@ -202,10 +185,6 @@ class StatusContainer(Container):
     def update_model(self, value: str) -> None:
         """Update the displayed model name."""
         self.model = value
-
-    def update_effort(self, value: str) -> None:
-        """Update the displayed effort level."""
-        self.effort = value.upper()
 
     def update_active_agent(self, value: str) -> None:
         """Update the displayed active agent name."""

@@ -56,21 +56,6 @@ def test_models_toml_structure() -> None:
         assert "default_model" in providers[name]
 
 
-def test_effort_toml_structure() -> None:
-    data = _load_toml("effort.toml")
-
-    for level in ("LOW", "MEDIUM", "HIGH", "XHIGH"):
-        section = data[level]
-        assert set(section.keys()) == {
-            "max_iterations",
-            "model_tier",
-            "reasoning_instruction",
-            "review_policy",
-        }
-        assert isinstance(section["max_iterations"], int)
-        assert isinstance(section["model_tier"], str)
-
-
 def test_tools_toml_structure() -> None:
     data = _load_toml("tools.toml")
 

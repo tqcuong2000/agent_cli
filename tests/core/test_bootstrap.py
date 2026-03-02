@@ -60,7 +60,7 @@ def test_create_app_applies_built_in_agent_overrides_from_settings():
         agents={
             "coder": {
                 "model": "gpt-5-mini",
-                "effort_level": "HIGH",
+                "max_iterations": 220,
             }
         },
     )
@@ -70,8 +70,7 @@ def test_create_app_applies_built_in_agent_overrides_from_settings():
     coder = ctx.agent_registry.get("coder")
     assert coder is not None
     assert coder.config.model == "gpt-5-mini"
-    assert coder.config.effort_level is not None
-    assert coder.config.effort_level.value == "HIGH"
+    assert coder.config.max_iterations_override == 220
 
 
 def test_create_app_registers_ask_user_tool():

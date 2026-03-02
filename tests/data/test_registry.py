@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_cli.core.models.config_models import EffortLevel, ProviderConfig
+from agent_cli.core.models.config_models import ProviderConfig
 from agent_cli.data import DataRegistry
 from agent_cli.data import registry as registry_module
 
@@ -65,18 +65,6 @@ def test_internal_models(registry: DataRegistry) -> None:
     assert internal["summarization_model"] == "gemini-2.5-flash-lite"
 
 
-def test_effort_constraints(registry: DataRegistry) -> None:
-    low = registry.get_effort_constraints(EffortLevel.LOW)
-    medium = registry.get_effort_constraints(EffortLevel.MEDIUM)
-    high = registry.get_effort_constraints(EffortLevel.HIGH)
-    xhigh = registry.get_effort_constraints(EffortLevel.XHIGH)
-
-    assert low["max_iterations"] == 30
-    assert medium["max_iterations"] == 50
-    assert high["max_iterations"] == 100
-    assert xhigh["max_iterations"] == 250
-
-
 def test_safe_command_patterns_and_tool_defaults(registry: DataRegistry) -> None:
     patterns = registry.get_safe_command_patterns()
     assert len(patterns) == 6
@@ -124,10 +112,10 @@ def test_prompt_template_loading_and_missing_file(registry: DataRegistry) -> Non
     assert "{title_max_words}" in prompt
 
     native_prompt = registry.get_prompt_template("output_format_native")
-    assert "DO NOT write an <action> XML tag" in native_prompt
+    assert "Do NOT write XML action tags" in native_prompt
 
     persona = registry.get_prompt_template("default_persona")
-    assert "helpful, expert AI assistant" in persona
+    assert "expert AI coding assistant" in persona
 
     coder_persona = registry.get_prompt_template("coder_persona")
     assert "software engineer" in coder_persona

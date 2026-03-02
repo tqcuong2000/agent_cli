@@ -17,14 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Effort → Constraints Mapping
-# ══════════════════════════════════════════════════════════════════════
-
-# Imported from base.py to avoid circular deps — but also re-exportable
-# from here for convenience.  The canonical definition lives in base.py.
-
-
-# ══════════════════════════════════════════════════════════════════════
 # Stuck Detector
 # ══════════════════════════════════════════════════════════════════════
 
@@ -114,7 +106,6 @@ class PromptBuilder:
         self,
         persona: str,
         tool_names: List[str],
-        effort_constraints: Dict[str, Any],
         *,
         workspace_context: str = "",
         extra_instructions: str = "",
@@ -126,14 +117,12 @@ class PromptBuilder:
         1. Agent persona / role
         2. Output format instructions (XML tags)
         3. Tool descriptions (auto-generated from registry)
-        4. Effort-level behavioral modifiers
-        5. Workspace context (project type, language)
-        6. Agent-specific extra instructions
+        4. Workspace context (project type, language)
+        5. Agent-specific extra instructions
 
         Args:
             persona:             Agent's role description.
             tool_names:          Which tools this agent can use.
-            effort_constraints:  Resolved constraints from settings/data registry.
             workspace_context:   Project info (language, framework).
             extra_instructions:  Agent-specific additions.
             native_tool_mode:    Whether the provider handles tools natively.
@@ -155,16 +144,11 @@ class PromptBuilder:
         if "ask_user" in tool_names:
             sections.append(self._ask_user_policy_section())
 
-        # 5. Effort-level behavior
-        reasoning_instruction = effort_constraints.get("reasoning_instruction", "")
-        if reasoning_instruction:
-            sections.append(f"# Reasoning Policy\n{reasoning_instruction}")
-
-        # 6. Workspace context
+        # 5. Workspace context
         if workspace_context:
             sections.append(f"# Workspace Context\n{workspace_context}")
 
-        # 7. Extra instructions
+        # 6. Extra instructions
         if extra_instructions:
             sections.append(f"# Additional Instructions\n{extra_instructions}")
 

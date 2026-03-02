@@ -254,7 +254,7 @@ async def test_command_system_message_uses_system_message_container():
         await bus.publish(
             AgentMessageEvent(
                 source="command_system",
-                content="Effort level set to: HIGH",
+                content="Log level set to: DEBUG",
                 is_monologue=False,
             )
         )
@@ -263,7 +263,7 @@ async def test_command_system_message_uses_system_message_container():
         text_window = app.query_one(TextWindowContainer)
         system_messages = list(text_window.query(SystemMessageContainer))
         assert len(system_messages) >= 1
-        assert system_messages[-1].message_text == "Effort level set to: HIGH"
+        assert system_messages[-1].message_text == "Log level set to: DEBUG"
 
         # Command/system messages should not be rendered as answer blocks.
         assert len(list(text_window.query(AnswerBlock))) == 0

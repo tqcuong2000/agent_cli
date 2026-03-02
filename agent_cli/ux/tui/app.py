@@ -24,7 +24,6 @@ class AgentCLIApp(App):
 
     BINDINGS = [
         Binding("ctrl+p", "open_command_palette", "Commands", show=True),
-        Binding("ctrl+e", "cycle_effort", "Effort", show=True),
         Binding("escape", "interrupt_agent", "Stop", show=False),
         Binding("ctrl+l", "clear_context", "Clear", show=False),
         Binding("ctrl+q", "quit_app", "Quit", show=False),
@@ -110,7 +109,6 @@ class AgentCLIApp(App):
             status = self.query_one(StatusContainer)
             s = self.app_context.settings
             status.update_model(s.default_model)
-            status.update_effort(s.default_effort_level.value)
             active_name = "default"
             if self.app_context.orchestrator is not None:
                 active_name = self.app_context.orchestrator.active_agent_name
@@ -154,20 +152,6 @@ class AgentCLIApp(App):
             footer.input_comp.focus()
         except Exception:
             pass
-
-    async def action_cycle_effort(self) -> None:
-        """Cycle through effort levels: LOW → MEDIUM → HIGH → XHIGH → LOW."""
-        levels = ["LOW", "MEDIUM", "HIGH", "XHIGH"]
-        current = self.app_context.settings.default_effort_level.value
-        try:
-            idx = levels.index(current)
-        except ValueError:
-            idx = 0
-        next_level = levels[(idx + 1) % len(levels)]
-
-        parser = self.app_context.command_parser
-        if parser:
-            await parser.execute(f"/effort {next_level}")
 
     async def action_clear_context(self) -> None:
         """Clear working memory."""

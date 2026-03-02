@@ -17,12 +17,11 @@ See ``01_reasoning_loop.md`` for the full specification.
 from __future__ import annotations
 
 import logging
-import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional
 
 from agent_cli.agent.memory import BaseMemoryManager
 from agent_cli.agent.parsers import AgentResponse
@@ -37,18 +36,10 @@ from agent_cli.core.error_handler.errors import (
     ToolExecutionError,
 )
 from agent_cli.core.events.event_bus import AbstractEventBus
-from agent_cli.core.events.events import (
-    AgentMessageEvent,
-    BaseEvent,
-    SettingsChangedEvent,
-)
-from agent_cli.core.models.config_models import EffortLevel
+from agent_cli.core.events.events import AgentMessageEvent
 from agent_cli.core.state.state_manager import AbstractStateManager
 from agent_cli.data import DataRegistry
 from agent_cli.tools.executor import ToolExecutor
-
-if TYPE_CHECKING:
-    from agent_cli.core.events.event_bus import EventCallback
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +61,8 @@ class AgentConfig:
         description:              Role description for the Orchestrator.
         persona:                  System prompt persona text.
         model:                    LLM model override (empty = default).
-        effort_level:             Default effort (overridable per-task).
         tools:                    Tool names from ``ToolRegistry``.
-        max_iterations_override:  Custom max (overrides effort default).
+        max_iterations_override:  Custom max (overrides global max_iterations).
         show_thinking:            Whether to stream ``<thinking>`` to TUI.
     """
 
@@ -80,9 +70,6 @@ class AgentConfig:
     description: str = ""
     persona: str = ""
     model: str = ""
-    effort_level: Optional[EffortLevel] = (
-        None  # None = follow global default_effort_level
-    )
     tools: List[str] = field(default_factory=list)
     max_iterations_override: Optional[int] = None
     show_thinking: bool = True
@@ -132,10 +119,6 @@ class BaseAgent(ABC):
         self.state_manager = state_manager
         self.prompt_builder = prompt_builder
 
-        # Reactive effort caching
-        self._effort_constraints: Dict[str, Any] = {}
-        self._last_resolved_effort: Optional[EffortLevel] = None
-
         # In tests this might be None, so fallback gracefully
         if settings is None:
             from agent_cli.core.config import AgentSettings
@@ -148,35 +131,13 @@ class BaseAgent(ABC):
         self._schema_defaults = self._data_registry.get_schema_defaults()
         self._retry_defaults = self._data_registry.get_retry_defaults()
 
-        # Subscribe to settings changes
-        if self.event_bus:
-            self.event_bus.subscribe(
-                "SettingsChangedEvent",
-                cast("EventCallback", self._on_settings_changed),
-            )
-
         # Task-local message delta captured from the most recent handle_task() call.
         self._last_task_messages: List[Dict[str, Any]] = []
-
-    async def _on_settings_changed(self, event: BaseEvent) -> None:
-        """Reactive hook for settings updates."""
-        if not isinstance(event, SettingsChangedEvent):
-            return
-        if event.setting_name == "default_effort_level":
-            # Invalidate cache
-            self._last_resolved_effort = None
-            self._effort_constraints = {}
-            logger.debug(f"Agent '{self.name}' reactive effort cache invalidated.")
 
     @property
     def name(self) -> str:
         """Agent's unique name from config."""
         return self.config.name
-
-    @property
-    def effort(self) -> EffortLevel:
-        """Resolve the current effort level (agent override → global default)."""
-        return self.config.effort_level or self.settings.default_effort_level
 
     # ── Abstract Hooks ───────────────────────────────────────────
 
@@ -201,8 +162,7 @@ class BaseAgent(ABC):
     async def on_final_answer(self, answer: str) -> str:
         """Hook called before returning the final answer.
 
-        Agents can override for self-verification (HIGH effort) or
-        formatting adjustments.
+        Agents can override for self-verification or formatting adjustments.
 
         Returns:
             The (potentially modified) final answer.
@@ -215,7 +175,6 @@ class BaseAgent(ABC):
         task_id: str,
         task_description: str,
         prior_context: str = "",
-        effort_override: Optional[EffortLevel] = None,
         session_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """The main ReAct reasoning loop.
@@ -230,7 +189,6 @@ class BaseAgent(ABC):
             task_id:          Task being executed (for state/logging).
             task_description: What the agent should accomplish.
             prior_context:    Summary from previous agents in a plan.
-            effort_override:  Orchestrator can override default effort.
 
         Returns:
             The agent's final answer string.
@@ -239,18 +197,9 @@ class BaseAgent(ABC):
             MaxIterationsExceededError: Loop exhausted all iterations.
             AgentCLIError: On fatal errors (propagated to Orchestrator).
         """
-        # ── Resolve effort level ─────────────────────────────────
-        effort = effort_override or self.effort
-
-        # Reactive cache check
-        if effort != self._last_resolved_effort or not self._effort_constraints:
-            self._effort_constraints = self.settings.get_effort_config(effort)
-            self._last_resolved_effort = effort
-
-        constraints = self._effort_constraints
-
-        max_iterations = self.config.max_iterations_override or constraints.get(
-            "max_iterations", 15
+        max_iterations = int(
+            self.config.max_iterations_override
+            or getattr(self.settings, "max_iterations", 100)
         )
 
         # ── Build system prompt ──────────────────────────────────
@@ -313,11 +262,10 @@ class BaseAgent(ABC):
         try:
             for iteration in range(1, max_iterations + 1):
                 logger.debug(
-                    "Agent '%s' iteration %d/%d (effort=%s, task=%s)",
+                    "Agent '%s' iteration %d/%d (task=%s)",
                     self.name,
                     iteration,
                     max_iterations,
-                    effort.name,
                     task_id,
                 )
 
@@ -440,11 +388,9 @@ class BaseAgent(ABC):
                         )
 
                         logger.info(
-                            "Agent '%s' completed task in %d iteration(s) "
-                            "(effort=%s, task=%s)",
+                            "Agent '%s' completed task in %d iteration(s) (task=%s)",
                             self.name,
                             iteration,
-                            effort.name,
                             task_id,
                         )
                         return final
@@ -517,7 +463,7 @@ class BaseAgent(ABC):
             # ── LOOP EXHAUSTED ───────────────────────────────────────
             raise MaxIterationsExceededError(
                 f"Agent '{self.name}' reached {max_iterations} iterations "
-                f"(effort={effort.name}) without completing the task.",
+                "without completing the task.",
                 iterations=max_iterations,
                 max_iterations=max_iterations,
                 task_id=task_id,

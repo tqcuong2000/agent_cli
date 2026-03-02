@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from pydantic import BaseModel
 
-from agent_cli.agent.base import AgentConfig, BaseAgent, EffortLevel
+from agent_cli.agent.base import AgentConfig, BaseAgent
 from agent_cli.agent.memory import WorkingMemoryManager
 from agent_cli.agent.react_loop import PromptBuilder
 from agent_cli.agent.registry import AgentRegistry
@@ -131,7 +131,6 @@ def deps():
     config = AgentConfig(
         name="test_agent",
         tools=["mock_tool"],
-        effort_level=EffortLevel.LOW,
     )
     agent = MockAgent(
         config=config,
@@ -175,7 +174,7 @@ def multi_agent_deps():
     prompt_builder = PromptBuilder(registry)
 
     coder = MockAgent(
-        config=AgentConfig(name="coder", effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="coder"),
         provider=MockProvider(answer="coder-result"),
         tool_executor=tool_executor,
         schema_validator=schema_validator,
@@ -185,7 +184,7 @@ def multi_agent_deps():
         prompt_builder=prompt_builder,
     )
     researcher = MockAgent(
-        config=AgentConfig(name="researcher", effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="researcher"),
         provider=MockProvider(answer="researcher-result"),
         tool_executor=tool_executor,
         schema_validator=schema_validator,
@@ -384,7 +383,7 @@ async def test_orchestrator_rejects_concurrent_request_while_busy():
     provider.safe_generate = delayed_safe_generate  # type: ignore[assignment]
 
     agent = MockAgent(
-        config=AgentConfig(name="test_agent", tools=[], effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="test_agent", tools=[]),
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=schema_validator,
@@ -441,7 +440,7 @@ async def test_orchestrator_interrupts_active_task():
     provider.safe_generate = delayed_safe_generate  # type: ignore[assignment]
 
     agent = MockAgent(
-        config=AgentConfig(name="test_agent", tools=[], effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="test_agent", tools=[]),
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=schema_validator,

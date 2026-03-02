@@ -32,7 +32,6 @@ _COMMANDS: List[CommandInfo] = [
     CommandInfo("agent", "Manage agents in this session", "", "Agent"),
     # Model
     CommandInfo("model", "Switch LLM model", "", "Model"),
-    CommandInfo("effort", "Set effort level", "ctrl+e", "Model"),
     CommandInfo("debug", "Toggle debug logging", "", "Model"),
     # Configuration
     CommandInfo("config", "View or modify settings", "", "Configuration"),

@@ -1,6 +1,6 @@
 """
 Core command handlers — /help, /clear, /exit, /model,
-/effort, /config, /cost, /context.
+/config, /cost, /context.
 
 All handlers are registered at import time via the ``@command``
 decorator.  The bootstrap absorbs them into the live
@@ -260,52 +260,6 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
 
 
 @command(
-    name="effort",
-    description="Set default effort level",
-    usage="/effort <low|medium|high|xhigh>",
-    shortcut="ctrl+e",
-    category="Model",
-)
-async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
-    """Set the default effort level."""
-    from agent_cli.core.models.config_models import EffortLevel
-
-    if not args:
-        current = ctx.settings.default_effort_level
-        return CommandResult(
-            success=True,
-            message=f"Current effort: {current}",
-        )
-
-    level = args[0].upper()
-    if level not in ("LOW", "MEDIUM", "HIGH", "XHIGH"):
-        return CommandResult(
-            success=False,
-            message="Usage: /effort <LOW|MEDIUM|HIGH|XHIGH>",
-        )
-
-    ctx.settings.default_effort_level = EffortLevel(level)
-
-    # Emit event so agents can update reactive caches
-    if ctx.event_bus:
-        await ctx.event_bus.publish(
-            SettingsChangedEvent(
-                setting_name="default_effort_level",
-                new_value=level,
-                source="cmd_effort",
-            )
-        )
-
-    # Update status bar
-    _update_status_bar(ctx, effort=level)
-
-    return CommandResult(
-        success=True,
-        message=f"Effort level set to: {level}",
-    )
-
-
-@command(
     name="debug",
     description="Toggle debug logging",
     usage="/debug [on|off]",
@@ -365,7 +319,7 @@ async def cmd_config(args: List[str], ctx: CommandContext) -> CommandResult:
         "Current configuration:",
         f"  default_model:        {s.default_model}",
         f"  default_agent:        {getattr(s, 'default_agent', 'default')}",
-        f"  default_effort_level: {s.default_effort_level.value}",
+        f"  max_iterations:       {getattr(s, 'max_iterations', 100)}",
         f"  auto_approve_tools:   {s.auto_approve_tools}",
         f"  show_agent_thinking:  {s.show_agent_thinking}",
         f"  log_level:            {s.log_level}",
@@ -383,7 +337,6 @@ def _update_status_bar(
     ctx: CommandContext,
     *,
     model: str | None = None,
-    effort: str | None = None,
     active_agent: str | None = None,
 ) -> None:
     """Update the TUI status bar if app is available."""
@@ -396,8 +349,6 @@ def _update_status_bar(
         status = ctx.app.query_one(StatusContainer)
         if model is not None:
             status.update_model(model)
-        if effort is not None:
-            status.update_effort(effort)
         if active_agent is not None:
             status.update_active_agent(active_agent)
             badge = ctx.app.query_one(AgentBadgeComponent)

@@ -14,7 +14,6 @@ Loading order (lowest → highest precedence):
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 
@@ -26,7 +25,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from agent_cli.core.models.config_models import EffortLevel, ProviderConfig
+from agent_cli.core.models.config_models import ProviderConfig
 from agent_cli.data import DataRegistry
 
 logger = logging.getLogger(__name__)
@@ -91,7 +90,7 @@ class TomlConfigSettingsSource(PydanticBaseSettingsSource):
 class AgentSettings(BaseSettings):
     """The single source of truth for system configuration.
 
-    Every configurable value — model selection, effort levels, token
+    Every configurable value — model selection, iteration limits, token
     budgets, tool safety toggles, provider endpoints — lives here
     with Pydantic validation.
     """
@@ -108,14 +107,16 @@ class AgentSettings(BaseSettings):
     )
     core: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Core framework configurations (e.g. [core.effort]).",
+        description="Core framework configuration overrides.",
     )
 
     # ── Agent Reasoning ──────────────────────────────────────────
 
-    default_effort_level: EffortLevel = Field(
-        default=EffortLevel.MEDIUM,
-        description="Default effort level for agents (overridable per-task).",
+    max_iterations: int = Field(
+        default=100,
+        ge=1,
+        le=5000,
+        description="Maximum ReAct loop iterations per task.",
     )
     max_task_retries: int = Field(
         default=1,
@@ -247,27 +248,7 @@ class AgentSettings(BaseSettings):
         """Expand ~ in log directory path."""
         return str(Path(v).expanduser())
 
-    # ── Runtime Lookups (Effort & API Keys) ──────────────────────
-
-    def get_effort_config(self, level: EffortLevel) -> Dict[str, Any]:
-        """Get effort constraints, prioritizing TOML [core.effort] over defaults."""
-        defaults = _data_registry().get_effort_constraints(level)
-
-        # Look for user overrides in core.effort.<LEVEL> (case-insensitive key)
-        user_efforts = self.core.get("effort", {})
-
-        # TOML keys are often lowercase, so we check various casings
-        user_override = {}
-        for key, val in user_efforts.items():
-            if str(key).upper() == level.name:
-                user_override = val
-                break
-
-        if not user_override:
-            return defaults
-
-        # Merge user override into defaults
-        return _deep_merge(defaults, user_override)
+    # ── Runtime Lookups (API Keys) ────────────────────────────────
 
     def resolve_api_key(self, provider: str) -> Optional[str]:
         """Resolve API key with fallback chain: env/.env → keyring → None."""
@@ -368,7 +349,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 default_model = "gemini-2.5-flash-lite"
 default_agent = "default"
-default_effort_level = "MEDIUM"
+max_iterations = 100
 show_agent_thinking = true
 log_level = "INFO"
 log_max_file_size_mb = 50
@@ -409,8 +390,3 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
         else:
             result[key] = value
     return result
-
-
-@lru_cache(maxsize=1)
-def _data_registry() -> DataRegistry:
-    return DataRegistry()

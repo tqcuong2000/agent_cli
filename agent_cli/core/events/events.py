@@ -320,7 +320,7 @@ class PlanReadyEvent(BaseEvent):
 
 @dataclass
 class SettingsChangedEvent(BaseEvent):
-    """Published when a setting is changed at runtime (e.g. /effort)."""
+    """Published when a setting is changed at runtime."""
 
     setting_name: str = ""
     new_value: Any = None

@@ -421,13 +421,18 @@ def create_app(
     from agent_cli.agent.agents.researcher import ResearcherAgent
     from agent_cli.agent.base import AgentConfig
     from agent_cli.agent.default import DefaultAgent
-    from agent_cli.core.models.config_models import EffortLevel
 
-    def _parse_effort_level(raw: object) -> Optional[EffortLevel]:
-        effort_raw = str(raw or "").upper().strip()
-        if effort_raw in EffortLevel.__members__:
-            return EffortLevel(effort_raw)
-        return None
+    def _parse_optional_max_iterations(raw: object) -> Optional[int]:
+        if raw is None:
+            return None
+        value = str(raw).strip()
+        if not value:
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
 
     def _resolve_agent_config(
         *,
@@ -448,8 +453,10 @@ def create_app(
             description=str(override.get("description", description)),
             persona=str(override.get("persona", persona)).strip(),
             model=model_name,
-            effort_level=_parse_effort_level(override.get("effort_level")),
             tools=[str(tool) for tool in tools],
+            max_iterations_override=_parse_optional_max_iterations(
+                override.get("max_iterations")
+            ),
             show_thinking=bool(override.get("show_thinking", True)),
         )
 
@@ -521,7 +528,6 @@ def create_app(
             logger.warning("Skipping user agent '%s': config must be a mapping", name)
             continue
 
-        effort_level = _parse_effort_level(raw.get("effort_level"))
         model_name = str(raw.get("model") or settings.default_model)
         tools = raw.get("tools", all_tools)
         if not isinstance(tools, list):
@@ -532,8 +538,10 @@ def create_app(
             description=str(raw.get("description", f"User-defined agent '{name}'")),
             persona=str(raw.get("persona", "")).strip(),
             model=model_name,
-            effort_level=effort_level,
             tools=[str(tool) for tool in tools],
+            max_iterations_override=_parse_optional_max_iterations(
+                raw.get("max_iterations")
+            ),
             show_thinking=bool(raw.get("show_thinking", True)),
         )
         agent_registry.register(

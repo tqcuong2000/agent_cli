@@ -17,13 +17,11 @@ from agent_cli.workspace.strict import StrictWorkspaceManager
 
 class _MockSettings:
     default_model = "gpt-4o-mini"
-    default_effort_level = SimpleNamespace(value="MEDIUM")
-    execution_mode = "plan"
+    max_iterations = 100
     auto_approve_tools = False
     show_agent_thinking = True
     log_level = "INFO"
     tool_output_max_chars = 5000
-    context_compaction_threshold = 0.80
 
 
 class _MockMemory:

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from pydantic import BaseModel
 
-from agent_cli.agent.base import AgentConfig, BaseAgent, EffortLevel
+from agent_cli.agent.base import AgentConfig, BaseAgent
 from agent_cli.agent.memory import WorkingMemoryManager
 from agent_cli.agent.react_loop import PromptBuilder
 from agent_cli.agent.schema import SchemaValidator
@@ -106,7 +106,6 @@ class DummyAgent(BaseAgent):
         return self.prompt_builder.build(
             persona="You are a dummy.",
             tool_names=self.config.tools,
-            effort_constraints={"reasoning_instruction": "Just do it."},
         )
 
     async def on_tool_result(self, tool_name: str, result: str) -> None:
@@ -154,13 +153,7 @@ def base_deps():
     from agent_cli.core.config import AgentSettings
 
     settings = AgentSettings()
-    # Force standard constraints for tests so local config.toml doesn't break them
-    settings.core["effort"] = {
-        "LOW": {"max_iterations": 30},
-        "MEDIUM": {"max_iterations": 50},
-        "HIGH": {"max_iterations": 100},
-        "XHIGH": {"max_iterations": 250},
-    }
+    settings.max_iterations = 100
 
     return {
         "tool_executor": tool_executor,
@@ -176,22 +169,21 @@ def base_deps():
 # ── Integration Tests ────────────────────────────────────────────────
 
 
-def test_effort_resolution_prefers_agent_override(base_deps):
+def test_max_iterations_prefers_agent_override(base_deps):
     provider = MockLLMProvider([])
-    base_deps["settings"].default_effort_level = EffortLevel.XHIGH
 
     agent = DummyAgent(
-        config=AgentConfig(name="dummy", tools=["add"], effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="dummy", tools=["add"], max_iterations_override=7),
         provider=provider,
         **base_deps,
     )
 
-    assert agent.effort == EffortLevel.LOW
+    assert agent.config.max_iterations_override == 7
 
 
-def test_effort_resolution_falls_back_to_global_default(base_deps):
+def test_max_iterations_falls_back_to_global_setting(base_deps):
     provider = MockLLMProvider([])
-    base_deps["settings"].default_effort_level = EffortLevel.HIGH
+    base_deps["settings"].max_iterations = 220
 
     agent = DummyAgent(
         config=AgentConfig(name="dummy", tools=["add"]),
@@ -199,7 +191,8 @@ def test_effort_resolution_falls_back_to_global_default(base_deps):
         **base_deps,
     )
 
-    assert agent.effort == EffortLevel.HIGH
+    assert agent.config.max_iterations_override is None
+    assert agent.settings.max_iterations == 220
 
 
 @pytest.mark.asyncio
@@ -287,9 +280,9 @@ async def test_react_loop_max_iterations(base_deps):
     )
 
     # Feed 35 copies of the same action
-    # We set LOW effort so max_iterations is 30.
+    base_deps["settings"].max_iterations = 30
     provider = MockLLMProvider([infinite_action] * 35)
-    config = AgentConfig(name="dummy", tools=["add"], effort_level=EffortLevel.LOW)
+    config = AgentConfig(name="dummy", tools=["add"])
 
     agent = DummyAgent(config=config, provider=provider, **base_deps)
 
@@ -354,7 +347,6 @@ def test_prompt_builder_adds_ask_user_policy_when_tool_available():
     prompt = prompt_builder.build(
         persona="You are a tester.",
         tool_names=["add", "ask_user"],
-        effort_constraints={"reasoning_instruction": "Think carefully."},
     )
     assert "# Clarification Policy" in prompt
     assert "MUST use the `ask_user` tool" in prompt
@@ -369,7 +361,6 @@ def test_prompt_builder_skips_ask_user_policy_when_tool_missing():
     prompt = prompt_builder.build(
         persona="You are a tester.",
         tool_names=["add"],
-        effort_constraints={"reasoning_instruction": "Think carefully."},
     )
     assert "# Clarification Policy" not in prompt
 
@@ -382,7 +373,6 @@ def test_prompt_builder_renders_title_word_limit_from_template():
     prompt = prompt_builder.build(
         persona="You are a tester.",
         tool_names=["add"],
-        effort_constraints={"reasoning_instruction": "Think carefully."},
     )
 
     assert "{title_max_words}" not in prompt
@@ -397,15 +387,13 @@ def test_prompt_builder_switches_native_vs_xml_output_template():
     xml_prompt = prompt_builder.build(
         persona="You are a tester.",
         tool_names=["add"],
-        effort_constraints={},
         native_tool_mode=False,
     )
     native_prompt = prompt_builder.build(
         persona="You are a tester.",
         tool_names=["add"],
-        effort_constraints={},
         native_tool_mode=True,
     )
 
     assert "wrap it in <action> tags" in xml_prompt
-    assert "DO NOT write an <action> XML tag" in native_prompt
+    assert "Do NOT write XML action tags" in native_prompt

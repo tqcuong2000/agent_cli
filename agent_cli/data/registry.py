@@ -8,7 +8,7 @@ from typing import Any
 
 import tomllib
 
-from agent_cli.core.models.config_models import EffortLevel, ProviderConfig
+from agent_cli.core.models.config_models import ProviderConfig
 
 
 class DataRegistry:
@@ -17,7 +17,6 @@ class DataRegistry:
     __slots__ = (
         "_data_root",
         "_models",
-        "_effort",
         "_tools",
         "_memory",
         "_schema",
@@ -27,7 +26,6 @@ class DataRegistry:
     def __init__(self) -> None:
         self._data_root = resources.files("agent_cli.data")
         self._models = self._load_toml("models.toml")
-        self._effort = self._load_toml("effort.toml")
         self._tools = self._load_toml("tools.toml")
         self._memory = self._load_toml("memory.toml")
         self._schema = self._load_toml("schema.toml")
@@ -122,15 +120,6 @@ class DataRegistry:
             "routing_model": str(internal.get("routing_model", "")),
             "summarization_model": str(internal.get("summarization_model", "")),
         }
-
-    # -- Effort -----------------------------------------------------
-
-    def get_effort_constraints(self, level: EffortLevel) -> dict[str, Any]:
-        key = level.name if isinstance(level, EffortLevel) else str(level).upper()
-        constraints = self._effort.get(key)
-        if not isinstance(constraints, dict):
-            raise KeyError(f"Unknown effort level: {key}")
-        return deepcopy(constraints)
 
     # -- Tools ------------------------------------------------------
 

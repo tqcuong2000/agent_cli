@@ -24,15 +24,11 @@ class DefaultAgent(BaseAgent):
                 self.persona_template_name
             ).strip()
 
-        effort_constraints = self.effort  # Resolved dynamic effort level
-        constraints = self.settings.get_effort_config(effort_constraints)
-
         native_tools = getattr(self.provider, "supports_native_tools", False)
 
         prompt = self.prompt_builder.build(
             persona=persona,
             tool_names=self.config.tools,
-            effort_constraints=constraints,
             workspace_context=f"Operating System: {platform.system() or 'Unknown'}",
             native_tool_mode=native_tools,
         )

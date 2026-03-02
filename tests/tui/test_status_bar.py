@@ -31,12 +31,10 @@ async def test_status_bar_manual_update_helpers():
 
         status.update_active_agent("coder")
         status.update_model("gpt-4o")
-        status.update_effort("high")
         await pilot.pause()
 
         assert str(status.query_one("#active_agent", Static).content) == "coder"
         assert str(status.query_one("#model", Static).content) == "gpt-4o"
-        assert str(status.query_one("#effort", Static).content) == "HIGH"
 
 
 @pytest.mark.asyncio

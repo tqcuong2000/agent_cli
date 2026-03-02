@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from agent_cli.agent.base import AgentConfig, BaseAgent, EffortLevel
+from agent_cli.agent.base import AgentConfig, BaseAgent
 from agent_cli.agent.memory import WorkingMemoryManager
 from agent_cli.agent.react_loop import PromptBuilder
 from agent_cli.agent.registry import AgentRegistry
@@ -107,7 +107,7 @@ async def test_orchestrator_persists_and_rehydrates_multi_turn_context(tmp_path:
 
     provider = ContextCaptureProvider()
     agent = SessionAwareAgent(
-        config=AgentConfig(name="session-agent", effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="session-agent"),
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=validator,
@@ -188,7 +188,7 @@ async def test_end_to_end_switch_save_and_restore_session(tmp_path: Path):
     coder_provider_1 = ContextCaptureProvider()
     researcher_provider_1 = ContextCaptureProvider()
     coder_1 = SessionAwareAgent(
-        config=AgentConfig(name="coder", effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="coder"),
         provider=coder_provider_1,
         tool_executor=tool_executor_1,
         schema_validator=validator_1,
@@ -198,7 +198,7 @@ async def test_end_to_end_switch_save_and_restore_session(tmp_path: Path):
         prompt_builder=prompt_builder_1,
     )
     researcher_1 = SessionAwareAgent(
-        config=AgentConfig(name="researcher", effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="researcher"),
         provider=researcher_provider_1,
         tool_executor=tool_executor_1,
         schema_validator=validator_1,
@@ -245,7 +245,7 @@ async def test_end_to_end_switch_save_and_restore_session(tmp_path: Path):
     coder_provider_2 = ContextCaptureProvider()
     researcher_provider_2 = ContextCaptureProvider()
     coder_2 = SessionAwareAgent(
-        config=AgentConfig(name="coder", effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="coder"),
         provider=coder_provider_2,
         tool_executor=tool_executor_2,
         schema_validator=validator_2,
@@ -255,7 +255,7 @@ async def test_end_to_end_switch_save_and_restore_session(tmp_path: Path):
         prompt_builder=prompt_builder_2,
     )
     researcher_2 = SessionAwareAgent(
-        config=AgentConfig(name="researcher", effort_level=EffortLevel.LOW),
+        config=AgentConfig(name="researcher"),
         provider=researcher_provider_2,
         tool_executor=tool_executor_2,
         schema_validator=validator_2,

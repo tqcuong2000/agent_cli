@@ -22,7 +22,6 @@ from agent_cli.core.config import (
     _deep_merge,
     load_providers,
 )
-from agent_cli.core.models.config_models import EffortLevel
 
 # ── Defaults & Env Var Tests ──────────────────────────────────────────
 
@@ -35,8 +34,7 @@ def test_default_settings():
     settings = AgentSettings()
     # In this environment, it might be loading gemini-3-flash-preview from config.toml
     assert settings.default_model in ("claude-3-5-sonnet", "gemini-3-flash-preview")
-    # Default in code is MEDIUM, but config.toml might override to LOW
-    assert settings.default_effort_level in (EffortLevel.MEDIUM, EffortLevel.LOW)
+    assert settings.max_iterations >= 1
     assert settings.log_level == "INFO"
     assert settings.log_max_file_size_mb == 50
     assert settings.max_task_retries == 1
@@ -45,18 +43,18 @@ def test_default_settings():
 def test_env_var_override():
     """Environment variables prefixed with AGENT_ should override defaults."""
     os.environ["AGENT_DEFAULT_MODEL"] = "gpt-4o"
-    os.environ["AGENT_DEFAULT_EFFORT_LEVEL"] = "HIGH"
+    os.environ["AGENT_MAX_ITERATIONS"] = "150"
     os.environ["AGENT_AUTO_APPROVE_TOOLS"] = "true"
 
     settings = AgentSettings()
 
     assert settings.default_model == "gpt-4o"
-    assert settings.default_effort_level == EffortLevel.HIGH
+    assert settings.max_iterations == 150
     assert settings.auto_approve_tools is True
 
     # Cleanup
     del os.environ["AGENT_DEFAULT_MODEL"]
-    del os.environ["AGENT_DEFAULT_EFFORT_LEVEL"]
+    del os.environ["AGENT_MAX_ITERATIONS"]
     del os.environ["AGENT_AUTO_APPROVE_TOOLS"]
 
 

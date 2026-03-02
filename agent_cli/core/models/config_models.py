@@ -9,17 +9,7 @@ Settings machinery.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import List, Optional
-
-
-class EffortLevel(str, Enum):
-    """Agent reasoning effort — controls iteration limits and tool budgets."""
-
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-    XHIGH = "XHIGH"
 
 
 @dataclass

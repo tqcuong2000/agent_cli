@@ -391,7 +391,7 @@ class TextWindowContainer(Container):
         welcome = (
             "Welcome to Agent CLI.\n"
             "Try: ask a task, use !coder / !researcher, or /agent list.\n"
-            "Useful commands: /help, /model <name>, /effort <level>, /sessions."
+            "Useful commands: /help, /model <name>, /config, /sessions."
         )
         self._messages.mount(SystemMessageContainer(welcome))
         self.call_after_refresh(self._scroll_to_end)
