@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -12,7 +13,7 @@ from agent_cli.core.error_handler.errors import MaxIterationsExceededError
 from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
 from agent_cli.core.state.state_manager import TaskState, TaskStateManager
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
-from agent_cli.providers.models import LLMResponse, ToolCallMode
+from agent_cli.providers.models import LLMResponse, ToolCall, ToolCallMode
 from agent_cli.tools.ask_user_tool import AskUserTool
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.tools.executor import ToolExecutor
@@ -66,15 +67,23 @@ class MockLLMProvider(BaseLLMProvider):
     ) -> LLMResponse:
         self.requests.append(context)
         if self.call_count >= len(self.responses):
-            text = "<final_answer>Out of mock responses.</final_answer>"
+            text = _json_response(
+                "notify_user",
+                message="Out of mock responses.",
+                title="Stop",
+                thought="No more fixtures",
+            )
         else:
             text = self.responses[self.call_count]
             self.call_count += 1
 
-        return LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
+        return LLMResponse(text_content=text, tool_mode=ToolCallMode.PROMPT_JSON)
 
     def get_buffered_response(self) -> LLMResponse:
-        return LLMResponse(text_content="buffered", tool_mode=ToolCallMode.XML)
+        return LLMResponse(
+            text_content='{"title":"buffered","thought":"buffered","decision":{"type":"reflect"}}',
+            tool_mode=ToolCallMode.PROMPT_JSON,
+        )
 
     async def safe_generate(
         self,
@@ -123,8 +132,27 @@ class _MockToolFormatter(BaseToolFormatter):
         return ""
 
 
-def _reasoning(title: str, thoughts: str) -> str:
-    return f"<title>{title}</title>\n<thinking>{thoughts}</thinking>"
+def _json_response(
+    decision_type: str,
+    *,
+    tool: str = "",
+    args: dict | None = None,
+    message: str = "",
+    title: str = "Plan next step",
+    thought: str = "I will continue.",
+) -> str:
+    payload: Dict[str, Any] = {
+        "title": title,
+        "thought": thought,
+        "decision": {"type": decision_type},
+    }
+    if tool:
+        payload["decision"]["tool"] = tool
+    if args is not None:
+        payload["decision"]["args"] = args
+    if message:
+        payload["decision"]["message"] = message
+    return json.dumps(payload)
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -195,6 +223,37 @@ def test_max_iterations_falls_back_to_global_setting(base_deps):
     assert agent.settings.max_iterations == 220
 
 
+def test_format_assistant_history_keeps_prompt_mode_text_unchanged():
+    response = LLMResponse(
+        text_content='{"title":"Plan","thought":"Do it","decision":{"type":"reflect"}}',
+        tool_mode=ToolCallMode.PROMPT_JSON,
+    )
+
+    assert BaseAgent._format_assistant_history(response) == response.text_content
+
+
+def test_format_assistant_history_appends_native_tool_call_json_trace():
+    response = LLMResponse(
+        text_content='{"title":"Read file","thought":"Need file","decision":{"type":"execute_action"}}',
+        tool_mode=ToolCallMode.NATIVE,
+        tool_calls=[
+            ToolCall(
+                tool_name="read_file",
+                arguments={"path": "README.md"},
+                native_call_id="call_1",
+            )
+        ],
+    )
+
+    formatted = BaseAgent._format_assistant_history(response)
+    trace = json.loads(formatted.splitlines()[-1])
+    assert trace["type"] == "tool_call"
+    assert trace["version"] == "1.0"
+    assert trace["payload"]["tool"] == "read_file"
+    assert trace["payload"]["args"] == {"path": "README.md"}
+    assert trace["metadata"]["native_call_id"] == "call_1"
+
+
 @pytest.mark.asyncio
 async def test_react_loop_successful_task(base_deps):
     """Test a full ReAct loop where the agent thinks, uses a tool,
@@ -202,11 +261,20 @@ async def test_react_loop_successful_task(base_deps):
 
     mock_responses = [
         # Iteration 1: Call 'add' tool
-        _reasoning("Compute sum using add tool call", "I should add.") + "\n"
-        "<action>\n  <tool>add</tool>\n  <args><x>2</x><y>3</y></args>\n</action>",
+        _json_response(
+            "execute_action",
+            tool="add",
+            args={"x": 2, "y": 3},
+            title="Compute sum using add tool call",
+            thought="I should add.",
+        ),
         # Iteration 2: Return final answer
-        _reasoning("Return concise final answer to user", "Got the result.") + "\n"
-        "<final_answer>The answer is 5.</final_answer>",
+        _json_response(
+            "notify_user",
+            message="The answer is 5.",
+            title="Return concise final answer to user",
+            thought="Got the result.",
+        ),
     ]
 
     provider = MockLLMProvider(mock_responses)
@@ -229,8 +297,11 @@ async def test_react_loop_successful_task(base_deps):
     # Verify working memory
     memory = base_deps["memory_manager"].get_working_context()
     assert len(memory) > 3  # sys prompt, task desc, iteration 1 turn, etc.
-    assert any("<tool_result>" in m["content"] for m in memory)
-    assert any("<tool>add</tool>" in m["content"] for m in memory)
+    tool_payloads = [
+        json.loads(m["content"]) for m in memory if m.get("role") == "tool"
+    ]
+    assert any(p.get("type") == "tool_result" for p in tool_payloads)
+    assert any(p.get("payload", {}).get("tool") == "add" for p in tool_payloads)
 
 
 @pytest.mark.asyncio
@@ -239,13 +310,17 @@ async def test_react_loop_schema_correction(base_deps):
     by receiving the error and trying again."""
 
     mock_responses = [
-        # Iteration 1: Malformed action (missing <tool>)
-        _reasoning("Detect malformed action and recover quickly", "Oops") + "\n"
-        "<action>\n  <args>{}</args>\n</action>",
+        # Iteration 1: malformed JSON payload (missing decision object)
+        json.dumps(
+            {"title": "Detect malformed action and recover quickly", "thought": "Oops"}
+        ),
         # Iteration 2: Correct format
-        _reasoning("Provide corrected response after feedback", "Let me fix that.")
-        + "\n"
-        "<final_answer>I fixed it.</final_answer>",
+        _json_response(
+            "notify_user",
+            message="I fixed it.",
+            title="Provide corrected response after feedback",
+            thought="Let me fix that.",
+        ),
     ]
 
     provider = MockLLMProvider(mock_responses)
@@ -267,7 +342,7 @@ async def test_react_loop_schema_correction(base_deps):
     # Check that memory contains the schema error feedback
     mem = base_deps["memory_manager"].get_working_context()
     assert any("Schema Error" in m["content"] for m in mem)
-    assert any("Valid XML-mode examples" in m["content"] for m in mem)
+    assert any("Valid prompt JSON examples" in m["content"] for m in mem)
 
 
 @pytest.mark.asyncio
@@ -276,9 +351,12 @@ async def test_react_loop_max_iterations(base_deps):
     loops too many times without a final answer."""
 
     # Always returning an action (infinite loop scenario)
-    infinite_action = (
-        _reasoning("Repeat same action to test max iterations", "Looping") + "\n"
-        "<action>\n  <tool>add</tool>\n  <args><x>1</x><y>1</y></args>\n</action>"
+    infinite_action = _json_response(
+        "execute_action",
+        tool="add",
+        args={"x": 1, "y": 1},
+        title="Repeat same action to test max iterations",
+        thought="Looping",
     )
 
     # Feed 35 copies of the same action
@@ -306,9 +384,12 @@ async def test_react_loop_stuck_detection(base_deps):
     """Test that the stuck detector injects a warning if the agent
     repeats the exact same tool call and gets the same result."""
 
-    same_action = (
-        _reasoning("Repeat identical action to trigger stuck hint", "Stuck") + "\n"
-        "<action>\n  <tool>add</tool>\n  <args><x>0</x><y>0</y></args>\n</action>"
+    same_action = _json_response(
+        "execute_action",
+        tool="add",
+        args={"x": 0, "y": 0},
+        title="Repeat identical action to trigger stuck hint",
+        thought="Stuck",
     )
 
     # 3 repetitions triggers the stuck detector warning for the 4th iteration
@@ -316,8 +397,12 @@ async def test_react_loop_stuck_detection(base_deps):
         same_action,  # iter 1 -> result 0
         same_action,  # iter 2 -> result 0
         same_action,  # iter 3 -> result 0, triggers stuck detection!
-        _reasoning("Acknowledge loop and finish with answer", "Oh")
-        + "<final_answer>I was stuck.</final_answer>",
+        _json_response(
+            "notify_user",
+            message="I was stuck.",
+            title="Acknowledge loop and finish with answer",
+            thought="Oh",
+        ),
     ]
 
     provider = MockLLMProvider(mock_responses)
@@ -381,12 +466,12 @@ def test_prompt_builder_renders_title_word_limit_from_template():
     assert "1 to 15 words" in prompt
 
 
-def test_prompt_builder_switches_native_vs_xml_output_template():
+def test_prompt_builder_switches_native_vs_prompt_json_output_template():
     registry = ToolRegistry()
     registry.register(MockMathTool())
     prompt_builder = PromptBuilder(registry)
 
-    xml_prompt = prompt_builder.build(
+    prompt_json = prompt_builder.build(
         persona="You are a tester.",
         tool_names=["add"],
         native_tool_mode=False,
@@ -397,5 +482,5 @@ def test_prompt_builder_switches_native_vs_xml_output_template():
         native_tool_mode=True,
     )
 
-    assert "wrap it in <action> tags" in xml_prompt
-    assert "Do not write XML action tags" in native_prompt
+    assert "Return exactly ONE JSON object" in prompt_json
+    assert "native function-calling" in native_prompt

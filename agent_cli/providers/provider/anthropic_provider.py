@@ -13,6 +13,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
+from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
     StopReason,
@@ -20,7 +21,6 @@ from agent_cli.providers.models import (
     ToolCall,
     ToolCallMode,
 )
-from agent_cli.providers.xml_formatter import XMLToolFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class AnthropicToolFormatter(BaseToolFormatter):
         ]
 
     def format_for_prompt_injection(self, tools: List[Dict[str, Any]]) -> str:
-        return XMLToolFormatter().format_for_prompt_injection(tools)
+        return JSONToolFormatter().format_for_prompt_injection(tools)
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -7,6 +7,7 @@ detect repetitive tool-call loops and assemble dynamic system prompts.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List
 
@@ -48,7 +49,8 @@ class StuckDetector:
             ``True`` if the last N calls were identical (same tool
             + same result hash).
         """
-        key = (tool_name, hash(result))
+        normalized_result = self._normalize_result_for_stuck_check(result)
+        key = (tool_name, hash(normalized_result))
         self._recent.append(key)
 
         if len(self._recent) < self.threshold:
@@ -74,6 +76,31 @@ class StuckDetector:
     def reset(self) -> None:
         """Clear the history."""
         self._recent.clear()
+
+    @staticmethod
+    def _normalize_result_for_stuck_check(result: str) -> str:
+        """Remove volatile envelope fields so repeated outcomes can match."""
+        try:
+            parsed = json.loads(result)
+        except json.JSONDecodeError:
+            return result
+
+        if not isinstance(parsed, dict):
+            return result
+        if parsed.get("type") != "tool_result":
+            return result
+
+        payload = parsed.get("payload", {})
+        if not isinstance(payload, dict):
+            return result
+
+        stable = {
+            "status": payload.get("status"),
+            "truncated": payload.get("truncated"),
+            "truncated_chars": payload.get("truncated_chars"),
+            "output": payload.get("output"),
+        }
+        return json.dumps(stable, sort_keys=True, separators=(",", ":"))
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -115,7 +142,7 @@ class PromptBuilder:
 
         Sections:
         1. Agent persona / role
-        2. Output format instructions (XML tags)
+        2. Output format instructions (JSON contract)
         3. Tool descriptions (auto-generated from registry)
         4. Workspace context (project type, language)
         5. Agent-specific extra instructions

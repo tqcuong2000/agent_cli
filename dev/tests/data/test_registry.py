@@ -110,9 +110,10 @@ def test_schema_defaults(registry: DataRegistry) -> None:
 def test_prompt_template_loading_and_missing_file(registry: DataRegistry) -> None:
     prompt = registry.get_prompt_template("output_format")
     assert "{title_max_words}" in prompt
+    assert "Return exactly ONE JSON object" in prompt
 
     native_prompt = registry.get_prompt_template("output_format_native")
-    assert "Do not write XML action tags" in native_prompt
+    assert "native function-calling" in native_prompt
 
     persona = registry.get_prompt_template("default_persona")
     assert "expert AI coding assistant" in persona

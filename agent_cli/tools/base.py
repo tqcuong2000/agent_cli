@@ -19,7 +19,6 @@ from typing import Any, Dict, Type
 
 from pydantic import BaseModel
 
-
 # ══════════════════════════════════════════════════════════════════════
 # Tool Category
 # ══════════════════════════════════════════════════════════════════════
@@ -28,11 +27,11 @@ from pydantic import BaseModel
 class ToolCategory(Enum):
     """Categories for organizing and filtering tools."""
 
-    FILE = auto()        # read_file, write_file, edit_file
-    SEARCH = auto()      # grep_search, find_files
-    EXECUTION = auto()   # run_command, spawn_terminal
-    TERMINAL = auto()    # read_terminal, send_terminal_input, kill_terminal
-    UTILITY = auto()     # sleep, wait_for_terminal, ask_user
+    FILE = auto()  # read_file, write_file, edit_file
+    SEARCH = auto()  # grep_search, find_files
+    EXECUTION = auto()  # run_command, spawn_terminal
+    TERMINAL = auto()  # read_terminal, send_terminal_input, kill_terminal
+    UTILITY = auto()  # sleep, wait_for_terminal, ask_user
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -66,7 +65,7 @@ class BaseTool(ABC):
     Every tool declares:
     - name:        Unique identifier used by the LLM to invoke the tool.
     - description: Human-readable docstring (injected into LLM prompt
-                   for XML mode).
+                   for prompt mode).
     - args_schema: Pydantic model defining expected arguments
                    (auto-converted to JSON Schema for native FC).
     - is_safe:     Whether this tool can execute without user approval.
@@ -87,7 +86,7 @@ class BaseTool(ABC):
         Used for:
         - Argument validation before execution.
         - Auto-generating JSON Schema for native FC providers.
-        - Auto-generating text descriptions for XML prompting.
+        - Auto-generating text descriptions for prompt injection.
         """
 
     @abstractmethod

@@ -31,7 +31,6 @@ from agent_cli.providers.models import (
     ToolCallMode,
 )
 
-
 # ── Mocks ────────────────────────────────────────────────────────────
 
 
@@ -125,9 +124,16 @@ def test_llm_response_properties():
     assert r2.has_tool_calls
     assert not r2.is_final_answer
 
-    r3 = LLMResponse(text_content="<thinking>done</thinking>\n<final_answer>42</final_answer>")
+    r3 = LLMResponse(
+        text_content='{"title":"Done","thought":"Complete","decision":{"type":"notify_user","message":"42"}}'
+    )
     assert not r3.has_tool_calls
     assert r3.is_final_answer
+
+
+def test_tool_call_mode_normalization():
+    """Tool mode normalization should accept canonical values."""
+    assert ToolCallMode("PROMPT_JSON") == ToolCallMode.PROMPT_JSON
 
 
 # ── BaseLLMProvider Classification Tests ─────────────────────────────
@@ -191,7 +197,7 @@ async def test_safe_generate_success():
 @pytest.mark.asyncio
 async def test_safe_generate_retries_transient_error():
     """Verify safe_generate retries on transient errors."""
-    
+
     # We'll raise a 429 on the first call, succeed on the second
     class FlakyProvider(MockProvider):
         async def generate(self, context, tools=None, max_tokens=4096):
@@ -201,14 +207,17 @@ async def test_safe_generate_retries_transient_error():
             return LLMResponse(text_content="Success", provider="flaky")
 
     provider = FlakyProvider("test-model")
-    
+
     # We use base_delay=0 to speed up the test
     # but the retry engine enforces min base_delay inside its loop
     # Let's mock asyncio.sleep instead to bypass delays completely
     original_sleep = asyncio.sleep
-    async def fast_sleep(sec): pass
+
+    async def fast_sleep(sec):
+        pass
+
     asyncio.sleep = fast_sleep
-    
+
     try:
         res = await provider.safe_generate([], max_retries=2)
         assert res.text_content == "Success"
@@ -220,7 +229,9 @@ async def test_safe_generate_retries_transient_error():
 @pytest.mark.asyncio
 async def test_safe_generate_fails_immediately_on_auth_error():
     """Verify safe_generate hits AuthError and raises WITHOUT retrying."""
-    provider = MockProvider("test-model", simulate_error=Exception("401 invalid_api_key"))
+    provider = MockProvider(
+        "test-model", simulate_error=Exception("401 invalid_api_key")
+    )
 
     with pytest.raises(AuthenticationError):
         await provider.safe_generate([], max_retries=3)
@@ -244,9 +255,11 @@ def test_split_system_message():
 
 
 def test_inject_tools_into_system_prompt():
-    """Verify tools are appended to the system message for XML mode."""
+    """Verify tools are appended to the system message for prompt mode."""
     context = [{"role": "system", "content": "You are a bot"}]
-    modified = MockProvider._inject_tools_into_system_prompt(context, "<tools>1</tools>")
+    modified = MockProvider._inject_tools_into_system_prompt(
+        context, "<tools>1</tools>"
+    )
 
     assert len(modified) == 1
     assert "You are a bot" in modified[0]["content"]

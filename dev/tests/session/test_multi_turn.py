@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -51,12 +52,14 @@ class ContextCaptureProvider(BaseLLMProvider):
     ) -> LLMResponse:
         self.context_calls.append(deepcopy(context))
         turn = len(self.context_calls)
-        text = (
-            "<title>Respond to user task now</title>\n"
-            "<thinking>Processing request.</thinking>\n"
-            f"<final_answer>turn-{turn}</final_answer>"
+        text = json.dumps(
+            {
+                "title": "Respond to user task now",
+                "thought": "Processing request.",
+                "decision": {"type": "notify_user", "message": f"turn-{turn}"},
+            }
         )
-        return LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
+        return LLMResponse(text_content=text, tool_mode=ToolCallMode.PROMPT_JSON)
 
     async def stream(
         self,
@@ -67,7 +70,7 @@ class ContextCaptureProvider(BaseLLMProvider):
         yield None
 
     def get_buffered_response(self) -> LLMResponse:
-        return LLMResponse(text_content="", tool_mode=ToolCallMode.XML)
+        return LLMResponse(text_content="", tool_mode=ToolCallMode.PROMPT_JSON)
 
     async def safe_generate(
         self,

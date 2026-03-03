@@ -119,7 +119,7 @@ class BaseLLMProvider(ABC):
         If True:  tools sent as API parameters, responses contain
                   structured tool calls (``ToolCallMode.NATIVE``).
         If False: tools injected into the system prompt, responses use
-                  XML ``<action>`` tags (``ToolCallMode.XML``).
+                  prompt-mode JSON decisions (``ToolCallMode.PROMPT_JSON``).
         """
         ...
 
@@ -154,7 +154,7 @@ class BaseLLMProvider(ABC):
         """Yield ``StreamChunk`` objects as content arrives from the API.
 
         Streaming strategy:
-            - Text content (including ``<thinking>``) is yielded chunk by chunk.
+            - Text content is yielded chunk by chunk.
             - Tool calls are buffered internally — NOT streamed.
             - After the stream ends, call ``get_buffered_response()``
               for the complete ``LLMResponse``.
@@ -363,7 +363,12 @@ class BaseLLMProvider(ABC):
                     else:
                         system = msg.get("content", "")
                 else:
-                    messages.append({"role": "user", "content": f"[System: {msg.get('content', '')}]"})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": f"[System: {msg.get('content', '')}]",
+                        }
+                    )
             else:
                 messages.append(msg)
         return system, messages
@@ -373,7 +378,7 @@ class BaseLLMProvider(ABC):
         context: List[Dict[str, Any]],
         tool_text: str,
     ) -> List[Dict[str, Any]]:
-        """Append tool definitions to the system prompt for XML mode."""
+        """Append tool definitions/instructions to the system prompt."""
         modified = []
         for msg in context:
             if msg.get("role") == "system":

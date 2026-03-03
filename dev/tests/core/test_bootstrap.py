@@ -13,6 +13,7 @@ import pytest
 
 from agent_cli.core.bootstrap import AppContext, create_app
 from agent_cli.core.config import AgentSettings
+from agent_cli.core.models.config_models import ProtocolMode
 
 os.environ["OPENAI_API_KEY"] = "mock_key_for_testing"
 from agent_cli.core.error_handler.errors import ToolExecutionError
@@ -52,6 +53,12 @@ def test_create_app_accepts_custom_settings():
 
     assert ctx.settings.default_model == "gpt-4o"
     assert ctx.settings.log_level == "DEBUG"
+
+
+def test_create_app_wires_protocol_mode_into_schema_validator():
+    custom = AgentSettings(core={"protocol_mode": "json_only"})
+    ctx = create_app(settings=custom)
+    assert ctx.schema_validator.protocol_mode == ProtocolMode.JSON_ONLY
 
 
 def test_create_app_applies_built_in_agent_overrides_from_settings():

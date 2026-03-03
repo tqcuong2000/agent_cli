@@ -25,7 +25,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from agent_cli.core.models.config_models import ProviderConfig
+from agent_cli.core.models.config_models import ProtocolMode, ProviderConfig
 from agent_cli.data import DataRegistry
 
 logger = logging.getLogger(__name__)
@@ -177,7 +177,7 @@ class AgentSettings(BaseSettings):
 
     show_agent_thinking: bool = Field(
         default=True,
-        description="Show agent's <thinking> monologue in the TUI.",
+        description="Show agent reasoning monologue in the TUI.",
     )
     default_agent: str = Field(
         default="default",
@@ -247,6 +247,43 @@ class AgentSettings(BaseSettings):
     def _expand_log_directory(cls, v: str) -> str:
         """Expand ~ in log directory path."""
         return str(Path(v).expanduser())
+
+    @field_validator("core")
+    @classmethod
+    def _validate_core_overrides(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate known core overrides while preserving unknown keys."""
+        if not isinstance(value, dict):
+            return value
+
+        raw_mode = value.get("protocol_mode")
+        if raw_mode is None:
+            return value
+
+        normalized = str(raw_mode).strip().lower()
+        allowed = {mode.value for mode in ProtocolMode}
+        if normalized not in allowed:
+            allowed_str = ", ".join(sorted(allowed))
+            raise ValueError(
+                f"core.protocol_mode must be one of: {allowed_str}. Got: {raw_mode!r}"
+            )
+
+        value["protocol_mode"] = normalized
+        return value
+
+    @property
+    def protocol_mode(self) -> ProtocolMode:
+        """Resolve protocol mode.
+
+        Precedence:
+        1. `core.protocol_mode` (TOML/env-injected mapping)
+        2. default: `json_only`
+        """
+        raw_mode = (
+            self.core.get("protocol_mode") if isinstance(self.core, dict) else None
+        )
+        if raw_mode:
+            return ProtocolMode(str(raw_mode).strip().lower())
+        return ProtocolMode.JSON_ONLY
 
     # ── Runtime Lookups (API Keys) ────────────────────────────────
 
@@ -361,6 +398,9 @@ show_agent_thinking = true
 log_level = "INFO"
 log_max_file_size_mb = 50
 session_retention_days = 30
+
+[core]
+protocol_mode = "json_only"
 """
 
 

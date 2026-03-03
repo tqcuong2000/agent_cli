@@ -63,8 +63,7 @@ async def test_thinking_block_append_chunk_and_finish_streaming():
 
     async with app.run_test() as pilot:
         block.append_chunk(
-            "<title>Review context and choose implementation path</title>\n"
-            "<thinking>First thought line.</thinking>"
+            "Title: Review context and choose implementation path\nFirst thought line."
         )
         await pilot.pause()
 
@@ -180,8 +179,8 @@ async def test_text_window_auto_scroll_triggers_across_event_flow():
                 source="agent",
                 agent_name="coder",
                 content=(
-                    "<title>Review context and choose safe approach</title>\n"
-                    "<thinking>Thinking chunk one.</thinking>"
+                    "Title: Review context and choose safe approach\n"
+                    "Thinking chunk one."
                 ),
                 is_monologue=True,
             )
@@ -195,8 +194,8 @@ async def test_text_window_auto_scroll_triggers_across_event_flow():
                 source="agent",
                 agent_name="coder",
                 content=(
-                    "<title>Review context and choose safe approach</title>\n"
-                    "<thinking>Thinking chunk two.</thinking>"
+                    "Title: Review context and choose safe approach\n"
+                    "Thinking chunk two."
                 ),
                 is_monologue=True,
             )

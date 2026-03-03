@@ -36,8 +36,8 @@ class _Provider(BaseLLMProvider):
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         return LLMResponse(
-            text_content="<title>Return answer now</title><thinking>ok</thinking><final_answer>ok</final_answer>",
-            tool_mode=ToolCallMode.XML,
+            text_content='{"title":"Return answer now","thought":"ok","decision":{"type":"notify_user","message":"ok"}}',
+            tool_mode=ToolCallMode.PROMPT_JSON,
         )
 
     async def safe_generate(self, context, tools=None, **kwargs) -> LLMResponse:

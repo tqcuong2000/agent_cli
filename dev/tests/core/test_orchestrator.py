@@ -1,6 +1,7 @@
 """Tests for the Orchestrator."""
 
 import asyncio
+import json
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -69,12 +70,14 @@ class MockProvider(BaseLLMProvider):
         return None
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
-        text = (
-            f"<title>Process incoming user request safely now</title>\n"
-            f"<thinking>Processing.</thinking>\n"
-            f"<final_answer>{self._answer}</final_answer>"
+        text = json.dumps(
+            {
+                "title": "Process incoming user request safely now",
+                "thought": "Processing.",
+                "decision": {"type": "notify_user", "message": self._answer},
+            }
         )
-        return LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
+        return LLMResponse(text_content=text, tool_mode=ToolCallMode.PROMPT_JSON)
 
     def get_buffered_response(self) -> LLMResponse:
         return LLMResponse()

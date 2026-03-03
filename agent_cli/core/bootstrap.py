@@ -350,6 +350,7 @@ def create_app(
     # 6. Schema Validator
     schema_validator = SchemaValidator(
         registered_tools=tool_registry.get_all_names(),
+        protocol_mode=settings.protocol_mode,
         data_registry=data_registry,
     )
 

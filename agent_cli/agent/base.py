@@ -16,14 +16,13 @@ See ``01_reasoning_loop.md`` for the full specification.
 
 from __future__ import annotations
 
+import json
 import logging
-import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from xml.sax.saxutils import escape
 
 from agent_cli.agent.memory import BaseMemoryManager
 from agent_cli.agent.parsers import AgentDecision, AgentResponse
@@ -65,7 +64,7 @@ class AgentConfig:
         model:                    LLM model override (empty = default).
         tools:                    Tool names from ``ToolRegistry``.
         max_iterations_override:  Custom max (overrides global max_iterations).
-        show_thinking:            Whether to stream ``<thinking>`` to TUI.
+        show_thinking:            Whether to stream reasoning to TUI.
     """
 
     name: str = ""
@@ -183,7 +182,7 @@ class BaseAgent(ABC):
 
         Flow per iteration:
         1. **Generate** — call the LLM with working memory.
-        2. **Stream thinking** — emit ``<thinking>`` to TUI.
+        2. **Stream thinking** — emit reasoning to TUI.
         3. **Validate** — parse response via Schema Validator.
         4. **Act or Answer** — execute tool or return final answer.
 
@@ -278,6 +277,8 @@ class BaseAgent(ABC):
                     task_id,
                 )
 
+                llm_response: Any | None = None
+                llm_response_text = ""
                 try:
                     # Token-aware compaction before making an LLM call.
                     if self.memory.should_compact():
@@ -305,16 +306,15 @@ class BaseAgent(ABC):
                         task_id=task_id,
                         event_bus=self.event_bus,
                     )
+                    llm_response_text = getattr(llm_response, "text_content", "")
 
                     # INTERCEPT: Extract and save raw response for debugging
                     self._debug_intercept_response(
-                        task_id, iteration, llm_response.text_content
+                        task_id, iteration, llm_response_text
                     )
 
                     # ── STEP 2: Stream Thinking to TUI ───────────────
-                    thinking_text = self.validator.extract_thinking(
-                        llm_response.text_content
-                    )
+                    thinking_text = self.validator.extract_thinking(llm_response_text)
                     if thinking_text and self.config.show_thinking:
                         await self.event_bus.emit(
                             AgentMessageEvent(
@@ -326,6 +326,11 @@ class BaseAgent(ABC):
                         )
 
                     # ── STEP 3: Validate & Parse Response ────────────
+                    if llm_response is None:
+                        raise SchemaValidationError(
+                            "LLM provider returned no response object.",
+                            raw_response=llm_response_text,
+                        )
                     response: AgentResponse = self.validator.parse_and_validate(
                         llm_response
                     )
@@ -335,6 +340,13 @@ class BaseAgent(ABC):
                     match response.decision:
                         case AgentDecision.EXECUTE_ACTION:
                             # ── TOOL EXECUTION PATH ──
+                            action = response.action
+                            if action is None:
+                                raise SchemaValidationError(
+                                    "Invalid agent response: execute_action requires a non-null action payload.",
+                                    raw_response=llm_response_text,
+                                )
+
                             reflect_count = 0  # Reset on action
                             _append_message(
                                 {
@@ -347,10 +359,10 @@ class BaseAgent(ABC):
                             )
 
                             result = await self.tool_executor.execute(
-                                tool_name=response.action.tool_name,
-                                arguments=response.action.arguments,
+                                tool_name=action.tool_name,
+                                arguments=action.arguments,
                                 task_id=task_id,
-                                native_call_id=response.action.native_call_id,
+                                native_call_id=action.native_call_id,
                             )
 
                             # Add tool result to Working Memory
@@ -360,12 +372,10 @@ class BaseAgent(ABC):
                             )
 
                             # Agent-specific hook
-                            await self.on_tool_result(response.action.tool_name, result)
+                            await self.on_tool_result(action.tool_name, result)
 
                             # Stuck detection
-                            if stuck_detector.is_stuck(
-                                response.action.tool_name, result
-                            ):
+                            if stuck_detector.is_stuck(action.tool_name, result):
                                 _append_message(
                                     {
                                         "role": "system",
@@ -382,6 +392,13 @@ class BaseAgent(ABC):
 
                         case AgentDecision.NOTIFY_USER:
                             # ── FINAL ANSWER PATH ──
+                            final_answer = response.final_answer
+                            if final_answer is None:
+                                raise SchemaValidationError(
+                                    "Invalid agent response: notify_user requires a non-null final answer message.",
+                                    raw_response=llm_response_text,
+                                )
+
                             reflect_count = 0
                             _append_message(
                                 {
@@ -393,7 +410,7 @@ class BaseAgent(ABC):
                                 track_for_session=True,
                             )
 
-                            final = await self.on_final_answer(response.final_answer)
+                            final = await self.on_final_answer(final_answer)
 
                             # Publish to TUI
                             await self.event_bus.emit(
@@ -510,13 +527,14 @@ class BaseAgent(ABC):
                             max_iterations=max_iterations,
                             task_id=task_id,
                         )
-                    _append_message(
-                        {
-                            "role": "assistant",
-                            "content": self._format_assistant_history(llm_response),
-                        },
-                        track_for_session=True,
-                    )
+                    if llm_response is not None:
+                        _append_message(
+                            {
+                                "role": "assistant",
+                                "content": self._format_assistant_history(llm_response),
+                            },
+                            track_for_session=True,
+                        )
                     _append_message(
                         {
                             "role": "system",
@@ -577,58 +595,39 @@ class BaseAgent(ABC):
 
     @staticmethod
     def _format_assistant_history(llm_response: Any) -> str:
-        """Serialize native tool calls into text so they aren't lost in history."""
-        content = llm_response.text_content
+        """Serialize native tool calls as JSON snippets for session history."""
+        if llm_response is None:
+            return ""
+        content = llm_response.text_content or ""
         mode = getattr(llm_response, "tool_mode", None)
         if mode and getattr(mode, "value", str(mode)) == "NATIVE":
             tool_calls = getattr(llm_response, "tool_calls", [])
             if tool_calls:
+                snippets: List[str] = []
                 for tc in tool_calls:
-                    args_str = BaseAgent._serialize_xml_args(tc.arguments)
-                    content += f"\n<action><tool>{tc.tool_name}</tool><args>{args_str}</args></action>"
+                    snippets.append(
+                        json.dumps(
+                            {
+                                "type": "tool_call",
+                                "version": "1.0",
+                                "payload": {
+                                    "tool": tc.tool_name,
+                                    "args": tc.arguments,
+                                },
+                                "metadata": {"native_call_id": tc.native_call_id}
+                                if tc.native_call_id
+                                else {},
+                            },
+                            ensure_ascii=True,
+                            separators=(",", ":"),
+                        )
+                    )
+                snippet_block = "\n".join(snippets)
+                if content:
+                    content = f"{content}\n{snippet_block}"
+                else:
+                    content = snippet_block
         return content
-
-    @staticmethod
-    def _serialize_xml_args(arguments: Any) -> str:
-        """Serialize argument payloads as XML child tags."""
-        if not isinstance(arguments, dict):
-            return ""
-        return "".join(
-            BaseAgent._serialize_xml_node(str(key), value)
-            for key, value in arguments.items()
-        )
-
-    @staticmethod
-    def _serialize_xml_node(name: str, value: Any) -> str:
-        """Serialize a single XML node with simple tag sanitization."""
-        tag = BaseAgent._sanitize_xml_tag(name)
-        if isinstance(value, dict):
-            inner = "".join(
-                BaseAgent._serialize_xml_node(str(k), v) for k, v in value.items()
-            )
-            return f"<{tag}>{inner}</{tag}>"
-        if isinstance(value, list):
-            inner = "".join(
-                BaseAgent._serialize_xml_node("item", item) for item in value
-            )
-            return f"<{tag}>{inner}</{tag}>"
-        if value is None:
-            text = "null"
-        elif isinstance(value, bool):
-            text = "true" if value else "false"
-        else:
-            text = escape(str(value))
-        return f"<{tag}>{text}</{tag}>"
-
-    @staticmethod
-    def _sanitize_xml_tag(name: str) -> str:
-        """Convert arbitrary argument keys into safe XML tag names."""
-        tag = re.sub(r"[^A-Za-z0-9_.-]", "_", name.strip())
-        if not tag:
-            return "arg"
-        if not re.match(r"^[A-Za-z_]", tag):
-            return f"arg_{tag}"
-        return tag
 
     def _get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Retrieve tool definitions for the LLM."""
@@ -641,37 +640,32 @@ class BaseAgent(ABC):
         header = (
             f"Schema Error: {error}\n"
             "Your NEXT response must be corrected and valid. "
-            "Use exactly one decision, no empty response, and no text outside allowed tags."
+            "Use exactly one decision, no empty response, and output exactly one JSON object."
         )
 
         native_mode = bool(getattr(self.provider, "supports_native_tools", False))
         if native_mode:
             return (
                 f"{header}\n"
-                "Valid native-mode examples:\n"
+                "Valid native-mode JSON examples:\n"
                 "1) Tool call: "
-                "<title>Read file</title><thinking>I need the file contents.</thinking> "
-                "then call exactly one tool via native function-calling (do NOT emit <action> XML).\n"
+                '{"title":"Read file","thought":"I need the file contents.","decision":{"type":"execute_action","tool":"read_file","args":{"path":"README.md"}}} '
+                "and call exactly one native tool in this turn.\n"
                 "2) Final answer: "
-                "<title>Task complete</title><thinking>I verified the result.</thinking>"
-                "<final_answer>...</final_answer>\n"
+                '{"title":"Task complete","thought":"I verified the result.","decision":{"type":"notify_user","message":"..."}}\n'
                 "3) Yield: "
-                "<title>Blocked</title><thinking>I cannot proceed safely.</thinking>"
-                "<yield>...</yield>"
+                '{"title":"Blocked","thought":"I cannot proceed safely.","decision":{"type":"yield","message":"..."}}'
             )
 
         return (
             f"{header}\n"
-            "Valid XML-mode examples:\n"
+            "Valid prompt JSON examples:\n"
             "1) Tool call: "
-            "<title>Read file</title><thinking>I need the file contents.</thinking>"
-            "<action><tool>read_file</tool><args><path>README.md</path></args></action>\n"
+            '{"title":"Read file","thought":"I need the file contents.","decision":{"type":"execute_action","tool":"read_file","args":{"path":"README.md"}}}\n'
             "2) Final answer: "
-            "<title>Task complete</title><thinking>I verified the result.</thinking>"
-            "<final_answer>...</final_answer>\n"
+            '{"title":"Task complete","thought":"I verified the result.","decision":{"type":"notify_user","message":"..."}}\n'
             "3) Yield: "
-            "<title>Blocked</title><thinking>I cannot proceed safely.</thinking>"
-            "<yield>...</yield>"
+            '{"title":"Blocked","thought":"I cannot proceed safely.","decision":{"type":"yield","message":"..."}}'
         )
 
     def _debug_intercept_response(

@@ -109,7 +109,7 @@ class AgentMessageEvent(BaseEvent):
 
     agent_name: str = ""
     content: str = ""
-    is_monologue: bool = False  # True = <thinking>, False = user-facing
+    is_monologue: bool = False  # True = reasoning, False = user-facing
 
 
 # ═══════════════════════════════════════════════════════════════════════

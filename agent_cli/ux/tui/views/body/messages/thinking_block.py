@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from textual import events
@@ -116,33 +117,49 @@ class ThinkingBlock(Widget):
         return thoughts
 
     def _parse_thinking_payload(self) -> None:
-        thoughts_match = re.search(
-            r"<thinking>\s*(.*?)\s*</thinking>", self._raw_text, re.DOTALL
-        )
-        if thoughts_match:
-            thoughts = thoughts_match.group(1)
+        parsed = self._try_parse_json_reasoning(self._raw_text)
+        if parsed is not None:
+            title, thoughts = parsed
         else:
-            thoughts = re.sub(
-                r"<title>\s*.*?\s*</title>", "", self._raw_text, flags=re.DOTALL
-            )
-            thoughts = re.sub(r"</?thinking>", "", thoughts)
-        thoughts = thoughts.strip()
-        self._thoughts = self._normalize_space(thoughts)
+            title, thoughts = self._parse_plain_reasoning(self._raw_text)
 
-        title_match = re.search(
-            r"<title>\s*(.*?)\s*</title>", self._raw_text, re.DOTALL
-        )
-        if title_match:
-            parsed_title = self._normalize_space(title_match.group(1))
-            self._title = self._normalize_title(parsed_title)
-        else:
-            fallback = self._derive_title_from_text(self._raw_text)
-            if fallback:
-                self._title = self._normalize_title(fallback)
+        self._thoughts = self._normalize_space(thoughts)
+        normalized_title = self._normalize_space(title)
+        if normalized_title:
+            self._title = self._normalize_title(normalized_title)
+            return
+
+        fallback = self._derive_title_from_text(self._raw_text)
+        if fallback:
+            self._title = self._normalize_title(fallback)
+
+    def _try_parse_json_reasoning(self, raw: str) -> tuple[str, str] | None:
+        try:
+            payload = json.loads(raw.strip())
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        title = str(payload.get("title", "")).strip()
+        thought = str(payload.get("thought", "")).strip()
+        if not title and not thought:
+            return None
+        return title, thought
+
+    def _parse_plain_reasoning(self, raw: str) -> tuple[str, str]:
+        text = raw.strip()
+        if not text:
+            return "", ""
+        lines = text.splitlines()
+        first = lines[0].strip() if lines else ""
+        if first.lower().startswith("title:"):
+            title = first.split(":", 1)[1].strip()
+            thoughts = "\n".join(line.strip() for line in lines[1:]).strip()
+            return title, thoughts
+        return "", text
 
     def _derive_title_from_text(self, raw: str) -> str:
-        clean = re.sub(r"<[^>]+>", " ", raw)
-        words = [w for w in self._normalize_space(clean).split(" ") if w]
+        words = [w for w in self._normalize_space(raw).split(" ") if w]
         if not words:
             return ""
         return " ".join(words[:8])

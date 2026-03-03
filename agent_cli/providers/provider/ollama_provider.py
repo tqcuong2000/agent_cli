@@ -1,7 +1,8 @@
 """
 Ollama Provider — adapter for local LLMs via the ``ollama`` library.
 
-Supports both native function calling (for capable models) and XML tool prompting.
+Supports both native function calling (for capable models) and prompt-mode JSON
+tool calling.
 Uses ``ollama.AsyncClient`` for all operations.
 """
 
@@ -14,6 +15,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
+from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
     StopReason,
@@ -21,7 +23,6 @@ from agent_cli.providers.models import (
     ToolCall,
     ToolCallMode,
 )
-from agent_cli.providers.xml_formatter import XMLToolFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class OllamaToolFormatter(BaseToolFormatter):
         ]
 
     def format_for_prompt_injection(self, tools: List[Dict[str, Any]]) -> str:
-        return XMLToolFormatter().format_for_prompt_injection(tools)
+        return JSONToolFormatter().format_for_prompt_injection(tools)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -60,7 +61,8 @@ class OllamaProvider(BaseLLMProvider):
     """Adapter for the Ollama local API.
 
     Requires the ``ollama`` Python library and a running Ollama server.
-    Defaults to XML tool prompting unless ``native_tools=True`` is passed.
+    Defaults to prompt-mode JSON tool calling unless ``native_tools=True``
+    is passed.
     """
 
     def __init__(
@@ -109,7 +111,7 @@ class OllamaProvider(BaseLLMProvider):
         if tools and self._native_tools:
             native_tools = self._tool_formatter.format_for_native_fc(tools)
         elif tools:
-            # Inject tools into system prompt for XML mode
+            # Inject tool contract into the system prompt for prompt mode.
             tool_text = self._tool_formatter.format_for_prompt_injection(tools)
             context = self._inject_tools_into_system_prompt(context, tool_text)
 
@@ -146,7 +148,7 @@ class OllamaProvider(BaseLLMProvider):
         return LLMResponse(
             text_content=msg.content or "",
             tool_calls=tool_calls,
-            tool_mode=ToolCallMode.NATIVE if tool_calls else ToolCallMode.XML,
+            tool_mode=ToolCallMode.NATIVE if tool_calls else ToolCallMode.PROMPT_JSON,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost_usd=0.0,  # Local is free
@@ -218,7 +220,7 @@ class OllamaProvider(BaseLLMProvider):
             tool_calls=self._buffered_tool_calls,
             tool_mode=ToolCallMode.NATIVE
             if self._buffered_tool_calls
-            else ToolCallMode.XML,
+            else ToolCallMode.PROMPT_JSON,
             input_tokens=self._buffered_usage["input"],
             output_tokens=self._buffered_usage["output"],
             cost_usd=0.0,

@@ -9,7 +9,14 @@ Settings machinery.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import List, Optional
+
+
+class ProtocolMode(str, Enum):
+    """Protocol mode for agent/system communication."""
+
+    JSON_ONLY = "json_only"
 
 
 @dataclass

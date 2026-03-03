@@ -7,7 +7,7 @@ It handles:
 1. **Validation** — arguments checked against the Pydantic schema.
 2. **Safety** — unsafe tools trigger approval events via the Event Bus.
 3. **Observability** — emit ``ToolExecutionStartEvent`` / ``ToolExecutionResultEvent``.
-4. **Output formatting** — truncation and consistent prefixing.
+4. **Output formatting** — truncation and JSON envelope normalization.
 5. **Error shielding** — catch exceptions and return formatted error strings.
 
 The Agent loop calls ``ToolExecutor.execute()`` — never
@@ -132,6 +132,8 @@ class ToolExecutor:
                 tool_name,
                 f"Unknown tool: '{tool_name}'",
                 success=False,
+                task_id=task_id,
+                native_call_id=native_call_id,
             )
 
         # ── 1. Validate arguments ────────────────────────────────
@@ -142,6 +144,8 @@ class ToolExecutor:
                 tool_name,
                 f"Invalid arguments for '{tool_name}': {e}",
                 success=False,
+                task_id=task_id,
+                native_call_id=native_call_id,
             )
 
         # ── 2. Safety check ──────────────────────────────────────
@@ -171,6 +175,8 @@ class ToolExecutor:
                     tool_name,
                     "User denied execution.",
                     success=False,
+                    task_id=task_id,
+                    native_call_id=native_call_id,
                 )
 
         # Use publish() (synchronous) so the TUI handler mounts the
@@ -290,7 +296,13 @@ class ToolExecutor:
             )
 
         # ── 5. Format output ─────────────────────────────────────
-        formatted = self.output_formatter.format(tool_name, raw_result, success)
+        formatted = self.output_formatter.format(
+            tool_name,
+            raw_result,
+            success,
+            task_id=task_id,
+            native_call_id=native_call_id,
+        )
 
         await self.event_bus.publish(
             ToolExecutionResultEvent(

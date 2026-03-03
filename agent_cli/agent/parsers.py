@@ -3,7 +3,7 @@ Agent Response Parsers — ``AgentDecision``, ``ParsedAction``, and ``AgentRespo
 
 These are the *output* data classes produced by the Schema Validator.
 They provide a unified format regardless of whether the LLM response
-came from native function calling or XML prompting.
+came from native function calling or prompt JSON mode.
 
 The Agent loop only ever sees ``AgentResponse`` — it never touches
 raw ``LLMResponse`` parsing directly.
@@ -14,7 +14,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
-
 
 # ══════════════════════════════════════════════════════════════════════
 # Agent Decision
@@ -49,7 +48,7 @@ class ParsedAction:
         tool_name:       Registered tool name (e.g. ``read_file``).
         arguments:       Validated argument dict.
         native_call_id:  Provider's call ID for response pairing
-                         (populated in native FC mode, empty in XML mode).
+                         (populated in native FC mode, empty otherwise).
     """
 
     tool_name: str
@@ -67,7 +66,7 @@ class AgentResponse:
     """The unified output of the Schema Validator.
 
     Identical structure regardless of whether the response came from
-    native FC or XML prompting.  The Agent loop dispatches on
+    native FC or prompt JSON mode. The Agent loop dispatches on
     ``decision``:
 
     * **REFLECT**        — thinking-only turn, loop continues.

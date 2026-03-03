@@ -2,7 +2,7 @@
 OpenAI-Compatible Provider — adapter for Ollama, LM Studio, vLLM, etc.
 
 Uses the ``openai`` SDK pointed at a custom ``base_url``.  Defaults to
-XML tool prompting (no native FC) unless ``native_tools=True``.
+prompt-mode JSON tool calling (no native FC) unless ``native_tools=True``.
 
 Registered via TOML::
 
@@ -21,6 +21,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
+from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
     StopReason,
@@ -28,7 +29,6 @@ from agent_cli.providers.models import (
     ToolCall,
     ToolCallMode,
 )
-from agent_cli.providers.xml_formatter import XMLToolFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     Works with Ollama, LM Studio, vLLM, LocalAI, and any service
     that exposes the ``/v1/chat/completions`` endpoint.
 
-    By default uses XML tool prompting.  Set ``native_tools=True``
+    By default uses prompt-mode JSON tool calling. Set ``native_tools=True``
     if the endpoint supports OpenAI-style function calling.
     """
 
@@ -87,7 +87,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        # For XML mode: inject tools into the system prompt, clear tools param
+        # For prompt-mode JSON: inject tools into the system prompt.
         if tools and not self._native_tools:
             tool_text = self._tool_formatter.format_for_prompt_injection(tools)
             context = self._inject_tools_into_system_prompt(context, tool_text)
@@ -131,7 +131,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         return LLMResponse(
             text_content=choice.message.content or "",
             tool_calls=tool_calls,
-            tool_mode=ToolCallMode.NATIVE if tool_calls else ToolCallMode.XML,
+            tool_mode=ToolCallMode.NATIVE if tool_calls else ToolCallMode.PROMPT_JSON,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost_usd=0.0,  # Local models are typically free
@@ -186,8 +186,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         text = "".join(self._buffered_text)
         return LLMResponse(
             text_content=text,
-            tool_calls=[],  # XML parsing is done by the Schema Validator
-            tool_mode=ToolCallMode.XML,
+            tool_calls=[],  # Prompt-mode parsing is done by the Schema Validator
+            tool_mode=ToolCallMode.PROMPT_JSON,
             input_tokens=self._buffered_usage["input"],
             output_tokens=self._buffered_usage["output"],
             cost_usd=0.0,
@@ -198,7 +198,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     # ── Helpers ──────────────────────────────────────────────────
 
     def _create_tool_formatter(self) -> BaseToolFormatter:
-        return XMLToolFormatter()
+        return JSONToolFormatter()
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         return 0.0  # Local models are typically free

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any
 
 import pytest
@@ -23,6 +24,12 @@ from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.tools.executor import ToolExecutor
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
+
+
+def _parse_tool_result(result: str) -> dict[str, Any]:
+    parsed = json.loads(result)
+    assert parsed["type"] == "tool_result"
+    return parsed
 
 
 class DummyArgs(BaseModel):
@@ -107,11 +114,10 @@ async def test_executor_safe_tool_success(registry, event_bus, output_formatter)
     event_bus.subscribe("ToolExecutionResultEvent", on_event)
 
     result = await executor.execute("safe_tool", {"arg1": "test"})
+    parsed = _parse_tool_result(result)
 
-    assert "Safe test" in result
-    assert "<tool_result>" in result
-    assert "<status>success</status>" in result
-    assert "<status>error</status>" not in result
+    assert "Safe test" in parsed["payload"]["output"]
+    assert parsed["payload"]["status"] == "success"
 
     await asyncio.sleep(0.05)
     assert len(events) == 2
@@ -131,8 +137,9 @@ async def test_executor_validation_failure(registry, event_bus, output_formatter
 
     # Missing arg1
     result = await executor.execute("safe_tool", {})
-    assert "<status>error</status>" in result
-    assert "Invalid arguments" in result
+    parsed = _parse_tool_result(result)
+    assert parsed["payload"]["status"] == "error"
+    assert "Invalid arguments" in parsed["payload"]["output"]
 
 
 @pytest.mark.asyncio
@@ -140,8 +147,9 @@ async def test_executor_unknown_tool(registry, event_bus, output_formatter):
     executor = ToolExecutor(registry, event_bus, output_formatter)
 
     result = await executor.execute("unknown", {"arg1": "test"})
-    assert "<status>error</status>" in result
-    assert "Unknown tool" in result
+    parsed = _parse_tool_result(result)
+    assert parsed["payload"]["status"] == "error"
+    assert "Unknown tool" in parsed["payload"]["output"]
 
 
 @pytest.mark.asyncio
@@ -156,9 +164,10 @@ async def test_executor_tool_execution_error(registry, event_bus, output_formatt
     event_bus.subscribe("ToolExecutionResultEvent", on_event)
 
     result = await executor.execute("safe_tool", {"arg1": "fail"})
+    parsed = _parse_tool_result(result)
 
-    assert "<status>error</status>" in result
-    assert "Expected failure" in result
+    assert parsed["payload"]["status"] == "error"
+    assert "Expected failure" in parsed["payload"]["output"]
 
     await asyncio.sleep(0.05)
     assert len(events) == 1
@@ -178,9 +187,10 @@ async def test_executor_unexpected_exception(registry, event_bus, output_formatt
     event_bus.subscribe("ToolExecutionResultEvent", on_event)
 
     result = await executor.execute("safe_tool", {"arg1": "crash"})
+    parsed = _parse_tool_result(result)
 
-    assert "Error" in result
-    assert "Unexpected exception" in result
+    assert "ValueError" in parsed["payload"]["output"]
+    assert "Unexpected exception" in parsed["payload"]["output"]
 
     await asyncio.sleep(0.05)
     assert len(events) == 1
@@ -193,7 +203,8 @@ async def test_executor_unsafe_tool_auto_approve(registry, event_bus, output_for
     executor = ToolExecutor(registry, event_bus, output_formatter, auto_approve=True)
 
     result = await executor.execute("unsafe_tool", {"arg1": "test"})
-    assert "Unsafe test" in result
+    parsed = _parse_tool_result(result)
+    assert "Unsafe test" in parsed["payload"]["output"]
 
 
 @pytest.mark.asyncio
@@ -225,10 +236,12 @@ async def test_executor_unsafe_tool_requires_approval(
     task = asyncio.create_task(approve_delayed())
 
     result = await executor.execute("unsafe_tool", {"arg1": "test"}, task_id="task_1")
+    parsed = _parse_tool_result(result)
 
     await task
 
-    assert "Unsafe test" in result
+    assert "Unsafe test" in parsed["payload"]["output"]
+    assert parsed["metadata"]["task_id"] == "task_1"
 
 
 @pytest.mark.asyncio
@@ -249,11 +262,13 @@ async def test_executor_unsafe_tool_denied(registry, event_bus, output_formatter
     task = asyncio.create_task(deny_delayed())
 
     result = await executor.execute("unsafe_tool", {"arg1": "test"}, task_id="task_2")
+    parsed = _parse_tool_result(result)
 
     await task
 
-    assert "User denied execution." in result
-    assert "unsafe_tool" in result
+    assert "User denied execution." in parsed["payload"]["output"]
+    assert parsed["payload"]["tool"] == "unsafe_tool"
+    assert parsed["metadata"]["task_id"] == "task_2"
 
 
 @pytest.mark.asyncio
@@ -279,10 +294,12 @@ async def test_executor_routes_ask_user_to_interaction_handler(
         },
         task_id="task-ask-executor-1",
     )
+    parsed = _parse_tool_result(result)
 
-    assert "<tool>ask_user</tool>" in result
-    assert "<status>success</status>" in result
-    assert "User replied: Balanced" in result
+    assert parsed["payload"]["tool"] == "ask_user"
+    assert parsed["payload"]["status"] == "success"
+    assert "User replied: Balanced" in parsed["payload"]["output"]
+    assert parsed["metadata"]["task_id"] == "task-ask-executor-1"
     assert interaction_handler.last_request is not None
     assert (
         interaction_handler.last_request.interaction_type

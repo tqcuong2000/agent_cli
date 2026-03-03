@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, Callable, Dict, List, Optional, Sequence
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 _PATH_PATTERN = re.compile(r"(?:[A-Za-z]:[\\/]|/)?(?:[\w.-]+[\\/])+[\w.-]+")
 _TOOL_PATTERN = re.compile(
-    r"(?:\[Tool:\s*([^\]]+)\])|(?:<tool>\s*([^<]+)\s*</tool>)",
+    r'(?:\[Tool:\s*([^\]]+)\])|(?:"tool"\s*:\s*"([^"]+)")',
     re.IGNORECASE,
 )
 
@@ -401,13 +402,16 @@ class SummarizingMemoryManager(WorkingMemoryManager):
     @staticmethod
     def _normalize_summary(text: str) -> str:
         normalized = text.strip()
-        if "<final_answer>" in normalized and "</final_answer>" in normalized:
-            start = normalized.find("<final_answer>") + len("<final_answer>")
-            end = normalized.find("</final_answer>")
-            if end > start:
-                normalized = normalized[start:end].strip()
-        if "<thinking>" in normalized:
-            normalized = re.sub(r"</?thinking>", "", normalized, flags=re.IGNORECASE)
+        try:
+            payload = json.loads(normalized)
+            if isinstance(payload, dict):
+                decision = payload.get("decision")
+                if isinstance(decision, dict):
+                    message = decision.get("message")
+                    if isinstance(message, str) and message.strip():
+                        return message.strip()
+        except json.JSONDecodeError:
+            pass
         return normalized.strip()
 
 

@@ -1,5 +1,7 @@
 """Tests for ToolRegistry and ToolOutputFormatter."""
 
+import json
+
 import pytest
 from pydantic import BaseModel
 
@@ -106,20 +108,25 @@ def test_tool_output_formatter():
 
     # Success, short output
     res = formatter.format("test_tool", "short result")
-    assert "<tool_result>" in res
-    assert "<tool>test_tool</tool>" in res
-    assert "<status>success</status>" in res
-    assert "<output>short result</output>" in res
-    assert "<truncated>false</truncated>" in res
+    parsed = json.loads(res)
+    assert parsed["type"] == "tool_result"
+    assert parsed["version"] == "1.0"
+    assert parsed["payload"]["tool"] == "test_tool"
+    assert parsed["payload"]["status"] == "success"
+    assert parsed["payload"]["output"] == "short result"
+    assert parsed["payload"]["truncated"] is False
+    assert parsed["payload"]["truncated_chars"] == 0
 
     # Failure, short output
     res = formatter.format("test_tool", "short error", success=False)
-    assert "<status>error</status>" in res
-    assert "<output>short error</output>" in res
+    parsed = json.loads(res)
+    assert parsed["payload"]["status"] == "error"
+    assert parsed["payload"]["output"] == "short error"
 
     # Success, long output (should truncate)
     long_res = "A" * 15 + "B" * 15
     res = formatter.format("test_tool", long_res)
-    assert "<truncated>true</truncated>" in res
-    assert long_res[:10] in res
-    assert long_res[-10:] in res
+    parsed = json.loads(res)
+    assert parsed["payload"]["truncated"] is True
+    assert long_res[:10] in parsed["payload"]["output"]
+    assert long_res[-10:] in parsed["payload"]["output"]

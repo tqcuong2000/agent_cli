@@ -22,6 +22,7 @@ from agent_cli.core.config import (
     _deep_merge,
     load_providers,
 )
+from agent_cli.core.models.config_models import ProtocolMode
 
 # ── Defaults & Env Var Tests ──────────────────────────────────────────
 
@@ -56,6 +57,25 @@ def test_env_var_override():
     del os.environ["AGENT_DEFAULT_MODEL"]
     del os.environ["AGENT_MAX_ITERATIONS"]
     del os.environ["AGENT_AUTO_APPROVE_TOOLS"]
+
+
+def test_protocol_mode_defaults_to_json_only_when_not_set():
+    """Protocol mode should default to json_only."""
+    settings = AgentSettings(core={})
+    assert settings.protocol_mode == ProtocolMode.JSON_ONLY
+
+
+def test_protocol_mode_uses_core_override():
+    """Explicit core.protocol_mode should take precedence."""
+    settings = AgentSettings(core={"protocol_mode": "json_only"})
+    assert settings.protocol_mode == ProtocolMode.JSON_ONLY
+
+
+def test_protocol_mode_rejects_invalid_value():
+    """Unknown protocol mode should fail validation."""
+    with pytest.raises(ValidationError) as exc_info:
+        AgentSettings(core={"protocol_mode": "legacy_tags"})
+    assert "core.protocol_mode must be one of" in str(exc_info.value)
 
 
 # ── TOML Merging Tests ────────────────────────────────────────────────

@@ -14,6 +14,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
+from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
     StopReason,
@@ -21,7 +22,6 @@ from agent_cli.providers.models import (
     ToolCall,
     ToolCallMode,
 )
-from agent_cli.providers.xml_formatter import XMLToolFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,8 @@ class OpenAIToolFormatter(BaseToolFormatter):
         ]
 
     def format_for_prompt_injection(self, tools: List[Dict[str, Any]]) -> str:
-        # Fallback to XML formatter (rarely used for OpenAI)
-        return XMLToolFormatter().format_for_prompt_injection(tools)
+        # Fallback to prompt-mode JSON formatter (rarely used for OpenAI)
+        return JSONToolFormatter().format_for_prompt_injection(tools)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -147,7 +147,7 @@ class OpenAIProvider(BaseLLMProvider):
         return LLMResponse(
             text_content=msg.content or "",
             tool_calls=tool_calls,
-            tool_mode=ToolCallMode.NATIVE if tool_calls else ToolCallMode.XML,
+            tool_mode=ToolCallMode.NATIVE if tool_calls else ToolCallMode.PROMPT_JSON,
             input_tokens=response.usage.prompt_tokens,
             output_tokens=response.usage.completion_tokens,
             cost_usd=cost,
@@ -255,7 +255,7 @@ class OpenAIProvider(BaseLLMProvider):
             tool_calls=self._buffered_tool_calls,
             tool_mode=ToolCallMode.NATIVE
             if self._buffered_tool_calls
-            else ToolCallMode.XML,
+            else ToolCallMode.PROMPT_JSON,
             input_tokens=self._buffered_usage["input"],
             output_tokens=self._buffered_usage["output"],
             cost_usd=cost,

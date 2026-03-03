@@ -7,6 +7,7 @@ The Agent only ever constructs ``LLMRequest`` and receives ``LLMResponse``.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -20,7 +21,18 @@ class ToolCallMode(str, Enum):
     """How tool calls were delivered in this response."""
 
     NATIVE = "NATIVE"  # Structured JSON from native function calling API
-    XML = "XML"  # Parsed from XML <action> tags in text
+    PROMPT_JSON = "PROMPT_JSON"  # Parsed from prompt-mode JSON text output
+
+    @classmethod
+    def _missing_(cls, value: object) -> "ToolCallMode | None":
+        """Map serialized values to enum members."""
+        if isinstance(value, str):
+            normalized = value.strip().upper()
+            if normalized == "PROMPT_JSON":
+                return cls.PROMPT_JSON
+            if normalized == "NATIVE":
+                return cls.NATIVE
+        return None
 
 
 class MessageRole(str, Enum):
@@ -115,7 +127,7 @@ class LLMResponse:
     # ── Content ──────────────────────────────────────────────────
     text_content: str = ""
     tool_calls: List[ToolCall] = field(default_factory=list)
-    tool_mode: ToolCallMode = ToolCallMode.XML
+    tool_mode: ToolCallMode = ToolCallMode.PROMPT_JSON
 
     # ── Token usage ──────────────────────────────────────────────
     input_tokens: int = 0
@@ -135,8 +147,20 @@ class LLMResponse:
 
     @property
     def is_final_answer(self) -> bool:
-        """True if the response contains a final answer (no tool calls)."""
-        return not self.has_tool_calls and "<final_answer>" in self.text_content
+        """True if the response declares a final user-facing decision."""
+        if self.has_tool_calls:
+            return False
+        try:
+            payload = json.loads(self.text_content)
+        except (TypeError, json.JSONDecodeError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+        decision = payload.get("decision")
+        if not isinstance(decision, dict):
+            return False
+        decision_type = str(decision.get("type", "")).strip().lower()
+        return decision_type in {"notify_user", "yield"}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -152,7 +176,7 @@ class StreamChunk:
     """
 
     text: str = ""
-    is_thinking: bool = False  # True if inside <thinking> tags
+    is_thinking: bool = False  # True if this chunk belongs to reasoning text
     is_tool_call: bool = False  # True if this is a tool call block (buffered)
     is_final: bool = False  # True for the last chunk in the stream
 

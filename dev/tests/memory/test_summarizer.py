@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Sequence
 
 import pytest
@@ -39,18 +40,27 @@ def _append_turn(
         {"role": "assistant", "content": f"assistant-{idx} " + ("y" * 60)}
     )
     if include_tool:
+        content = json.dumps(
+            {
+                "id": f"msg_tool_{idx}",
+                "type": "tool_result",
+                "version": "1.0",
+                "timestamp": "2026-03-03T10:00:00Z",
+                "payload": {
+                    "tool": "read_file",
+                    "status": "success",
+                    "truncated": False,
+                    "truncated_chars": 0,
+                    "output": f"opened src/module_{idx}.py and docs/notes_{idx}.md",
+                },
+                "metadata": {},
+            },
+            separators=(",", ":"),
+        )
         manager.add_working_event(
             {
                 "role": "tool",
-                "content": (
-                    "<tool_result>\n"
-                    "  <tool>read_file</tool>\n"
-                    "  <status>success</status>\n"
-                    "  <truncated>false</truncated>\n"
-                    "  <truncated_chars>0</truncated_chars>\n"
-                    f"  <output>opened src/module_{idx}.py and docs/notes_{idx}.md</output>\n"
-                    "</tool_result>"
-                ),
+                "content": content,
             }
         )
 

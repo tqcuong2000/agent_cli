@@ -14,6 +14,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
+from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
     StopReason,
@@ -21,7 +22,6 @@ from agent_cli.providers.models import (
     ToolCall,
     ToolCallMode,
 )
-from agent_cli.providers.xml_formatter import XMLToolFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class GoogleToolFormatter(BaseToolFormatter):
         return [types.Tool(function_declarations=declarations)]
 
     def format_for_prompt_injection(self, tools: List[Dict[str, Any]]) -> str:
-        return XMLToolFormatter().format_for_prompt_injection(tools)
+        return JSONToolFormatter().format_for_prompt_injection(tools)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -135,7 +135,12 @@ class GoogleProvider(BaseLLMProvider):
         text = ""
         tool_calls = []
 
-        for part in response.candidates[0].content.parts:
+        candidates = getattr(response, "candidates", None) or []
+        first_candidate = candidates[0] if candidates else None
+        content = getattr(first_candidate, "content", None) if first_candidate else None
+        parts = getattr(content, "parts", None) or []
+
+        for part in parts:
             if part.text:
                 text += part.text
             elif part.function_call:
@@ -148,8 +153,13 @@ class GoogleProvider(BaseLLMProvider):
                     )
                 )
 
-        input_tokens = response.usage_metadata.prompt_token_count or 0
-        output_tokens = response.usage_metadata.candidates_token_count or 0
+        if not text:
+            # Some SDK responses expose plain text even when parts are missing.
+            text = str(getattr(response, "text", "") or "")
+
+        usage = getattr(response, "usage_metadata", None)
+        input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        output_tokens = getattr(usage, "candidates_token_count", 0) or 0
         cost = self.estimate_cost(input_tokens, output_tokens)
 
         return LLMResponse(
@@ -192,7 +202,14 @@ class GoogleProvider(BaseLLMProvider):
             contents=gemini_history,
             config=config,
         ):
-            for part in chunk.candidates[0].content.parts:
+            candidates = getattr(chunk, "candidates", None) or []
+            first_candidate = candidates[0] if candidates else None
+            content = (
+                getattr(first_candidate, "content", None) if first_candidate else None
+            )
+            parts = getattr(content, "parts", None) or []
+
+            for part in parts:
                 if part.text:
                     self._buffered_text.append(part.text)
                     yield StreamChunk(text=part.text)
@@ -206,7 +223,7 @@ class GoogleProvider(BaseLLMProvider):
                         )
                     )
 
-            if chunk.usage_metadata:
+            if getattr(chunk, "usage_metadata", None):
                 self._buffered_usage["input"] = (
                     chunk.usage_metadata.prompt_token_count or 0
                 )
