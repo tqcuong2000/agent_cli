@@ -8,6 +8,8 @@ consistent formatting across all tools.
 
 from __future__ import annotations
 
+from xml.sax.saxutils import escape
+
 from agent_cli.data import DataRegistry
 
 # ══════════════════════════════════════════════════════════════════════
@@ -56,13 +58,22 @@ class ToolOutputFormatter:
         3. Mark errors clearly.
         """
         if not success:
-            return (
-                f"[Tool: {tool_name}] Error:\n"
-                f"{raw_output[: self.error_truncation_chars]}"
+            return self._to_xml(
+                tool_name=tool_name,
+                status="error",
+                output=raw_output[: self.error_truncation_chars],
+                truncated=len(raw_output) > self.error_truncation_chars,
+                truncated_chars=max(0, len(raw_output) - self.error_truncation_chars),
             )
 
         if len(raw_output) <= self.max_output_length:
-            return f"[Tool: {tool_name}] Result:\n{raw_output}"
+            return self._to_xml(
+                tool_name=tool_name,
+                status="success",
+                output=raw_output,
+                truncated=False,
+                truncated_chars=0,
+            )
 
         # Truncate: keep head and tail for context
         half = self.max_output_length // 2
@@ -70,10 +81,39 @@ class ToolOutputFormatter:
         tail = raw_output[-half:]
         truncated_chars = len(raw_output) - self.max_output_length
 
+        return self._to_xml(
+            tool_name=tool_name,
+            status="success",
+            output=(
+                f"{head}\n\n"
+                f"[...TRUNCATED {truncated_chars:,} characters. "
+                f"Use read_file with line range for full content.]\n\n"
+                f"{tail}"
+            ),
+            truncated=True,
+            truncated_chars=truncated_chars,
+        )
+
+    @staticmethod
+    def _to_xml(
+        *,
+        tool_name: str,
+        status: str,
+        output: str,
+        truncated: bool,
+        truncated_chars: int,
+    ) -> str:
+        """Render a tool result envelope as XML for working memory."""
+        safe_tool = escape(str(tool_name))
+        safe_status = escape(status)
+        safe_output = escape(output)
+        trunc_flag = "true" if truncated else "false"
         return (
-            f"[Tool: {tool_name}] Result (truncated):\n"
-            f"{head}\n"
-            f"\n[...TRUNCATED {truncated_chars:,} characters. "
-            f"Use read_file with line range for full content.]\n\n"
-            f"{tail}"
+            "<tool_result>\n"
+            f"  <tool>{safe_tool}</tool>\n"
+            f"  <status>{safe_status}</status>\n"
+            f"  <truncated>{trunc_flag}</truncated>\n"
+            f"  <truncated_chars>{truncated_chars}</truncated_chars>\n"
+            f"  <output>{safe_output}</output>\n"
+            "</tool_result>"
         )

@@ -109,8 +109,9 @@ async def test_executor_safe_tool_success(registry, event_bus, output_formatter)
     result = await executor.execute("safe_tool", {"arg1": "test"})
 
     assert "Safe test" in result
-    assert "Result" in result
-    assert "Error" not in result
+    assert "<tool_result>" in result
+    assert "<status>success</status>" in result
+    assert "<status>error</status>" not in result
 
     await asyncio.sleep(0.05)
     assert len(events) == 2
@@ -130,7 +131,7 @@ async def test_executor_validation_failure(registry, event_bus, output_formatter
 
     # Missing arg1
     result = await executor.execute("safe_tool", {})
-    assert "[Tool Error]" in result
+    assert "<status>error</status>" in result
     assert "Invalid arguments" in result
 
 
@@ -139,7 +140,7 @@ async def test_executor_unknown_tool(registry, event_bus, output_formatter):
     executor = ToolExecutor(registry, event_bus, output_formatter)
 
     result = await executor.execute("unknown", {"arg1": "test"})
-    assert "[Tool Error]" in result
+    assert "<status>error</status>" in result
     assert "Unknown tool" in result
 
 
@@ -156,7 +157,7 @@ async def test_executor_tool_execution_error(registry, event_bus, output_formatt
 
     result = await executor.execute("safe_tool", {"arg1": "fail"})
 
-    assert "Error" in result
+    assert "<status>error</status>" in result
     assert "Expected failure" in result
 
     await asyncio.sleep(0.05)
@@ -279,7 +280,8 @@ async def test_executor_routes_ask_user_to_interaction_handler(
         task_id="task-ask-executor-1",
     )
 
-    assert "[Tool: ask_user] Result:" in result
+    assert "<tool>ask_user</tool>" in result
+    assert "<status>success</status>" in result
     assert "User replied: Balanced" in result
     assert interaction_handler.last_request is not None
     assert (

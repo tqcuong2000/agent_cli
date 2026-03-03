@@ -43,8 +43,13 @@ def _append_turn(
             {
                 "role": "tool",
                 "content": (
-                    "[Tool: read_file] Result:\n"
-                    f"opened src/module_{idx}.py and docs/notes_{idx}.md"
+                    "<tool_result>\n"
+                    "  <tool>read_file</tool>\n"
+                    "  <status>success</status>\n"
+                    "  <truncated>false</truncated>\n"
+                    "  <truncated_chars>0</truncated_chars>\n"
+                    f"  <output>opened src/module_{idx}.py and docs/notes_{idx}.md</output>\n"
+                    "</tool_result>"
                 ),
             }
         )

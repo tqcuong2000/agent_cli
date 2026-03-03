@@ -325,13 +325,20 @@ def load_providers(
         return providers
 
     for name, pdata in config_data.get("providers", {}).items():
+        existing = providers.get(name)
+        default_native_tools = (
+            existing.supports_native_tools if existing is not None else False
+        )
         providers[name] = ProviderConfig(
             adapter_type=pdata.get("adapter_type", "openai_compatible"),
             base_url=pdata.get("base_url"),
             models=pdata.get("models", []),
             api_key_env=pdata.get("api_key_env"),
             default_model=pdata.get("default_model"),
-            supports_native_tools=pdata.get("supports_native_tools", False),
+            supports_native_tools=pdata.get(
+                "supports_native_tools",
+                default_native_tools,
+            ),
             max_context_tokens=pdata.get("max_context_tokens"),
         )
 

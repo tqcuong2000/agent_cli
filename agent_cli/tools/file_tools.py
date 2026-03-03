@@ -72,10 +72,12 @@ class ReadFileArgs(BaseModel):
     start_line: Optional[int] = Field(
         default=None,
         description="Starting line number (1-indexed, inclusive).",
+        json_schema_extra={"type": "integer"},
     )
     end_line: Optional[int] = Field(
         default=None,
         description="Ending line number (1-indexed, inclusive).",
+        json_schema_extra={"type": "integer"},
     )
 
 

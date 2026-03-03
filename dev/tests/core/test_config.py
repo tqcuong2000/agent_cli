@@ -182,6 +182,39 @@ def test_load_providers_with_custom_toml():
     assert providers["openai"].default_model == "gpt-custom"
 
 
+def test_load_providers_preserves_builtin_native_tools_when_omitted():
+    """Overriding a built-in provider should keep its native-tools default unless explicitly set."""
+    config_data = {
+        "providers": {
+            "google": {
+                "adapter_type": "google",
+                "models": ["gemini-3-flash-preview"],
+            }
+        }
+    }
+
+    providers = load_providers(config_data)
+
+    assert providers["google"].supports_native_tools is True
+
+
+def test_load_providers_custom_provider_defaults_native_tools_false():
+    """New custom providers should remain conservative when the flag is omitted."""
+    config_data = {
+        "providers": {
+            "local_llama": {
+                "adapter_type": "openai_compatible",
+                "base_url": "http://localhost:8080",
+                "models": ["llama-3"],
+            }
+        }
+    }
+
+    providers = load_providers(config_data)
+
+    assert providers["local_llama"].supports_native_tools is False
+
+
 # ── API Key Resolution Tests ──────────────────────────────────────────
 
 

@@ -128,13 +128,21 @@ class ToolExecutor:
         """
         tool = self.registry.get(tool_name)
         if tool is None:
-            return f"[Tool Error] Unknown tool: '{tool_name}'"
+            return self.output_formatter.format(
+                tool_name,
+                f"Unknown tool: '{tool_name}'",
+                success=False,
+            )
 
         # ── 1. Validate arguments ────────────────────────────────
         try:
             validated = tool.validate_args(**arguments)
         except Exception as e:
-            return f"[Tool Error] Invalid arguments for '{tool_name}': {e}"
+            return self.output_formatter.format(
+                tool_name,
+                f"Invalid arguments for '{tool_name}': {e}",
+                success=False,
+            )
 
         # ── 2. Safety check ──────────────────────────────────────
         requires_approval = not tool.is_safe
@@ -159,7 +167,11 @@ class ToolExecutor:
                     task_id=task_id,
                 )
             if not approved:
-                return f"[Tool: {tool_name}] User denied execution."
+                return self.output_formatter.format(
+                    tool_name,
+                    "User denied execution.",
+                    success=False,
+                )
 
         # Use publish() (synchronous) so the TUI handler mounts the
         # ToolStepWidget before the tool executes.  emit() (fire-and-forget)

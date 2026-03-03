@@ -203,7 +203,7 @@ async def test_react_loop_successful_task(base_deps):
     mock_responses = [
         # Iteration 1: Call 'add' tool
         _reasoning("Compute sum using add tool call", "I should add.") + "\n"
-        '<action>\n  <tool>add</tool>\n  <args>{"x": 2, "y": 3}</args>\n</action>',
+        "<action>\n  <tool>add</tool>\n  <args><x>2</x><y>3</y></args>\n</action>",
         # Iteration 2: Return final answer
         _reasoning("Return concise final answer to user", "Got the result.") + "\n"
         "<final_answer>The answer is 5.</final_answer>",
@@ -229,7 +229,8 @@ async def test_react_loop_successful_task(base_deps):
     # Verify working memory
     memory = base_deps["memory_manager"].get_working_context()
     assert len(memory) > 3  # sys prompt, task desc, iteration 1 turn, etc.
-    assert any("[Tool: add] Result:" in m["content"] for m in memory)
+    assert any("<tool_result>" in m["content"] for m in memory)
+    assert any("<tool>add</tool>" in m["content"] for m in memory)
 
 
 @pytest.mark.asyncio
@@ -266,6 +267,7 @@ async def test_react_loop_schema_correction(base_deps):
     # Check that memory contains the schema error feedback
     mem = base_deps["memory_manager"].get_working_context()
     assert any("Schema Error" in m["content"] for m in mem)
+    assert any("Valid XML-mode examples" in m["content"] for m in mem)
 
 
 @pytest.mark.asyncio
@@ -276,7 +278,7 @@ async def test_react_loop_max_iterations(base_deps):
     # Always returning an action (infinite loop scenario)
     infinite_action = (
         _reasoning("Repeat same action to test max iterations", "Looping") + "\n"
-        '<action>\n  <tool>add</tool>\n  <args>{"x": 1, "y": 1}</args>\n</action>'
+        "<action>\n  <tool>add</tool>\n  <args><x>1</x><y>1</y></args>\n</action>"
     )
 
     # Feed 35 copies of the same action
@@ -306,7 +308,7 @@ async def test_react_loop_stuck_detection(base_deps):
 
     same_action = (
         _reasoning("Repeat identical action to trigger stuck hint", "Stuck") + "\n"
-        '<action>\n  <tool>add</tool>\n  <args>{"x": 0, "y": 0}</args>\n</action>'
+        "<action>\n  <tool>add</tool>\n  <args><x>0</x><y>0</y></args>\n</action>"
     )
 
     # 3 repetitions triggers the stuck detector warning for the 4th iteration
@@ -396,4 +398,4 @@ def test_prompt_builder_switches_native_vs_xml_output_template():
     )
 
     assert "wrap it in <action> tags" in xml_prompt
-    assert "Do NOT write XML action tags" in native_prompt
+    assert "Do not write XML action tags" in native_prompt

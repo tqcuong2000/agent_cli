@@ -1,26 +1,41 @@
 # Output Format
-You MUST structure every response as follows:
+You must structure every response as follows:
 
 1. **Title**: Provide a short title in <title> tags (1 to {title_max_words} words).
 2. **Thinking**: Wrap your reasoning chain in <thinking> tags.
-3. **Action**: To use a tool, call it natively via the API function calling mechanism. Do NOT write XML action tags.
-4. **Final Answer**: ONLY when no more tool calls are needed and the task is fully complete, wrap your response in <final_answer> tags.
+3. **Decision**: Use exactly ONE of the four decisions below.
 
-**ACTION-FIRST RULE:**
-If the user asks you to CREATE, EDIT, FIX, UPDATE, or BUILD something, you MUST use tools to do it.
-Do NOT describe what you would do inside <final_answer>. Actually do it with tools first.
-A task is complete when the requested changes are MADE and VERIFIED, not when you have described them.
+## Decisions
 
-**CRITICAL RULES:**
-- EVERYTHING you want the user to see MUST be inside <final_answer>.
-- If you call a tool, STOP IMMEDIATELY. Do NOT write <final_answer> in the same response. Wait for the tool result.
-- Do NOT guess or invent tool output. Wait for the system to return the result.
-- NEVER put tool names, function calls, or code-like instructions inside <final_answer>. That is NOT a valid answer.
+**Decision 1: reflect** - Continue reasoning (no tool call, no output to user)
+<thinking>Your detailed analysis, planning, and self-critique.</thinking>
 
-You must ALWAYS include both <title> and <thinking> first. Then, choose exactly ONE:
+**Decision 2: execute_action** - Invoke a tool via the native API function calling mechanism
+<thinking>Why you chose this tool and what you expect.</thinking>
+(Call a tool natively here. Do not write XML action tags.)
 
-EITHER call a tool natively (then stop, write nothing else)
-OR write <final_answer> (only when truly done):
-<title>Short 1-{title_max_words} word title</title>
-<thinking>Your reasoning.</thinking>
-<final_answer>Your COMPLETE response to the user.</final_answer>
+**Decision 3: notify_user** - Deliver final result (ends task)
+<final_answer>
+Your complete, final response to the user, including all tables, formatting, and text.
+</final_answer>
+
+**Decision 4: yield** - Graceful abort when the task cannot be completed (ends task)
+<yield>Reason why the task cannot be completed, and any partial results gathered so far.</yield>
+
+## Workflow Rules
+- **Action-First**: If the user asks you to create, edit, fix, update, or build something, use tools to do it first. A task is complete when the requested changes are made and verified, not when you have described them.
+- **Cycle**: Think -> Act -> Wait for Result. Do not respond to the user during this cycle.
+- **One decision per turn**: Choose exactly ONE decision per response.
+
+## Error Recovery
+- If you receive a schema/formatting error from the system, your NEXT response must be a corrected response that follows this format exactly.
+- Keep any self-correction commentary inside `<thinking>` only.
+- Never output free text outside allowed tags while correcting.
+- Never return an empty response.
+- In native mode, call tools via native function-calling only; do not emit XML `<action>` tags.
+
+## Output Constraints
+- **Tag Strictness**: Do not output any conversational text outside of <title>, <thinking>, <final_answer>, or <yield> tags. Do not output "Decision X" headers; the decision is inferred entirely by the tags you use.
+- **Isolation**: Always wait for the true tool output before proceeding. Stop immediately after calling a tool.
+- **Completeness**: Make sure <final_answer> wraps all final user-facing content.
+- **Clean Content**: Maintain natural responses inside <final_answer>. Avoid including raw tool names, function calls, or code-like instructions in the final user response.

@@ -350,13 +350,20 @@ class BaseLLMProvider(ABC):
         """Separate the system message from chat history.
 
         Useful for Anthropic and other providers that require the
-        system message as a separate parameter.
+        system message as a separate parameter. Mid-conversation system
+        messages are converted to user messages so order is preserved.
         """
         system = ""
         messages: List[Dict[str, Any]] = []
         for msg in context:
             if msg.get("role") == "system":
-                system = msg.get("content", "")
+                if not messages:
+                    if system:
+                        system += "\n\n" + msg.get("content", "")
+                    else:
+                        system = msg.get("content", "")
+                else:
+                    messages.append({"role": "user", "content": f"[System: {msg.get('content', '')}]"})
             else:
                 messages.append(msg)
         return system, messages

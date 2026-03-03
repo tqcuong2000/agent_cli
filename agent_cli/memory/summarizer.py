@@ -13,7 +13,10 @@ from agent_cli.memory.token_counter import HeuristicTokenCounter
 logger = logging.getLogger(__name__)
 
 _PATH_PATTERN = re.compile(r"(?:[A-Za-z]:[\\/]|/)?(?:[\w.-]+[\\/])+[\w.-]+")
-_TOOL_PATTERN = re.compile(r"\[Tool:\s*([^\]]+)\]")
+_TOOL_PATTERN = re.compile(
+    r"(?:\[Tool:\s*([^\]]+)\])|(?:<tool>\s*([^<]+)\s*</tool>)",
+    re.IGNORECASE,
+)
 
 SummarizerProviderFactory = Callable[[str], Any]
 
@@ -364,7 +367,9 @@ class SummarizingMemoryManager(WorkingMemoryManager):
             if role == "tool":
                 match = _TOOL_PATTERN.search(condensed)
                 if match:
-                    tools.append(match.group(1).strip())
+                    tool_name = (match.group(1) or match.group(2) or "").strip()
+                    if tool_name:
+                        tools.append(tool_name)
                 elif len(tools) < self._heuristic_limits["max_tools"]:
                     tools.append("tool-output")
 

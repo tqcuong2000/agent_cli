@@ -17,14 +17,16 @@ See ``01_reasoning_loop.md`` for the full specification.
 from __future__ import annotations
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from xml.sax.saxutils import escape
 
 from agent_cli.agent.memory import BaseMemoryManager
-from agent_cli.agent.parsers import AgentResponse
+from agent_cli.agent.parsers import AgentDecision, AgentResponse
 from agent_cli.agent.react_loop import PromptBuilder, StuckDetector
 from agent_cli.agent.schema import BaseSchemaValidator
 from agent_cli.core.error_handler.errors import (
@@ -257,6 +259,13 @@ class BaseAgent(ABC):
             threshold=int(stuck_defaults.get("threshold", 3)),
             history_cap=int(stuck_defaults.get("history_cap", 10)),
         )
+        reflect_count = 0
+        max_reflects = int(
+            self._schema_defaults.get("validation", {}).get(
+                "max_consecutive_reflects",
+                3,
+            )
+        )
 
         # ── The Loop ─────────────────────────────────────────────
         try:
@@ -322,90 +331,158 @@ class BaseAgent(ABC):
                     )
                     schema_error_count = 0  # Reset on success
 
-                    # ── STEP 4: Process Action or Final Answer ───────
-                    if response.action:
-                        # ── TOOL EXECUTION PATH ──
-                        result = await self.tool_executor.execute(
-                            tool_name=response.action.tool_name,
-                            arguments=response.action.arguments,
-                            task_id=task_id,
-                            native_call_id=response.action.native_call_id,
-                        )
-
-                        # Add LLM response + tool result to Working Memory
-                        _append_message(
-                            {
-                                "role": "assistant",
-                                "content": llm_response.text_content,
-                            },
-                            track_for_session=True,
-                        )
-                        _append_message(
-                            {"role": "tool", "content": result},
-                            track_for_session=True,
-                        )
-
-                        # Agent-specific hook
-                        await self.on_tool_result(response.action.tool_name, result)
-
-                        # Stuck detection
-                        if stuck_detector.is_stuck(response.action.tool_name, result):
+                    # ── STEP 4: Dispatch on Decision ─────────────
+                    match response.decision:
+                        case AgentDecision.EXECUTE_ACTION:
+                            # ── TOOL EXECUTION PATH ──
+                            reflect_count = 0  # Reset on action
                             _append_message(
                                 {
-                                    "role": "user",
-                                    "content": (
-                                        "⚠You appear to be repeating the same "
-                                        "action with the same result. "
-                                        "Try a completely different approach."
+                                    "role": "assistant",
+                                    "content": self._format_assistant_history(
+                                        llm_response
                                     ),
                                 },
                                 track_for_session=True,
                             )
 
-                        continue  # Next iteration
-
-                    elif response.final_answer:
-                        # ── FINAL ANSWER PATH ──
-                        # Persist the model response that produced the final answer.
-                        _append_message(
-                            {
-                                "role": "assistant",
-                                "content": llm_response.text_content,
-                            },
-                            track_for_session=True,
-                        )
-
-                        final = await self.on_final_answer(response.final_answer)
-
-                        # Publish to TUI
-                        await self.event_bus.emit(
-                            AgentMessageEvent(
-                                source=self.name,
-                                agent_name=self.name,
-                                content=final,
-                                is_monologue=False,
+                            result = await self.tool_executor.execute(
+                                tool_name=response.action.tool_name,
+                                arguments=response.action.arguments,
+                                task_id=task_id,
+                                native_call_id=response.action.native_call_id,
                             )
-                        )
 
-                        logger.info(
-                            "Agent '%s' completed task in %d iteration(s) (task=%s)",
-                            self.name,
-                            iteration,
-                            task_id,
-                        )
-                        return final
+                            # Add tool result to Working Memory
+                            _append_message(
+                                {"role": "tool", "content": result},
+                                track_for_session=True,
+                            )
 
-                    else:
-                        # Thinking-only response (no action, no answer)
-                        # Add it to memory and let the LLM continue
-                        _append_message(
-                            {
-                                "role": "assistant",
-                                "content": llm_response.text_content,
-                            },
-                            track_for_session=True,
-                        )
-                        continue
+                            # Agent-specific hook
+                            await self.on_tool_result(response.action.tool_name, result)
+
+                            # Stuck detection
+                            if stuck_detector.is_stuck(
+                                response.action.tool_name, result
+                            ):
+                                _append_message(
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "⚠ You appear to be repeating the same "
+                                            "action with the same result. "
+                                            "Try a completely different approach."
+                                        ),
+                                    },
+                                    track_for_session=True,
+                                )
+
+                            continue  # Next iteration
+
+                        case AgentDecision.NOTIFY_USER:
+                            # ── FINAL ANSWER PATH ──
+                            reflect_count = 0
+                            _append_message(
+                                {
+                                    "role": "assistant",
+                                    "content": self._format_assistant_history(
+                                        llm_response
+                                    ),
+                                },
+                                track_for_session=True,
+                            )
+
+                            final = await self.on_final_answer(response.final_answer)
+
+                            # Publish to TUI
+                            await self.event_bus.emit(
+                                AgentMessageEvent(
+                                    source=self.name,
+                                    agent_name=self.name,
+                                    content=final,
+                                    is_monologue=False,
+                                )
+                            )
+
+                            logger.info(
+                                "Agent '%s' completed task in %d iteration(s) (task=%s)",
+                                self.name,
+                                iteration,
+                                task_id,
+                            )
+                            return final
+
+                        case AgentDecision.REFLECT:
+                            # ── MULTI-TURN REASONING PATH ──
+                            _append_message(
+                                {
+                                    "role": "assistant",
+                                    "content": self._format_assistant_history(
+                                        llm_response
+                                    ),
+                                },
+                                track_for_session=True,
+                            )
+                            reflect_count += 1
+                            if reflect_count >= max_reflects:
+                                _append_message(
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            f"You have reflected {reflect_count} consecutive "
+                                            "times. You must now execute an action or "
+                                            "provide a final answer."
+                                        ),
+                                    },
+                                    track_for_session=True,
+                                )
+                            else:
+                                _append_message(
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "Reasoning noted. Continue planning "
+                                            "or execute an action."
+                                        ),
+                                    },
+                                    track_for_session=True,
+                                )
+                            continue
+
+                        case AgentDecision.YIELD:
+                            # ── GRACEFUL ABORT PATH ──
+                            reflect_count = 0
+                            _append_message(
+                                {
+                                    "role": "assistant",
+                                    "content": self._format_assistant_history(
+                                        llm_response
+                                    ),
+                                },
+                                track_for_session=True,
+                            )
+
+                            yield_msg = (
+                                response.final_answer or "Task cannot be completed."
+                            )
+
+                            await self.event_bus.emit(
+                                AgentMessageEvent(
+                                    source=self.name,
+                                    agent_name=self.name,
+                                    content=yield_msg,
+                                    is_monologue=False,
+                                )
+                            )
+
+                            logger.warning(
+                                "Agent '%s' yielded on task '%s': %s",
+                                self.name,
+                                task_id,
+                                yield_msg[:100],
+                            )
+                            return yield_msg
 
                 # ── ERROR HANDLING ───────────────────────────────────
                 except ContextLengthExceededError:
@@ -435,10 +512,15 @@ class BaseAgent(ABC):
                         )
                     _append_message(
                         {
-                            "role": "user",
-                            "content": (
-                                f"Schema Error: {e}. Fix your formatting and try again."
-                            ),
+                            "role": "assistant",
+                            "content": self._format_assistant_history(llm_response),
+                        },
+                        track_for_session=True,
+                    )
+                    _append_message(
+                        {
+                            "role": "system",
+                            "content": self._build_schema_recovery_message(e),
                         },
                         track_for_session=True,
                     )
@@ -448,7 +530,7 @@ class BaseAgent(ABC):
                     # RECOVERABLE: Feed error back to agent as observation
                     _append_message(
                         {
-                            "role": "tool",
+                            "role": "system",
                             "content": (f"Tool Error: {e}. Try a different approach."),
                         },
                         track_for_session=True,
@@ -493,11 +575,104 @@ class BaseAgent(ABC):
         """Return messages added during the most recent task execution."""
         return list(self._last_task_messages)
 
+    @staticmethod
+    def _format_assistant_history(llm_response: Any) -> str:
+        """Serialize native tool calls into text so they aren't lost in history."""
+        content = llm_response.text_content
+        mode = getattr(llm_response, "tool_mode", None)
+        if mode and getattr(mode, "value", str(mode)) == "NATIVE":
+            tool_calls = getattr(llm_response, "tool_calls", [])
+            if tool_calls:
+                for tc in tool_calls:
+                    args_str = BaseAgent._serialize_xml_args(tc.arguments)
+                    content += f"\n<action><tool>{tc.tool_name}</tool><args>{args_str}</args></action>"
+        return content
+
+    @staticmethod
+    def _serialize_xml_args(arguments: Any) -> str:
+        """Serialize argument payloads as XML child tags."""
+        if not isinstance(arguments, dict):
+            return ""
+        return "".join(
+            BaseAgent._serialize_xml_node(str(key), value)
+            for key, value in arguments.items()
+        )
+
+    @staticmethod
+    def _serialize_xml_node(name: str, value: Any) -> str:
+        """Serialize a single XML node with simple tag sanitization."""
+        tag = BaseAgent._sanitize_xml_tag(name)
+        if isinstance(value, dict):
+            inner = "".join(
+                BaseAgent._serialize_xml_node(str(k), v) for k, v in value.items()
+            )
+            return f"<{tag}>{inner}</{tag}>"
+        if isinstance(value, list):
+            inner = "".join(
+                BaseAgent._serialize_xml_node("item", item) for item in value
+            )
+            return f"<{tag}>{inner}</{tag}>"
+        if value is None:
+            text = "null"
+        elif isinstance(value, bool):
+            text = "true" if value else "false"
+        else:
+            text = escape(str(value))
+        return f"<{tag}>{text}</{tag}>"
+
+    @staticmethod
+    def _sanitize_xml_tag(name: str) -> str:
+        """Convert arbitrary argument keys into safe XML tag names."""
+        tag = re.sub(r"[^A-Za-z0-9_.-]", "_", name.strip())
+        if not tag:
+            return "arg"
+        if not re.match(r"^[A-Za-z_]", tag):
+            return f"arg_{tag}"
+        return tag
+
     def _get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Retrieve tool definitions for the LLM."""
         if not self.config.tools:
             return []
         return self.tool_executor.registry.get_definitions_for_llm(self.config.tools)
+
+    def _build_schema_recovery_message(self, error: SchemaValidationError) -> str:
+        """Build a concrete, mode-aware schema recovery instruction."""
+        header = (
+            f"Schema Error: {error}\n"
+            "Your NEXT response must be corrected and valid. "
+            "Use exactly one decision, no empty response, and no text outside allowed tags."
+        )
+
+        native_mode = bool(getattr(self.provider, "supports_native_tools", False))
+        if native_mode:
+            return (
+                f"{header}\n"
+                "Valid native-mode examples:\n"
+                "1) Tool call: "
+                "<title>Read file</title><thinking>I need the file contents.</thinking> "
+                "then call exactly one tool via native function-calling (do NOT emit <action> XML).\n"
+                "2) Final answer: "
+                "<title>Task complete</title><thinking>I verified the result.</thinking>"
+                "<final_answer>...</final_answer>\n"
+                "3) Yield: "
+                "<title>Blocked</title><thinking>I cannot proceed safely.</thinking>"
+                "<yield>...</yield>"
+            )
+
+        return (
+            f"{header}\n"
+            "Valid XML-mode examples:\n"
+            "1) Tool call: "
+            "<title>Read file</title><thinking>I need the file contents.</thinking>"
+            "<action><tool>read_file</tool><args><path>README.md</path></args></action>\n"
+            "2) Final answer: "
+            "<title>Task complete</title><thinking>I verified the result.</thinking>"
+            "<final_answer>...</final_answer>\n"
+            "3) Yield: "
+            "<title>Blocked</title><thinking>I cannot proceed safely.</thinking>"
+            "<yield>...</yield>"
+        )
 
     def _debug_intercept_response(
         self, task_id: str, iteration: int, raw_content: str

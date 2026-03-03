@@ -55,7 +55,6 @@ class AskUserTool(BaseTool):
     description = (
         "Ask the user one clarification question with 2-5 likely answers. "
         "Use this when required details are missing before continuing."
-        "Use this when needed to ask the user questions"
     )
     is_safe = True
     category = ToolCategory.UTILITY

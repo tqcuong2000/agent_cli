@@ -229,39 +229,41 @@ class BaseAgent(ABC):
                 response = self.validator.parse_and_validate(llm_response)
                 schema_error_count = 0  # Reset on success
                 
-                # ── STEP 4: Process Action or Final Answer ───────
-                if response.action:
-                    # ── TOOL EXECUTION PATH ──
-                    result = await self._execute_tool(response.action, task_id)
-                    
-                    # Add LLM response + tool result to Working Memory
-                    self.memory.add_working_event({
-                        "role": "assistant",
-                        "content": llm_response.text_content
-                    })
-                    self.memory.add_working_event({
-                        "role": "tool",
-                        "content": result
-                    })
-                    
-                    # Agent-specific hook (e.g., auto-run tests)
-                    await self.on_tool_result(response.action.tool_name, result)
-                    
-                    # Stuck detection
-                    if stuck_detection.is_stuck(response.action.tool_name, result):
+                # ── STEP 4: Process explicit AgentDecision ───────
+                match response.decision:
+                    case AgentDecision.EXECUTE_ACTION:
+                        # ── TOOL EXECUTION PATH ──
+                        stuck_detection.reset_reflects()
+                        result = await self._execute_tool(response.action, task_id)
+                        
+                        # Add LLM response + tool result to Working Memory
                         self.memory.add_working_event({
-                            "role": "user",
-                            "content": (
-                                "⚠ You appear to be repeating the same action with the same result. "
-                                "Try a completely different approach."
-                            )
+                            "role": "assistant",
+                            "content": llm_response.text_content
                         })
+                        self.memory.add_working_event({
+                            "role": "tool",
+                            "content": result
+                        })
+                        
+                        # Agent-specific hook (e.g., auto-run tests)
+                        await self.on_tool_result(response.action.tool_name, result)
+                        
+                        # Stuck detection
+                        if stuck_detection.is_stuck(response.action.tool_name, result):
+                            self.memory.add_working_event({
+                                "role": "user",
+                                "content": (
+                                    "⚠ You appear to be repeating the same action with the same result. "
+                                    "Try a completely different approach."
+                                )
+                            })
+                        
+                        continue  # Next iteration
                     
-                    continue  # Next iteration
-                
-                elif response.final_answer:
-                    # ── FINAL ANSWER PATH ──
-                    final = await self.on_final_answer(response.final_answer)
+                    case AgentDecision.NOTIFY_USER:
+                        # ── FINAL ANSWER PATH ──
+                        final = await self.on_final_answer(response.final_answer)
                     
                     # Persist the final answer as a message
                     await self._persist_message("assistant", final)
@@ -281,14 +283,41 @@ class BaseAgent(ABC):
                     )
                     return final
                 
-                else:
-                    # Thinking-only response (no action, no final answer)
-                    # Add it to memory and let the LLM continue
-                    self.memory.add_working_event({
-                        "role": "assistant",
-                        "content": llm_response.text_content
-                    })
-                    continue
+                    case AgentDecision.YIELD:
+                        # ── GRACEFUL ABORT PATH ──
+                        final = f"Agent yielded: {response.yield_reason}"
+                        await self._persist_message("assistant", final)
+                        
+                        await self.event_bus.emit(AgentMessageEvent(
+                            source=self.name,
+                            agent_name=self.name,
+                            content=final,
+                            is_monologue=False
+                        ))
+                        
+                        self.logger.log("WARNING", self.name,
+                            f"Task yielded after {iteration} iterations",
+                            task_id=task_id,
+                            data={"reason": response.yield_reason}
+                        )
+                        return final
+                        
+                    case AgentDecision.REFLECT:
+                        # ── CONTINUED REASONING PATH ──
+                        self.memory.add_working_event({
+                            "role": "assistant",
+                            "content": llm_response.text_content
+                        })
+                        
+                        # Reflection budget enforcement
+                        stuck_detection.increment_reflects()
+                        if stuck_detection.reflect_count >= self.config.max_consecutive_reflects:
+                            self.memory.add_working_event({
+                                "role": "user",
+                                "content": "You have reflected multiple times. Please take action or provide a final answer."
+                            })
+                            
+                        continue
             
             # ── ERROR HANDLING (from 04_error_handling.md) ──────────
             
@@ -471,13 +500,12 @@ class PromptBuilder:
     
     def _output_format_section(self) -> str:
         return """# Output Format
-You MUST structure every response as follows:
+You MUST structure every response using ONE of four decisions:
 
-1. **Thinking**: Wrap your reasoning in <thinking> tags. This is your internal monologue.
-2. **Action**: If you need to use a tool, wrap it in <action> tags:
-   <action><tool>tool_name</tool><args>{"key": "value"}</args></action>
-3. **Final Answer**: When the task is complete, provide your answer in <final_answer> tags:
-   <final_answer>Your response to the user.</final_answer>
+1. **reflect**: <thinking>Your internal monologue.</thinking>
+2. **execute_action**: <thinking>Why</thinking>\n<action><tool>name</tool><args>{"key":"val"}</args></action>
+3. **notify_user**: <final_answer>Final answer text.</final_answer>
+4. **yield**: <yield>Reason task failed.</yield>
 
 You must ALWAYS include <thinking> before any action or final answer."""
     
@@ -753,17 +781,18 @@ User ──▶ Orchestrator ──▶ StateManager.transition(WORKING)
     │          ▼                        │
     │  6. validator.parse_and_validate │ ← Dual-mode (native FC / XML)
     │          │                        │
-    │     ┌────┴────┐                  │
-    │     │         │                  │
-    │  ACTION    FINAL_ANSWER          │
-    │     │         │                  │
-    │     ▼         ▼                  │
-    │  7a. ToolExecutor.execute()   7b. on_final_answer()
-    │     │         │                  │
-    │     ▼         ▼                  │
-    │  8a. Add result to memory     8b. Return to Orchestrator
-    │     │                            │
-    │     └────── continue ────────────┘
+    │     ┌────┴────┬─────────┬──────┐   │
+    │     │         │         │      │   │
+    │  REFLECT   ACTION   FINAL_  YIELD  │
+    │     │         │      ANSWER    │   │
+    │     ▼         ▼         ▼      ▼   │
+    │  7a. Loop  7b. Exec  7c. End 7d.End│
+    │     │         │         │      │   │
+    │     ▼         ▼         ▼      ▼   │
+    │  8a. Warn  8b. tool  8c. Ret 8d.Ret│
+    │      budget   result                   │
+    │     │         │                    │
+    │     └────── continue ──────────────┘
     │                                   │
     └──── (max_iterations guard) ──────┘
                     │

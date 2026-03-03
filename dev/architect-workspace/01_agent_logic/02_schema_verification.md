@@ -117,9 +117,11 @@ The complete `LLMResponse` is passed to the Schema Validator:
                   ▼
          ┌──────────────┐
          │ AgentResponse │   ← Identical output regardless of mode
+         │  .decision    │   ← (REFLECT, EXECUTE_ACTION, NOTIFY_USER, YIELD)
          │  .thought     │
          │  .action      │
          │  .final_answer│
+         │  .yield_reason│
          └──────────────┘
 ```
 
@@ -147,9 +149,11 @@ class AgentResponse:
     Identical structure regardless of whether the response came from
     native FC or XML prompting.
     """
+    decision: "AgentDecision"                # Explicit intent of loop
     thought: str = ""                        # Extracted from <thinking> tags
     action: Optional[ParsedAction] = None    # Tool call (if any)
     final_answer: Optional[str] = None       # Final response (if no action)
+    yield_reason: Optional[str] = None       # Graceful abort (if <yield>)
 ```
 
 ---
@@ -208,25 +212,37 @@ class SchemaValidator(BaseSchemaValidator):
         # ── Step 2: Mode-specific action parsing ──
         if response.tool_mode == ToolCallMode.NATIVE:
             action = self._parse_native_fc(response)
-        else:
-            action = self._parse_xml_prompting(response.text_content)
-        
-        # ── Step 3: Check for final answer ──
+        # ── Step 3: Check for explicit returns ──
         final_answer = None
+        yield_reason = None
         if action is None:
-            final_answer = self._extract_final_answer(response.text_content)
+            yield_reason = self._extract_yield(response.text_content)
+            if yield_reason is None:
+                final_answer = self._extract_final_answer(response.text_content)
         
         # ── Step 4: Validate at least one output exists ──
-        if action is None and final_answer is None and not thinking:
+        if action is None and final_answer is None and yield_reason is None and not thinking:
             raise SchemaValidationError(
-                "Response contains no <thinking>, no tool call, and no final answer. "
-                "Please respond with either a tool action or a final answer."
+                "Response contains no <thinking>, no tool call, no final answer, and no yield tag. "
+                "Please respond with a valid decision."
             )
+            
+        # ── Step 5: Determine intent ──
+        if action is not None:
+            decision = AgentDecision.EXECUTE_ACTION
+        elif final_answer is not None:
+            decision = AgentDecision.NOTIFY_USER
+        elif yield_reason is not None:
+            decision = AgentDecision.YIELD
+        else:
+            decision = AgentDecision.REFLECT
         
         return AgentResponse(
+            decision=decision,
             thought=thinking,
             action=action,
-            final_answer=final_answer
+            final_answer=final_answer,
+            yield_reason=yield_reason
         )
     
     def extract_thinking(self, text: str) -> str:
@@ -368,12 +384,18 @@ try:
     # 2. Validate and convert to AgentResponse (mode-aware)
     response: AgentResponse = self.validator.parse_and_validate(llm_response)
     
-    # 3. Process (identical regardless of mode)
-    if response.action:
-        result = await self.tool_executor.execute(response.action)
-        self.memory.add_working_event({"role": "tool", "content": result})
-    elif response.final_answer:
-        return response.final_answer
+    # 3. Process explicit decision (identical regardless of mode)
+    match response.decision:
+        case AgentDecision.EXECUTE_ACTION:
+            result = await self.tool_executor.execute(response.action)
+            self.memory.add_working_event({"role": "tool", "content": result})
+        case AgentDecision.NOTIFY_USER:
+            return response.final_answer
+        case AgentDecision.YIELD:
+            return f"Agent yielded: {response.yield_reason}"
+        case AgentDecision.REFLECT:
+            # Continue reasoning loop
+            pass
         
 except SchemaValidationError as e:
     # 4. The Feedback Loop (primarily triggered in XML mode)

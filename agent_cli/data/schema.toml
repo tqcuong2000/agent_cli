@@ -4,3 +4,4 @@ max_words = 15
 
 [validation]
 max_consecutive_schema_errors = 3
+max_consecutive_reflects = 3

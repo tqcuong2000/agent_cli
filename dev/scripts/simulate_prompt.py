@@ -4,7 +4,6 @@ from pathlib import Path
 from agent_cli.core.bootstrap import create_app, _build_tool_registry
 from agent_cli.workspace.sandbox import SandboxWorkspaceManager
 from agent_cli.workspace.strict import StrictWorkspaceManager
-from agent_cli.core.models.config_models import EffortLevel
 
 async def simulate_prompt():
     # 1. Setup minimal workspace for tool registry

@@ -2,6 +2,7 @@
 
 import pytest
 
+from agent_cli.agent.parsers import AgentDecision
 from agent_cli.agent.schema import SchemaValidator
 from agent_cli.core.error_handler.errors import SchemaValidationError
 from agent_cli.providers.models import LLMResponse, ToolCall, ToolCallMode
@@ -48,16 +49,17 @@ def test_extract_thinking(validator):
     assert validator.extract_thinking("Just some text") == ""
 
 
-def test_extract_thinking_requires_title(validator):
-    with pytest.raises(SchemaValidationError, match="Missing <title>"):
-        validator.extract_thinking("<thinking>Need to act.</thinking>")
+def test_extract_thinking_inserts_default_title(validator):
+    result = validator.extract_thinking("<thinking>Need to act.</thinking>")
+    assert "<title>Untitled Action</title>" in result
+    assert "<thinking>Need to act.</thinking>" in result
 
 
-def test_extract_thinking_rejects_invalid_title_length(validator):
-    with pytest.raises(SchemaValidationError, match="2 to 15 words"):
-        validator.extract_thinking(
-            "<title>T</title>\n<thinking>Need to act.</thinking>"
-        )
+def test_extract_thinking_clamps_invalid_title_length(validator):
+    result = validator.extract_thinking(
+        "<title>A</title>\n<thinking>Need to act.</thinking>"
+    )
+    assert "<title>A</title>" in result
 
 
 # ── Step 2: Native FC Mode ───────────────────────────────────────────
@@ -76,6 +78,7 @@ def test_parse_native_fc_success(validator):
 
     result = validator.parse_and_validate(response)
 
+    assert result.decision == AgentDecision.EXECUTE_ACTION
     assert result.thought == _reasoning(
         "Use tool to gather required data safely", "Using tools"
     )
@@ -108,7 +111,7 @@ def test_parse_xml_mode_success(validator):
         + "\n"
         + "<action>\n"
         + "  <tool>foo</tool>\n"
-        + '  <args>{"x": 1}</args>\n'
+        + "  <args><x>1</x></args>\n"
         + "</action>"
     )
     response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
@@ -131,7 +134,7 @@ def test_parse_xml_mode_unknown_tool(validator):
         + "\n"
         + "<action>\n"
         + "  <tool>unknown</tool>\n"
-        + '  <args>{"x": 1}</args>\n'
+        + "  <args><x>1</x></args>\n"
         + "</action>"
     )
     response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
@@ -147,7 +150,7 @@ def test_parse_xml_mode_missing_tool_tag(validator):
         )
         + "\n"
         + "<action>\n"
-        + '  <args>{"x": 1}</args>\n'
+        + "  <args><x>1</x></args>\n"
         + "</action>"
     )
     response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
@@ -173,69 +176,56 @@ def test_parse_xml_mode_missing_args_tag(validator):
         validator.parse_and_validate(response)
 
 
-def test_parse_xml_mode_invalid_json(validator):
+def test_parse_xml_mode_invalid_xml(validator):
     text = (
         _reasoning(
-            "Check malformed json handling in parser", "Will parse malformed args"
+            "Check malformed xml handling in parser", "Will parse malformed args"
         )
         + "\n"
         + "<action>\n"
         + "  <tool>foo</tool>\n"
-        + "  <args>{invalid json}</args>\n"
+        + "  <args><x>1</x><y></args>\n"
         + "</action>"
     )
     response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
 
-    with pytest.raises(SchemaValidationError, match="Invalid JSON"):
+    with pytest.raises(SchemaValidationError, match="Invalid XML"):
         validator.parse_and_validate(response)
 
 
-# ── Step 4: JSON Coercion ────────────────────────────────────────────
+# ── Step 4: XML Args Parsing ─────────────────────────────────────────
 
 
-def test_json_coercion_single_quotes(validator):
+def test_xml_args_scalar_coercion(validator):
     text = (
-        _reasoning("Fix single quote json before execution", "Attempt coercion")
+        _reasoning("Coerce xml scalar values before execution", "Attempt coercion")
         + "\n"
         + "<action>\n"
         + "  <tool>foo</tool>\n"
-        + "  <args>{'x': 'hello'}</args>\n"
+        + "  <args><x>1</x><y>true</y><z>3.5</z><n>null</n></args>\n"
         + "</action>"
     )
     response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
 
     result = validator.parse_and_validate(response)
-    assert result.action.arguments == {"x": "hello"}
+    assert result.action.arguments == {"x": 1, "y": True, "z": 3.5, "n": None}
 
 
-def test_json_coercion_trailing_comma(validator):
+def test_xml_args_nested_objects_and_lists(validator):
     text = (
-        _reasoning("Fix trailing comma json before execution", "Attempt coercion")
+        _reasoning("Parse nested xml argument structures correctly", "Attempt coercion")
         + "\n"
         + "<action>\n"
         + "  <tool>foo</tool>\n"
-        + '  <args>{"x": 1,}</args>\n'
+        + "  <args><payload><name>alpha</name><flags><item>true</item><item>false</item></flags></payload></args>\n"
         + "</action>"
     )
     response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
 
     result = validator.parse_and_validate(response)
-    assert result.action.arguments == {"x": 1}
-
-
-def test_json_coercion_combined(validator):
-    text = (
-        _reasoning("Fix combined json errors before execution", "Attempt coercion")
-        + "\n"
-        + "<action>\n"
-        + "  <tool>foo</tool>\n"
-        + "  <args>{'x': 'hello',}</args>\n"
-        + "</action>"
-    )
-    response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
-
-    result = validator.parse_and_validate(response)
-    assert result.action.arguments == {"x": "hello"}
+    assert result.action.arguments == {
+        "payload": {"name": "alpha", "flags": [True, False]}
+    }
 
 
 # ── Step 5: Final Answer ─────────────────────────────────────────────
@@ -251,24 +241,33 @@ def test_final_answer_explicit_tag(validator):
 
     result = validator.parse_and_validate(response)
 
+    assert result.decision == AgentDecision.NOTIFY_USER
     assert result.action is None
     assert result.final_answer == "Here is your result."
 
 
-def test_final_answer_implicit(validator):
+def test_text_leakage_rejected(validator):
     text = (
-        _reasoning(
-            "Conclude work and provide final response",
-            "Done.",
-        )
-        + "\nHere is your implicit result."
+        _reasoning("Reason for tool", "Done.")
+        + "\n<final_answer>Result</final_answer>\n"
+        + "Here is your leaked conversational text."
     )
     response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
 
-    result = validator.parse_and_validate(response)
+    with pytest.raises(SchemaValidationError, match="Found raw text outside"):
+        validator.parse_and_validate(response)
 
-    assert result.action is None
-    assert result.final_answer == "Here is your implicit result."
+
+def test_text_leakage_with_action_rejected(validator):
+    text = (
+        _reasoning("Reason for tool", "Doing it.")
+        + "\n<action><tool>foo</tool><args><query>foo</query></args></action>"
+        + "\nHere is your leaked conversational text."
+    )
+    response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
+
+    with pytest.raises(SchemaValidationError, match="Found raw text outside"):
+        validator.parse_and_validate(response)
 
 
 def test_action_and_final_answer_mutually_exclusive(validator):
@@ -279,7 +278,7 @@ def test_action_and_final_answer_mutually_exclusive(validator):
         + "\n"
         + "<action>\n"
         + "  <tool>foo</tool>\n"
-        + '  <args>{"x": 1}</args>\n'
+        + "  <args><x>1</x></args>\n"
         + "</action>\n"
         + "<final_answer>I also answered.</final_answer>"
     )
@@ -287,6 +286,7 @@ def test_action_and_final_answer_mutually_exclusive(validator):
 
     result = validator.parse_and_validate(response)
 
+    assert result.decision == AgentDecision.EXECUTE_ACTION
     assert result.action is not None
     assert result.final_answer is None
 
@@ -296,15 +296,25 @@ def test_empty_response(validator):
 
     with pytest.raises(
         SchemaValidationError,
-        match="no <thinking>, no tool call, and no final answer",
+        match="no reasoning",
     ):
         validator.parse_and_validate(response)
 
 
-def test_action_without_reasoning_is_rejected(validator):
-    text = '<action>\n  <tool>foo</tool>\n  <args>{"x": 1}</args>\n</action>'
+def test_thinking_only_is_reflect(validator):
+    text = _reasoning("Just pondering", "I don't know what tool to call")
     response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
-    with pytest.raises(
-        SchemaValidationError, match="missing required <title> and <thinking>"
-    ):
-        validator.parse_and_validate(response)
+    result = validator.parse_and_validate(response)
+    assert result.decision == AgentDecision.REFLECT
+    assert result.thought != ""
+    assert result.action is None
+    assert result.final_answer is None
+
+
+def test_action_without_reasoning_is_accepted(validator):
+    text = "<action>\n  <tool>foo</tool>\n  <args><x>1</x></args>\n</action>"
+    response = LLMResponse(text_content=text, tool_mode=ToolCallMode.XML)
+    result = validator.parse_and_validate(response)
+    assert result.decision == AgentDecision.EXECUTE_ACTION
+    assert result.action is not None
+    assert result.action.tool_name == "foo"

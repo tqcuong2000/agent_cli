@@ -112,7 +112,7 @@ def test_prompt_template_loading_and_missing_file(registry: DataRegistry) -> Non
     assert "{title_max_words}" in prompt
 
     native_prompt = registry.get_prompt_template("output_format_native")
-    assert "Do NOT write XML action tags" in native_prompt
+    assert "Do not write XML action tags" in native_prompt
 
     persona = registry.get_prompt_template("default_persona")
     assert "expert AI coding assistant" in persona
