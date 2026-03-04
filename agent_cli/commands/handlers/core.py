@@ -285,7 +285,7 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
 @command(
     name="effort",
     description="Get or set reasoning effort",
-    usage="/effort [auto|minimal|low|medium|high]",
+    usage="/effort [auto|minimal|low|medium|high|max]",
     category="Model",
 )
 async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
@@ -504,7 +504,17 @@ def _format_effort_status(ctx: CommandContext, desired: str) -> str:
         if desired_norm == EffortLevel.AUTO.value:
             effective = EffortLevel.AUTO.value
         elif status == "supported":
-            effective = desired_norm
+            resolver = getattr(provider, "resolve_effective_effort", None)
+            if callable(resolver):
+                try:
+                    resolved = resolver(desired_norm)
+                    effective = (
+                        str(getattr(resolved, "value", resolved)).strip().lower()
+                    )
+                except Exception:
+                    effective = desired_norm
+            else:
+                effective = desired_norm
         else:
             effective = EffortLevel.AUTO.value
 

@@ -1,0 +1,31 @@
+{
+  "provider": "google",
+  "api_model": "gemini-2.5-flash",
+  "aliases": [
+    "google/gemini-2.5-flash",
+    "google:gemini-2.5-flash"
+  ],
+  "context_window": 1000000,
+  "tokenizer": "cl100k_base",
+  "pricing_input": 0.15,
+  "pricing_output": 0.6,
+  "capabilities": {
+    "native_tools": {
+      "supported": true
+    },
+    "effort": {
+      "supported": true,
+      "levels": [
+        "auto",
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "web_search": {
+      "supported": true,
+      "mode": "provider_native"
+    }
+  }
+}

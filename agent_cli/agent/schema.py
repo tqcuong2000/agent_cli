@@ -16,7 +16,7 @@ from typing import Any, Optional, Set
 from agent_cli.agent.parsers import AgentDecision, AgentResponse, ParsedAction
 from agent_cli.core.error_handler.errors import SchemaValidationError
 from agent_cli.core.models.config_models import ProtocolMode
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.models import LLMResponse, ToolCallMode
 
 logger = logging.getLogger(__name__)

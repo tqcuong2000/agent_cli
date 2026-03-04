@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 
 logger = logging.getLogger(__name__)
 

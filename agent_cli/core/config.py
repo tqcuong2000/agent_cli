@@ -31,7 +31,7 @@ from agent_cli.core.models.config_models import (
     ProviderConfig,
     effort_values,
 )
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +244,7 @@ class AgentSettings(BaseSettings):
     # ── Pydantic Settings Config ─────────────────────────────────
 
     model_config = SettingsConfigDict(
-        env_prefix="AGENT_",
+        env_prefix="",
         env_file=(str(Path.home() / ".agent_cli" / ".env"), ".env"),
         env_file_encoding="utf-8",
         extra="ignore",  # Ignore unknown fields in TOML (forward compat)
@@ -385,20 +385,29 @@ def load_providers(
 
     for name, pdata in config_data.get("providers", {}).items():
         existing = providers.get(name)
+
+        # Merge logic: Use existing value as default if user didn't override it in TOML
+        default_adapter = (
+            existing.adapter_type if existing is not None else "openai_compatible"
+        )
+        default_url = existing.base_url if existing is not None else None
+        default_key_env = existing.api_key_env if existing is not None else None
+        default_model = existing.default_model if existing is not None else None
+        default_max_ctx = existing.max_context_tokens if existing is not None else None
         default_native_tools = (
             existing.supports_native_tools if existing is not None else False
         )
+
         providers[name] = ProviderConfig(
-            adapter_type=pdata.get("adapter_type", "openai_compatible"),
-            base_url=pdata.get("base_url"),
-            models=pdata.get("models", []),
-            api_key_env=pdata.get("api_key_env"),
-            default_model=pdata.get("default_model"),
+            adapter_type=pdata.get("adapter_type", default_adapter),
+            base_url=pdata.get("base_url", default_url),
+            api_key_env=pdata.get("api_key_env", default_key_env),
+            default_model=pdata.get("default_model", default_model),
             supports_native_tools=pdata.get(
                 "supports_native_tools",
                 default_native_tools,
             ),
-            max_context_tokens=pdata.get("max_context_tokens"),
+            max_context_tokens=pdata.get("max_context_tokens", default_max_ctx),
         )
 
     return providers

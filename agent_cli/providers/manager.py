@@ -7,12 +7,13 @@ and instantiates the correct adapter (OpenAI, Anthropic, Google, etc.).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any, Dict, Optional, Type
 
 from agent_cli.core.config import AgentSettings, load_providers
 from agent_cli.core.models.config_models import ProviderConfig
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.memory.budget import TokenBudget, budget_for_model
 from agent_cli.memory.token_counter import (
     AnthropicTokenCounter,
@@ -190,6 +191,11 @@ class ProviderManager:
             )
 
         api_key = self._resolve_api_key(provider_name, config)
+        logger.debug(
+            "Resolved API key for provider '%s': %s",
+            provider_name,
+            self._mask_key_fingerprint(api_key),
+        )
 
         # OpenAICompatibleProvider accepts native_tools flag, others don't
         kwargs: Dict[str, Any] = {
@@ -212,12 +218,44 @@ class ProviderManager:
         """Fetch API key considering custom env vars and AgentSettings fallbacks."""
         import os
 
-        # If config specifies a custom env var, use it exclusively
+        # Custom env var: prefer process env, then settings/.env alias fallback.
+        # This avoids missing keys when values come from pydantic dotenv loading
+        # (which does not necessarily mutate process-level os.environ).
         if config.api_key_env:
-            return os.getenv(config.api_key_env)
+            env_name = str(config.api_key_env).strip()
+            raw = os.getenv(env_name)
+            if raw is None or not str(raw).strip():
+                try:
+                    alias_dump = self._settings.model_dump(by_alias=True)
+                except Exception:
+                    alias_dump = {}
+                raw = alias_dump.get(env_name)
+            key = self._normalize_api_key(raw)
+            if key:
+                return key
 
-        # Otherwise, use AgentSettings built-in resolution (which handles keyring)
-        return self._settings.resolve_api_key(provider_name)
+        # Built-in resolution handles .env aliases + keyring fallback.
+        return self._normalize_api_key(self._settings.resolve_api_key(provider_name))
+
+    @staticmethod
+    def _normalize_api_key(raw: Any) -> Optional[str]:
+        """Normalize raw API key values from env/settings/keyring."""
+        if raw is None:
+            return None
+        value = str(raw).strip()
+        if not value:
+            return None
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1].strip()
+        return value or None
+
+    @staticmethod
+    def _mask_key_fingerprint(raw: Optional[str]) -> str:
+        """Return a non-reversible key fingerprint for diagnostics."""
+        if not raw:
+            return "none"
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        return f"sha256:{digest[:12]} len:{len(raw)}"
 
     def _build_token_counters(self) -> Dict[str, BaseTokenCounter]:
         """Build adapter-type token counters shared across providers."""

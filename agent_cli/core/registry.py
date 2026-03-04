@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from importlib import resources
 from typing import Any
-
-import tomllib
 
 from agent_cli.core.models.config_models import (
     CapabilityObservation,
@@ -30,6 +29,7 @@ class DataRegistry:
     __slots__ = (
         "_data_root",
         "_models",
+        "_offerings",
         "_providers",
         "_tools",
         "_memory",
@@ -44,11 +44,12 @@ class DataRegistry:
 
     def __init__(self) -> None:
         self._data_root = resources.files("agent_cli.data")
-        self._models = self._load_toml("models.toml")
-        self._providers = self._load_toml("providers.toml")
-        self._tools = self._load_toml("tools.toml")
-        self._memory = self._load_toml("memory.toml")
-        self._schema = self._load_toml("schema.toml")
+        self._models = self._load_json("models.json")
+        self._offerings = self._load_offerings("models")
+        self._providers = self._load_json("providers.json")
+        self._tools = self._load_json("tools.json")
+        self._memory = self._load_json("memory.json")
+        self._schema = self._load_json("schema.json")
         self._prompt_cache: dict[str, str] = {}
         self._provider_specs_cache: dict[str, ProviderSpec] | None = None
         self._model_specs_cache: dict[str, ModelSpec] | None = None
@@ -82,7 +83,6 @@ class DataRegistry:
             providers[name] = ProviderConfig(
                 adapter_type=spec.adapter_type,
                 base_url=spec.base_url,
-                models=list(spec.models),
                 api_key_env=spec.api_key_env,
                 default_model=spec.default_model,
                 supports_native_tools=True,
@@ -324,21 +324,109 @@ class DataRegistry:
 
     # -- Internal ---------------------------------------------------
 
-    def _load_toml(self, filename: str) -> dict[str, Any]:
+    def _load_json(self, filename: str) -> dict[str, Any]:
         file_path = self._data_root.joinpath(filename)
         try:
-            with file_path.open("rb") as handle:
-                loaded = tomllib.load(handle)
+            with file_path.open("r", encoding="utf-8") as handle:
+                loaded = json.load(handle)
         except FileNotFoundError as exc:
             raise RuntimeError(f"Missing data file: {filename}") from exc
-        except tomllib.TOMLDecodeError as exc:
-            raise RuntimeError(f"Malformed TOML in data file: {filename}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Malformed JSON in data file: {filename}") from exc
         except OSError as exc:
             raise RuntimeError(f"Failed to load data file: {filename}") from exc
 
         if not isinstance(loaded, dict):
             raise RuntimeError(f"Data file did not parse to a mapping: {filename}")
         return loaded
+
+    def _load_offerings(self, directory: str) -> dict[str, dict[str, Any]]:
+        """Load offering definitions from `data/<directory>/*.json`."""
+        dir_path = self._data_root.joinpath(directory)
+        if not dir_path.is_dir():
+            raise RuntimeError(f"Missing offerings directory: {directory}")
+
+        offerings: dict[str, dict[str, Any]] = {}
+        for file_path in sorted(dir_path.iterdir(), key=lambda path: path.name):
+            if not file_path.is_file():
+                continue
+            file_name = str(file_path.name)
+            if not file_name.lower().endswith(".json"):
+                continue
+
+            try:
+                with file_path.open("r", encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"Malformed JSON in offerings file: {directory}/{file_path.name}"
+                ) from exc
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Failed to load offerings file: {directory}/{file_path.name}"
+                ) from exc
+
+            if not isinstance(loaded, dict):
+                raise RuntimeError(
+                    f"Offerings file did not parse to a mapping: {directory}/{file_path.name}"
+                )
+
+            grouped_offerings = self._mapping(loaded.get("offerings"))
+            if "offerings" in loaded and not grouped_offerings:
+                raise RuntimeError(
+                    "Invalid offerings table in "
+                    f"{directory}/{file_path.name}: expected non-empty mapping."
+                )
+            if grouped_offerings:
+                for grouped_id, grouped_raw in grouped_offerings.items():
+                    grouped_data = self._mapping(grouped_raw)
+                    if not grouped_data:
+                        raise RuntimeError(
+                            "Invalid offering entry in "
+                            f"{directory}/{file_path.name}: '{grouped_id}'."
+                        )
+
+                    model_id = (
+                        str(grouped_data.get("id", "")).strip()
+                        or str(grouped_id).strip()
+                    )
+                    self._register_offering(
+                        offerings,
+                        model_id=model_id,
+                        data=grouped_data,
+                        location=f"{directory}/{file_path.name}",
+                    )
+                continue
+
+            model_id = str(loaded.get("id", "")).strip() or file_name[:-5]
+            self._register_offering(
+                offerings,
+                model_id=model_id,
+                data=loaded,
+                location=f"{directory}/{file_path.name}",
+            )
+
+        if not offerings:
+            raise RuntimeError(f"No offering files found in directory: {directory}")
+        return offerings
+
+    @staticmethod
+    def _register_offering(
+        offerings: dict[str, dict[str, Any]],
+        *,
+        model_id: str,
+        data: Mapping[str, Any],
+        location: str,
+    ) -> None:
+        """Register one offering with duplicate-id protection."""
+        normalized_id = str(model_id).strip()
+        if not normalized_id:
+            raise RuntimeError(f"Missing offering id in {location}.")
+        if normalized_id in offerings:
+            raise RuntimeError(
+                f"Duplicate offering id '{normalized_id}' in {location}."
+            )
+        offerings[normalized_id] = dict(data)
 
     def _get_provider_specs_cached(self) -> dict[str, ProviderSpec]:
         cached = self._provider_specs_cache
@@ -362,7 +450,6 @@ class DataRegistry:
                 base_url=(
                     str(data.get("base_url")).strip() if data.get("base_url") else None
                 ),
-                models=[str(model) for model in data.get("models", [])],
                 api_key_env=(
                     str(data.get("api_key_env")).strip()
                     if data.get("api_key_env")
@@ -387,7 +474,7 @@ class DataRegistry:
         if cached is not None:
             return cached
 
-        models_data = self._mapping(self._models.get("models"))
+        models_data = {name: dict(data) for name, data in self._offerings.items()}
         parsed: dict[str, ModelSpec] = {}
         lookup: dict[str, str] = {}
 
@@ -405,7 +492,7 @@ class DataRegistry:
             capabilities_raw = self._mapping(data.get("capabilities"))
             if not capabilities_raw:
                 raise RuntimeError(
-                    f"Missing required capabilities block for model: {model_id}"
+                    f"Missing required capabilities block for offering: {model_id}"
                 )
 
             native_raw = self._mapping(capabilities_raw.get("native_tools"))
@@ -414,41 +501,41 @@ class DataRegistry:
 
             if not native_raw:
                 raise RuntimeError(
-                    f"Missing required capabilities.native_tools for model: {model_id}"
+                    f"Missing required capabilities.native_tools for offering: {model_id}"
                 )
             if not effort_raw:
                 raise RuntimeError(
-                    f"Missing required capabilities.effort for model: {model_id}"
+                    f"Missing required capabilities.effort for offering: {model_id}"
                 )
             if not web_raw:
                 raise RuntimeError(
-                    f"Missing required capabilities.web_search for model: {model_id}"
+                    f"Missing required capabilities.web_search for offering: {model_id}"
                 )
 
             native_supported = self._to_required_bool(
                 native_raw.get("supported"),
-                f"models.{model_id}.capabilities.native_tools.supported",
+                f"offerings.{model_id}.capabilities.native_tools.supported",
             )
             effort_supported = self._to_required_bool(
                 effort_raw.get("supported"),
-                f"models.{model_id}.capabilities.effort.supported",
+                f"offerings.{model_id}.capabilities.effort.supported",
             )
             web_supported = self._to_required_bool(
                 web_raw.get("supported"),
-                f"models.{model_id}.capabilities.web_search.supported",
+                f"offerings.{model_id}.capabilities.web_search.supported",
             )
 
             levels_raw = effort_raw.get("levels")
             if not isinstance(levels_raw, list) or not levels_raw:
                 raise RuntimeError(
-                    "Invalid typed payload in models."
+                    "Invalid typed payload in offerings."
                     f"{model_id}.capabilities.effort.levels: "
                     "must be a non-empty list of effort levels."
                 )
             levels = [str(level).strip().lower() for level in levels_raw if str(level)]
             if not levels:
                 raise RuntimeError(
-                    "Invalid typed payload in models."
+                    "Invalid typed payload in offerings."
                     f"{model_id}.capabilities.effort.levels: "
                     "must include at least one non-empty value."
                 )
@@ -456,7 +543,7 @@ class DataRegistry:
                 if level not in allowed_efforts:
                     allowed = ", ".join(sorted(allowed_efforts))
                     raise RuntimeError(
-                        "Invalid typed payload in models."
+                        "Invalid typed payload in offerings."
                         f"{model_id}.capabilities.effort.levels: "
                         f"unsupported level '{level}'. Allowed: {allowed}"
                     )
@@ -465,7 +552,7 @@ class DataRegistry:
             if web_mode not in allowed_web_modes:
                 allowed = ", ".join(sorted(allowed_web_modes))
                 raise RuntimeError(
-                    "Invalid typed payload in models."
+                    "Invalid typed payload in offerings."
                     f"{model_id}.capabilities.web_search.mode: "
                     f"unsupported mode '{web_mode}'. Allowed: {allowed}"
                 )
@@ -510,7 +597,7 @@ class DataRegistry:
                 existing = lookup.get(normalized)
                 if existing is not None and existing != model_id:
                     raise RuntimeError(
-                        "Duplicate model alias detected in models.toml: "
+                        "Duplicate offering alias detected in model offerings: "
                         f"'{alias}' is used by both '{existing}' and '{model_id}'."
                     )
                 lookup[normalized] = model_id

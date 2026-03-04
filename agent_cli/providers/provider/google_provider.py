@@ -14,7 +14,7 @@ import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.core.models.config_models import EffortLevel, normalize_effort
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
@@ -113,6 +113,16 @@ class GoogleProvider(BaseLLMProvider):
     @property
     def supports_web_search(self) -> bool:
         return True
+
+    def resolve_effective_effort(
+        self,
+        effort: str | EffortLevel | None,
+    ) -> EffortLevel:
+        """Google supports up to HIGH; map MAX down to HIGH."""
+        requested = normalize_effort(effort)
+        if requested == EffortLevel.MAX:
+            return EffortLevel.HIGH
+        return super().resolve_effective_effort(requested)
 
     # ── generate() ───────────────────────────────────────────────
 
@@ -384,6 +394,8 @@ class GoogleProvider(BaseLLMProvider):
             EffortLevel.LOW: types.ThinkingLevel.LOW,
             EffortLevel.MEDIUM: types.ThinkingLevel.MEDIUM,
             EffortLevel.HIGH: types.ThinkingLevel.HIGH,
+            # Google SDK currently tops out at HIGH; map MAX to highest available.
+            EffortLevel.MAX: types.ThinkingLevel.HIGH,
         }
         return mapping.get(normalized)
 

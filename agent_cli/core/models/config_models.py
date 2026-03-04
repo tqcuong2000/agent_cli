@@ -28,6 +28,7 @@ class EffortLevel(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    MAX = "max"
 
     @classmethod
     def _missing_(cls, value: object) -> "EffortLevel | None":
@@ -66,7 +67,6 @@ class ProviderConfig:
         str  # "openai" | "azure" | "anthropic" | "google" | "openai_compatible"
     )
     base_url: Optional[str] = None  # Required for openai_compatible
-    models: List[str] = field(default_factory=list)
     api_key_env: Optional[str] = None  # Custom env var name for API key
     default_model: Optional[str] = None
     supports_native_tools: bool = True
@@ -113,7 +113,6 @@ class ProviderSpec:
     name: str
     adapter_type: str
     base_url: Optional[str] = None
-    models: List[str] = field(default_factory=list)
     api_key_env: Optional[str] = None
     default_model: Optional[str] = None
     max_context_tokens: Optional[int] = None

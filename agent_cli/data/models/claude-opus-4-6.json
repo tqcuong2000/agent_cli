@@ -1,0 +1,29 @@
+{
+    "provider": "anthropic",
+    "api_model": "claude-opus-4-6",
+    "aliases": [
+        "claude-opus-4-6"
+    ],
+    "context_window": 200000,
+    "tokenizer": "cl200k_base",
+    "pricing_input": 2.5,
+    "pricing_output": 12.5,
+    "capabilities": {
+        "native_tools": {
+            "supported": true
+        },
+        "effort": {
+            "supported": true,
+            "levels": [
+                "low",
+                "medium",
+                "high"
+            ]
+        },
+        "web_search": {
+            "supported": true,
+            "mode": "provider_native",
+            "tool_type": "web_search_20260209"
+        }
+    }
+}

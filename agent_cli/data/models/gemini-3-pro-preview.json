@@ -1,0 +1,31 @@
+{
+  "provider": "google",
+  "api_model": "gemini-3-pro-preview",
+  "aliases": [
+    "google/gemini-3-pro-preview",
+    "google:gemini-3-pro-preview"
+  ],
+  "context_window": 1000000,
+  "tokenizer": "cl100k_base",
+  "pricing_input": 0.0,
+  "pricing_output": 0.0,
+  "capabilities": {
+    "native_tools": {
+      "supported": true
+    },
+    "effort": {
+      "supported": true,
+      "levels": [
+        "auto",
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "web_search": {
+      "supported": true,
+      "mode": "provider_native"
+    }
+  }
+}

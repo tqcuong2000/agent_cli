@@ -13,7 +13,7 @@ import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.core.models.config_models import EffortLevel
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (

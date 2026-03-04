@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from agent_cli.core import registry as registry_module
 from agent_cli.core.models.config_models import (
     CapabilityObservation,
     CapabilitySnapshot,
@@ -14,8 +16,7 @@ from agent_cli.core.models.config_models import (
     ModelSpec,
     ProviderConfig,
 )
-from agent_cli.data import DataRegistry
-from agent_cli.data import registry as registry_module
+from agent_cli.core.registry import DataRegistry
 
 
 @pytest.fixture
@@ -57,10 +58,6 @@ def test_builtin_providers(registry: DataRegistry) -> None:
     assert providers["openai"].adapter_type == "openai"
     assert providers["openai"].default_model == "gpt-4o"
 
-    providers["openai"].models.append("mutated")
-    fresh = registry.get_builtin_providers()
-    assert "mutated" not in fresh["openai"].models
-
 
 def test_typed_provider_specs(registry: DataRegistry) -> None:
     specs = registry.get_provider_specs()
@@ -73,6 +70,7 @@ def test_typed_provider_specs(registry: DataRegistry) -> None:
 def test_typed_model_specs_resolution_and_capabilities(registry: DataRegistry) -> None:
     specs = registry.get_model_specs()
     assert "gpt-4o" in specs
+    assert "openrouter-gpt-4.1-mini" in specs
     assert isinstance(specs["gpt-4o"], ModelSpec)
 
     resolved = registry.resolve_model_spec("openai/gpt-4o")
@@ -80,6 +78,12 @@ def test_typed_model_specs_resolution_and_capabilities(registry: DataRegistry) -
     assert resolved.model_id == "gpt-4o"
     assert resolved.provider == "openai"
     assert resolved.api_model == "gpt-4o"
+
+    openrouter_resolved = registry.resolve_model_spec("openrouter/openai/gpt-4.1-mini")
+    assert openrouter_resolved is not None
+    assert openrouter_resolved.model_id == "openrouter-gpt-4.1-mini"
+    assert openrouter_resolved.provider == "openrouter"
+    assert openrouter_resolved.api_model == "openai/gpt-4.1-mini"
 
     capabilities = registry.get_model_capabilities("gemini-2.5-flash-lite")
     assert isinstance(capabilities, CapabilitySpec)
@@ -192,43 +196,68 @@ def test_prompt_template_loading_and_missing_file(registry: DataRegistry) -> Non
         registry.get_prompt_template("does_not_exist")
 
 
-def test_constructor_raises_runtime_error_for_missing_toml(
+def test_constructor_raises_runtime_error_for_missing_json(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
 
-    with pytest.raises(RuntimeError, match="models.toml"):
+    with pytest.raises(RuntimeError, match="models.json"):
         DataRegistry()
 
 
-def test_constructor_raises_runtime_error_for_malformed_toml(
+def test_constructor_raises_runtime_error_for_malformed_json(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "models.toml").write_text("not = [valid", encoding="utf-8")
+    (tmp_path / "models.json").write_text("{ invalid", encoding="utf-8")
     monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
 
-    with pytest.raises(RuntimeError, match="models.toml"):
+    with pytest.raises(RuntimeError, match="models.json"):
         DataRegistry()
 
 
 def _write_required_registry_files(root: Path) -> None:
-    (root / "providers.toml").write_text(
-        '[providers.openai]\nadapter_type = "openai"\nmodels = ["m1", "m2"]\ndefault_model = "m1"\n',
+    (root / "models.json").write_text(
+        json.dumps(
+            {
+                "internal_models": {
+                    "routing_model": "m1",
+                    "summarization_model": "m1",
+                }
+            }
+        ),
         encoding="utf-8",
     )
-    (root / "memory.toml").write_text(
-        "[context_budget]\ncompaction_threshold = 0.8\n",
+    (root / "models").mkdir(parents=True, exist_ok=True)
+    (root / "providers.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "openai": {
+                        "adapter_type": "openai",
+                        "default_model": "m1",
+                    }
+                }
+            }
+        ),
         encoding="utf-8",
     )
-    (root / "tools.toml").write_text(
-        "[shell]\nsafe_command_patterns = []\n",
+    (root / "memory.json").write_text(
+        json.dumps({"context_budget": {"compaction_threshold": 0.8}}),
         encoding="utf-8",
     )
-    (root / "schema.toml").write_text(
-        "[title]\nmin_words = 2\nmax_words = 15\n\n"
-        "[validation]\nmax_consecutive_schema_errors = 3\n",
+    (root / "tools.json").write_text(
+        json.dumps({"shell": {"safe_command_patterns": []}}),
+        encoding="utf-8",
+    )
+    (root / "schema.json").write_text(
+        json.dumps(
+            {
+                "title": {"min_words": 2, "max_words": 15},
+                "validation": {"max_consecutive_schema_errors": 3},
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -238,25 +267,48 @@ def test_typed_model_validation_rejects_duplicate_alias(
     tmp_path: Path,
 ) -> None:
     _write_required_registry_files(tmp_path)
-    (tmp_path / "models.toml").write_text(
-        '[models."m1"]\nprovider = "openai"\napi_model = "m1"\naliases = ["a"]\n'
-        'context_window = 1000\ntokenizer = "cl100k_base"\npricing_input = 0.0\npricing_output = 0.0\n'
-        '[models."m1".capabilities]\n'
-        "native_tools = { supported = true }\n"
-        'effort = { supported = false, levels = ["auto"] }\n'
-        'web_search = { supported = false, mode = "none" }\n\n'
-        '[models."m2"]\nprovider = "openai"\napi_model = "m2"\naliases = ["a"]\n'
-        'context_window = 1000\ntokenizer = "cl100k_base"\npricing_input = 0.0\npricing_output = 0.0\n'
-        '[models."m2".capabilities]\n'
-        "native_tools = { supported = true }\n"
-        'effort = { supported = false, levels = ["auto"] }\n'
-        'web_search = { supported = false, mode = "none" }\n',
+    (tmp_path / "models" / "m1.json").write_text(
+        json.dumps(
+            {
+                "provider": "openai",
+                "api_model": "m1",
+                "aliases": ["a"],
+                "context_window": 1000,
+                "tokenizer": "cl100k_base",
+                "pricing_input": 0.0,
+                "pricing_output": 0.0,
+                "capabilities": {
+                    "native_tools": {"supported": True},
+                    "effort": {"supported": False, "levels": ["auto"]},
+                    "web_search": {"supported": False, "mode": "none"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "models" / "m2.json").write_text(
+        json.dumps(
+            {
+                "provider": "openai",
+                "api_model": "m2",
+                "aliases": ["a"],
+                "context_window": 1000,
+                "tokenizer": "cl100k_base",
+                "pricing_input": 0.0,
+                "pricing_output": 0.0,
+                "capabilities": {
+                    "native_tools": {"supported": True},
+                    "effort": {"supported": False, "levels": ["auto"]},
+                    "web_search": {"supported": False, "mode": "none"},
+                },
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
 
     registry = DataRegistry()
-    with pytest.raises(RuntimeError, match="Duplicate model alias"):
+    with pytest.raises(RuntimeError, match="Duplicate offering alias"):
         registry.get_model_specs()
 
 
@@ -265,9 +317,17 @@ def test_typed_model_validation_rejects_missing_capability_block(
     tmp_path: Path,
 ) -> None:
     _write_required_registry_files(tmp_path)
-    (tmp_path / "models.toml").write_text(
-        '[models."m1"]\nprovider = "openai"\napi_model = "m1"\n'
-        'context_window = 1000\ntokenizer = "cl100k_base"\npricing_input = 0.0\npricing_output = 0.0\n',
+    (tmp_path / "models" / "m1.json").write_text(
+        json.dumps(
+            {
+                "provider": "openai",
+                "api_model": "m1",
+                "context_window": 1000,
+                "tokenizer": "cl100k_base",
+                "pricing_input": 0.0,
+                "pricing_output": 0.0,
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
@@ -282,13 +342,22 @@ def test_typed_model_validation_rejects_invalid_web_search_mode(
     tmp_path: Path,
 ) -> None:
     _write_required_registry_files(tmp_path)
-    (tmp_path / "models.toml").write_text(
-        '[models."m1"]\nprovider = "openai"\napi_model = "m1"\n'
-        'context_window = 1000\ntokenizer = "cl100k_base"\npricing_input = 0.0\npricing_output = 0.0\n'
-        '[models."m1".capabilities]\n'
-        "native_tools = { supported = true }\n"
-        'effort = { supported = false, levels = ["auto"] }\n'
-        'web_search = { supported = true, mode = "invalid_mode" }\n',
+    (tmp_path / "models" / "m1.json").write_text(
+        json.dumps(
+            {
+                "provider": "openai",
+                "api_model": "m1",
+                "context_window": 1000,
+                "tokenizer": "cl100k_base",
+                "pricing_input": 0.0,
+                "pricing_output": 0.0,
+                "capabilities": {
+                    "native_tools": {"supported": True},
+                    "effort": {"supported": False, "levels": ["auto"]},
+                    "web_search": {"supported": True, "mode": "invalid_mode"},
+                },
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
@@ -296,6 +365,58 @@ def test_typed_model_validation_rejects_invalid_web_search_mode(
     registry = DataRegistry()
     with pytest.raises(RuntimeError, match="unsupported mode"):
         registry.get_model_specs()
+
+
+def test_typed_model_validation_supports_grouped_offerings_in_one_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_required_registry_files(tmp_path)
+    (tmp_path / "models" / "grouped.json").write_text(
+        json.dumps(
+            {
+                "offerings": {
+                    "m1": {
+                        "provider": "openai",
+                        "api_model": "m1",
+                        "aliases": ["a1"],
+                        "context_window": 1000,
+                        "tokenizer": "cl100k_base",
+                        "pricing_input": 0.0,
+                        "pricing_output": 0.0,
+                        "capabilities": {
+                            "native_tools": {"supported": True},
+                            "effort": {"supported": False, "levels": ["auto"]},
+                            "web_search": {"supported": False, "mode": "none"},
+                        },
+                    },
+                    "m2": {
+                        "provider": "openai",
+                        "api_model": "m2",
+                        "aliases": ["a2"],
+                        "context_window": 2000,
+                        "tokenizer": "cl100k_base",
+                        "pricing_input": 0.0,
+                        "pricing_output": 0.0,
+                        "capabilities": {
+                            "native_tools": {"supported": True},
+                            "effort": {"supported": False, "levels": ["auto"]},
+                            "web_search": {"supported": False, "mode": "none"},
+                        },
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
+
+    registry = DataRegistry()
+    specs = registry.get_model_specs()
+    assert "m1" in specs
+    assert "m2" in specs
+    assert registry.resolve_model_spec("a1") is not None
+    assert registry.resolve_model_spec("a2") is not None
 
 
 def test_capability_snapshot_defaults_to_declared_when_no_observed(

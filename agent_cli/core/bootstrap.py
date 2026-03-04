@@ -39,7 +39,7 @@ from agent_cli.core.file_tracker import FileChangeTracker
 from agent_cli.core.logging import configure_observability
 from agent_cli.core.orchestrator import Orchestrator
 from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.memory.summarizer import SummarizingMemoryManager
 from agent_cli.providers.capability_probe import CapabilityProbeService
 from agent_cli.providers.manager import ProviderManager

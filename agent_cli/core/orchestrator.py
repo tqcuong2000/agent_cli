@@ -18,9 +18,10 @@ task lifecycle:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, cast
 
 from agent_cli.agent.base import BaseAgent
 from agent_cli.agent.registry import AgentRegistry
@@ -49,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 # ── Type alias for slash-command handlers ────────────────────────────
 
-CommandHandler = Callable[[str], Coroutine[Any, Any, Optional[str]]]
+CommandHandler = Callable[[str], Awaitable[Optional[str]]]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -285,7 +286,12 @@ class Orchestrator:
         handler = self._commands.get(name)
         if handler:
             logger.info("Executing command: /%s", name)
-            return await handler(text)
+            maybe_awaitable = handler(text)
+            if not inspect.isawaitable(maybe_awaitable):
+                raise TypeError(
+                    f"Command handler '/{name}' returned a non-awaitable result."
+                )
+            return await cast(Awaitable[Optional[str]], maybe_awaitable)
 
         logger.warning("Unknown command: /%s", name)
         return f"Unknown command: /{name}. Type /help for available commands."
@@ -620,7 +626,12 @@ class Orchestrator:
         summarize = getattr(agent.memory, "_summarize_middle_messages", None)
         if callable(summarize):
             try:
-                summary = await summarize(filtered)
+                maybe_awaitable = summarize(filtered)
+                summary = (
+                    await cast(Awaitable[Any], maybe_awaitable)
+                    if inspect.isawaitable(maybe_awaitable)
+                    else maybe_awaitable
+                )
                 if summary:
                     return str(summary).strip()
             except Exception:

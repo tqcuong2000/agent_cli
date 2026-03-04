@@ -40,7 +40,7 @@ from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.events.events import AgentMessageEvent
 from agent_cli.core.models.config_models import EffortLevel, normalize_effort
 from agent_cli.core.state.state_manager import AbstractStateManager
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider
 from agent_cli.providers.models import LLMResponse, ProviderRequestOptions
 from agent_cli.tools.executor import ToolExecutor

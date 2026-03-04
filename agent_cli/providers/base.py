@@ -29,7 +29,7 @@ from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.logging import get_observability
 from agent_cli.core.models.config_models import EffortLevel, normalize_effort
 from agent_cli.core.tracing import start_span
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.cost import estimate_cost
 from agent_cli.providers.models import LLMResponse, ProviderRequestOptions, StreamChunk
 

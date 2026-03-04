@@ -12,7 +12,7 @@ import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.core.models.config_models import EffortLevel
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
@@ -131,7 +131,20 @@ class AnthropicProvider(BaseLLMProvider):
         if request_tools:
             kwargs["tools"] = request_tools
 
-        response = await self.client.messages.create(**kwargs)
+        try:
+            response = await self.client.messages.create(**kwargs)
+        except Exception as exc:
+            # Some Anthropic deployments reject provider-managed web search
+            # despite static capability metadata. Retry once without it.
+            if not self._should_retry_without_web_search(exc, request_tools):
+                raise
+            logger.warning(
+                "Anthropic web_search tool rejected by model '%s'; "
+                "retrying request without provider-managed web search.",
+                self.model_name,
+            )
+            kwargs = self._without_provider_web_search(kwargs)
+            response = await self.client.messages.create(**kwargs)
         return self._normalize(response)
 
     def _normalize(self, response: Any) -> LLMResponse:
@@ -286,6 +299,18 @@ class AnthropicProvider(BaseLLMProvider):
     def _build_web_search_tool(self) -> Dict[str, Any]:
         registry = self._data_registry or DataRegistry()
         defaults = registry.get_web_search_provider_defaults("anthropic")
+
+        # Resolve tool_type: Model-specific > Provider-default > Hardcoded Fallback (2026)
+        tool_type = "web_search_20260209"
+
+        # 1. Try model capabilities
+        caps = registry.get_model_capabilities(self.model_name)
+        if caps and caps.web_search and caps.web_search.tool_type:
+            tool_type = caps.web_search.tool_type
+        # 2. Try provider defaults (merged from tools.json + providers.json)
+        elif defaults.get("tool_type"):
+            tool_type = str(defaults["tool_type"]).strip()
+
         max_uses_raw = defaults.get("max_uses", 10)
         try:
             max_uses = max(int(max_uses_raw), 1)
@@ -293,16 +318,77 @@ class AnthropicProvider(BaseLLMProvider):
             max_uses = 10
 
         tool: Dict[str, Any] = {
-            "type": "web_search_20250305",
+            "type": tool_type,
             "name": "web_search",
             "max_uses": max_uses,
         }
+        # Anthropic Claude 4.5 family expects web_search callers constrained
+        # to "direct" for this API/tool variant.
+        allowed_callers_raw = defaults.get("allowed_callers", ["direct"])
+        if isinstance(allowed_callers_raw, list):
+            allowed_callers = [
+                str(caller).strip()
+                for caller in allowed_callers_raw
+                if str(caller).strip()
+            ]
+            if allowed_callers:
+                tool["allowed_callers"] = allowed_callers
         allowed_domains = defaults.get("allowed_domains", [])
         if isinstance(allowed_domains, list):
             normalized = [str(domain).strip() for domain in allowed_domains if domain]
             if normalized:
                 tool["allowed_domains"] = normalized
         return tool
+
+    @staticmethod
+    def _without_provider_web_search(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Return request kwargs with provider-managed web search tools removed."""
+        cleaned = dict(kwargs)
+        tools = cleaned.get("tools")
+        if not isinstance(tools, list):
+            return cleaned
+
+        filtered = [
+            tool
+            for tool in tools
+            if not AnthropicProvider._is_web_search_tool_definition(tool)
+        ]
+        if filtered:
+            cleaned["tools"] = filtered
+        else:
+            cleaned.pop("tools", None)
+        return cleaned
+
+    @staticmethod
+    def _is_web_search_tool_definition(tool: Any) -> bool:
+        if not isinstance(tool, dict):
+            return False
+        tool_type = str(tool.get("type", "")).strip().lower()
+        tool_name = str(tool.get("name", "")).strip().lower()
+        return tool_name == "web_search" or tool_type.startswith("web_search_")
+
+    @classmethod
+    def _should_retry_without_web_search(
+        cls,
+        error: Exception,
+        request_tools: List[Dict[str, Any]],
+    ) -> bool:
+        if not request_tools:
+            return False
+        if not any(cls._is_web_search_tool_definition(tool) for tool in request_tools):
+            return False
+
+        # Retry only for known web-search contract rejections.
+        message = str(error).lower()
+        return (
+            "invalid_request_error" in message
+            and "web_search" in message
+            and (
+                "allowed_callers" in message
+                or "field required" in message
+                or "tools." in message
+            )
+        )
 
     @staticmethod
     def _is_provider_managed_tool(tool_name: Any) -> bool:

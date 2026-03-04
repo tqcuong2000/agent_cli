@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider
 from agent_cli.providers.capability_probe import CapabilityProbeService
 from agent_cli.providers.models import LLMResponse, ProviderRequestOptions, StreamChunk

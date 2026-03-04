@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.models import ProviderRequestOptions, ToolCallMode
 from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
 
@@ -151,7 +152,70 @@ async def test_anthropic_generate_adds_data_driven_web_search_tool():
 
     call_kwargs = provider.client.messages.create.await_args.kwargs
     tools = call_kwargs["tools"]
-    web = [tool for tool in tools if tool.get("type") == "web_search_20250305"]
+    expected_tool_type = "web_search_20260209"
+    caps = DataRegistry().get_model_capabilities(provider.model_name)
+    if caps and caps.web_search and caps.web_search.tool_type:
+        expected_tool_type = caps.web_search.tool_type
+    web = [tool for tool in tools if tool.get("type") == expected_tool_type]
     assert len(web) == 1
     assert web[0]["max_uses"] == 10
+    assert web[0]["allowed_callers"] == ["direct"]
     assert "allowed_domains" not in web[0]
+
+
+@pytest.mark.asyncio
+async def test_anthropic_generate_retries_without_web_search_on_rejection():
+    provider = get_mocked_anthropic()
+
+    mock_response = MagicMock()
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = "fallback ok"
+    mock_response.content = [text_block]
+    mock_response.stop_reason = "end_turn"
+    mock_response.usage.input_tokens = 1
+    mock_response.usage.output_tokens = 1
+
+    provider.client.messages.create.side_effect = [
+        Exception(
+            "Error code: 400 - {'type':'error','error':{'type':'invalid_request_error',"
+            "'message':'Invalid allowed_callers for tools: web_search'}}"
+        ),
+        mock_response,
+    ]
+
+    res = await provider.generate(
+        [{"role": "user", "content": "hello"}],
+        request_options=ProviderRequestOptions(provider_managed_tools=["web_search"]),
+    )
+
+    assert res.text_content == "fallback ok"
+    assert provider.client.messages.create.await_count == 2
+
+    first_call_tools = provider.client.messages.create.await_args_list[0].kwargs[
+        "tools"
+    ]
+    assert any(tool.get("name") == "web_search" for tool in first_call_tools)
+
+    second_call_kwargs = provider.client.messages.create.await_args_list[1].kwargs
+    second_tools = second_call_kwargs.get("tools", [])
+    assert all(tool.get("name") != "web_search" for tool in second_tools)
+    assert all(
+        not str(tool.get("type", "")).startswith("web_search_") for tool in second_tools
+    )
+
+
+@pytest.mark.asyncio
+async def test_anthropic_generate_does_not_retry_for_unrelated_errors():
+    provider = get_mocked_anthropic()
+    provider.client.messages.create.side_effect = Exception("network timeout")
+
+    with pytest.raises(Exception, match="network timeout"):
+        await provider.generate(
+            [{"role": "user", "content": "hello"}],
+            request_options=ProviderRequestOptions(
+                provider_managed_tools=["web_search"]
+            ),
+        )
+
+    assert provider.client.messages.create.await_count == 1

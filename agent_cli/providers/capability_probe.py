@@ -10,7 +10,7 @@ from agent_cli.core.models.config_models import (
     CapabilityObservation,
     CapabilitySnapshot,
 )
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider
 
 if TYPE_CHECKING:

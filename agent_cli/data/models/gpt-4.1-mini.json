@@ -1,0 +1,58 @@
+{
+  "offerings": {
+    "gpt-4.1-mini": {
+      "provider": "openai",
+      "api_model": "gpt-4.1-mini",
+      "aliases": [
+        "openai:gpt-4.1-mini"
+      ],
+      "context_window": 128000,
+      "tokenizer": "o200k_base",
+      "pricing_input": 0.0,
+      "pricing_output": 0.0,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": [
+            "auto"
+          ]
+        },
+        "web_search": {
+          "supported": true,
+          "mode": "responses_api",
+          "tool_type": "web_search_preview"
+        }
+      }
+    },
+    "openrouter-gpt-4.1-mini": {
+      "provider": "openrouter",
+      "api_model": "openai/gpt-4.1-mini",
+      "aliases": [
+        "openrouter/openai/gpt-4.1-mini",
+        "openrouter:openai/gpt-4.1-mini"
+      ],
+      "context_window": 128000,
+      "tokenizer": "o200k_base",
+      "pricing_input": 0.0,
+      "pricing_output": 0.0,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": [
+            "auto"
+          ]
+        },
+        "web_search": {
+          "supported": false,
+          "mode": "none"
+        }
+      }
+    }
+  }
+}

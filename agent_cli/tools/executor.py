@@ -36,7 +36,7 @@ from agent_cli.core.interaction import (
 )
 from agent_cli.core.logging import get_observability
 from agent_cli.core.tracing import start_span
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.tools.output_formatter import ToolOutputFormatter
 from agent_cli.tools.registry import ToolRegistry
 from agent_cli.tools.shell_tool import is_safe_command

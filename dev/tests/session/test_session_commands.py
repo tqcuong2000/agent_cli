@@ -16,7 +16,7 @@ from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AsyncEventBus
 from agent_cli.core.events.events import SettingsChangedEvent, TaskResultEvent
 from agent_cli.core.state.state_manager import TaskStateManager
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.session.file_store import FileSessionManager
 
 

@@ -17,7 +17,7 @@ from agent_cli.core.events.event_bus import AsyncEventBus, BusState
 from agent_cli.core.events.events import StateChangeEvent, UserRequestEvent
 from agent_cli.core.models.config_models import ProtocolMode
 from agent_cli.core.state.state_models import TaskState
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.manager import ProviderManager
 from agent_cli.workspace.sandbox import SandboxWorkspaceManager
 

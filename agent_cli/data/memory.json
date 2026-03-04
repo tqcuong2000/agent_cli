@@ -1,0 +1,41 @@
+{
+  "context_budget": {
+    "system_prompt_pct": 0.15,
+    "summary_pct": 0.1,
+    "response_reserve_pct": 0.2,
+    "compaction_threshold": 0.8
+  },
+  "retry": {
+    "llm_max_retries": 5,
+    "llm_retry_base_delay": 1.0,
+    "llm_retry_max_delay": 30.0
+  },
+  "session": {
+    "auto_save_interval_seconds": 300.0
+  },
+  "summarizer": {
+    "keep_recent_turns": 5,
+    "summary_budget_tokens": 2000,
+    "summary_response_tokens": 600,
+    "summary_max_words": 250,
+    "min_summary_length": 240,
+    "summary_truncation_factor": 0.8,
+    "heuristic_limits": {
+      "max_goals": 4,
+      "max_decisions": 4,
+      "max_actions": 6,
+      "max_tools": 6,
+      "max_files": 8,
+      "max_open_items": 4,
+      "condensed_line_max_chars": 140,
+      "single_line_max_chars": 500
+    }
+  },
+  "token_counter": {
+    "heuristic_chars_per_token": 4.0
+  },
+  "stuck_detector": {
+    "threshold": 3,
+    "history_cap": 10
+  }
+}

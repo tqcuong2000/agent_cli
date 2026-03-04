@@ -14,7 +14,7 @@ from threading import Lock
 from typing import Any, Dict, Optional
 
 from agent_cli.core.tracing import get_trace_fields
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.cost import estimate_cost
 
 SENSITIVE_PATTERNS = [

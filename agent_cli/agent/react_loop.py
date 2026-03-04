@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, Dict, List
 
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)

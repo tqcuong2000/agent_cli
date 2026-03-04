@@ -1,47 +1,48 @@
-"""Structural integrity checks for data-driven TOML and prompt files."""
+"""Structural integrity checks for data-driven config and prompt files."""
 
 from __future__ import annotations
 
+import json
 from importlib import resources
 from typing import Any
 
-import tomllib
 
-
-def _load_toml(filename: str) -> dict[str, Any]:
+def _load_json(filename: str) -> dict[str, Any]:
     root = resources.files("agent_cli.data")
-    with root.joinpath(filename).open("rb") as handle:
-        loaded = tomllib.load(handle)
+    with root.joinpath(filename).open("r", encoding="utf-8") as handle:
+        loaded = json.load(handle)
     assert isinstance(loaded, dict)
     return loaded
 
 
-def test_models_toml_structure() -> None:
-    data = _load_toml("models.toml")
+def test_models_json_structure() -> None:
+    data = _load_json("models.json")
 
     assert set(data["internal_models"].keys()) == {
         "routing_model",
         "summarization_model",
     }
-    assert "models" in data
-    gpt_4o = data["models"]["gpt-4o"]
-    assert gpt_4o["provider"] == "openai"
-    assert gpt_4o["api_model"] == "gpt-4o"
-    assert isinstance(gpt_4o["aliases"], list)
-    assert gpt_4o["context_window"] == 128_000
-    assert gpt_4o["tokenizer"] == "o200k_base"
-    assert gpt_4o["pricing_input"] == 2.5
-    assert gpt_4o["pricing_output"] == 10.0
+    models_root = resources.files("agent_cli.data").joinpath("models")
+    gpt_4o = _load_json("models/gpt-4o.json")
+    assert models_root.joinpath("gpt-4o.json").exists()
+    offering = gpt_4o["offerings"]["gpt-4o"] if "offerings" in gpt_4o else gpt_4o
+    assert offering["provider"] == "openai"
+    assert offering["api_model"] == "gpt-4o"
+    assert isinstance(offering["aliases"], list)
+    assert offering["context_window"] == 128000
+    assert offering["tokenizer"] == "o200k_base"
+    assert offering["pricing_input"] == 2.5
+    assert offering["pricing_output"] == 10.0
 
-    capabilities = gpt_4o["capabilities"]
+    capabilities = offering["capabilities"]
     assert capabilities["native_tools"]["supported"] is True
     assert isinstance(capabilities["effort"]["levels"], list)
     assert "supported" in capabilities["web_search"]
     assert "mode" in capabilities["web_search"]
 
 
-def test_providers_toml_structure() -> None:
-    data = _load_toml("providers.toml")
+def test_providers_json_structure() -> None:
+    data = _load_json("providers.json")
     providers = data["providers"]
     for name in (
         "openai",
@@ -53,12 +54,11 @@ def test_providers_toml_structure() -> None:
     ):
         assert name in providers
         assert "adapter_type" in providers[name]
-        assert "models" in providers[name]
         assert "default_model" in providers[name]
 
 
-def test_tools_toml_structure() -> None:
-    data = _load_toml("tools.toml")
+def test_tools_json_structure() -> None:
+    data = _load_json("tools.json")
 
     shell = data["shell"]
     assert isinstance(shell["default_timeout"], int)
@@ -87,8 +87,8 @@ def test_tools_toml_structure() -> None:
     assert workspace["index_max_files"] == 5000
 
 
-def test_memory_toml_structure() -> None:
-    data = _load_toml("memory.toml")
+def test_memory_json_structure() -> None:
+    data = _load_json("memory.json")
 
     context_budget = data["context_budget"]
     assert set(context_budget.keys()) == {
@@ -139,8 +139,8 @@ def test_memory_toml_structure() -> None:
     assert stuck_detector["history_cap"] == 10
 
 
-def test_schema_toml_structure() -> None:
-    data = _load_toml("schema.toml")
+def test_schema_json_structure() -> None:
+    data = _load_json("schema.json")
     assert set(data["title"].keys()) == {"min_words", "max_words"}
     assert data["title"]["min_words"] == 2
     assert data["title"]["max_words"] == 15

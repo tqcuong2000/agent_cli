@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 
 
 @dataclass(frozen=True)

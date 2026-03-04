@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 
 
 def estimate_cost(

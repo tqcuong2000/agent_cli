@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 
 # ══════════════════════════════════════════════════════════════════════
 # Output Formatter

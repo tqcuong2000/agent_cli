@@ -14,7 +14,7 @@ from agent_cli.agent.schema import SchemaValidator
 from agent_cli.core.error_handler.errors import MaxIterationsExceededError
 from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
 from agent_cli.core.state.state_manager import TaskState, TaskStateManager
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,

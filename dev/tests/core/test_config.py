@@ -109,13 +109,13 @@ def test_effort_helpers_cover_all_enum_values():
 def test_deep_merge():
     """Verify nested dictionaries merge correctly."""
     base = {
-        "providers": {"openai": {"models": ["gpt-4"]}},
+        "providers": {"openai": {"default_model": "gpt-4"}},
         "log_level": "INFO",
     }
     override = {
         "providers": {
             "openai": {"adapter_type": "openai"},
-            "anthropic": {"models": ["claude"]},
+            "anthropic": {"default_model": "claude"},
         },
         "log_level": "DEBUG",
     }
@@ -125,7 +125,7 @@ def test_deep_merge():
     assert merged["log_level"] == "DEBUG"
     assert "openai" in merged["providers"]
     # Dicts inside should be merged, not replaced completely if they can be merged
-    assert merged["providers"]["openai"]["models"] == ["gpt-4"]
+    assert merged["providers"]["openai"]["default_model"] == "gpt-4"
     assert merged["providers"]["openai"]["adapter_type"] == "openai"
     assert "anthropic" in merged["providers"]
 
@@ -233,7 +233,6 @@ def test_load_providers_preserves_builtin_native_tools_when_omitted():
         "providers": {
             "google": {
                 "adapter_type": "google",
-                "models": ["gemini-3-flash-preview"],
             }
         }
     }
@@ -250,7 +249,6 @@ def test_load_providers_custom_provider_defaults_native_tools_false():
             "local_llama": {
                 "adapter_type": "openai_compatible",
                 "base_url": "http://localhost:8080",
-                "models": ["llama-3"],
             }
         }
     }

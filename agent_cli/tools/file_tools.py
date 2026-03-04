@@ -17,7 +17,7 @@ from typing import Any, Optional, Type
 from pydantic import BaseModel, Field
 
 from agent_cli.core.error_handler.errors import ToolExecutionError
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.workspace.base import BaseWorkspaceManager
 

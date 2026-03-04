@@ -27,7 +27,7 @@ from agent_cli.commands.base import (
     command,
 )
 from agent_cli.commands.parser import CommandParser
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 
 # ── Mock dependencies ────────────────────────────────────────────────
 

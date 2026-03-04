@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.providers.models import ProviderRequestOptions, ToolCallMode
 from agent_cli.providers.provider.azure_provider import AzureProvider
 from agent_cli.providers.provider.openai_provider import OpenAIProvider

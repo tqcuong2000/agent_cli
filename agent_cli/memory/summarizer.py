@@ -8,7 +8,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from agent_cli.agent.memory import WorkingMemoryManager
-from agent_cli.data import DataRegistry
+from agent_cli.core.registry import DataRegistry
 from agent_cli.memory.token_counter import HeuristicTokenCounter
 
 logger = logging.getLogger(__name__)

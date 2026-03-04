@@ -29,7 +29,6 @@ def test_manager_creates_from_config():
         "local_vllm": {
             "adapter_type": "openai_compatible",
             "base_url": "http://localhost:8000/v1",
-            "models": ["llama-3-8b-instruct", "mistral-large"],
             "supports_native_tools": True,
         }
     }
@@ -39,7 +38,6 @@ def test_manager_creates_from_config():
     config = manager._provider_configs["local_vllm"]
     assert config.adapter_type == "openai_compatible"
     assert config.base_url == "http://localhost:8000/v1"
-    assert "llama-3-8b-instruct" in config.models
 
 
 def test_manager_caching_behavior():
@@ -64,7 +62,6 @@ def test_manager_returns_token_counters_by_provider():
         "local_vllm": {
             "adapter_type": "openai_compatible",
             "base_url": "http://localhost:8000/v1",
-            "models": ["llama-3-8b-instruct"],
             "supports_native_tools": True,
         }
     }
@@ -90,7 +87,6 @@ def test_manager_token_budget_uses_provider_override():
     settings.providers = {
         "openai": {
             "adapter_type": "openai",
-            "models": ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini"],
             "max_context_tokens": 42_000,
         }
     }
@@ -125,3 +121,36 @@ def test_manager_token_counter_uses_model_registry_provider() -> None:
 
     counter = manager.get_token_counter("openai:gpt-4o")
     assert isinstance(counter, TiktokenCounter)
+
+
+def test_manager_api_key_env_falls_back_to_settings_alias_values() -> None:
+    settings = AgentSettings(anthropic_api_key="sk-ant-from-settings")
+    settings.providers = {
+        "anthropic": {
+            "adapter_type": "anthropic",
+            "api_key_env": "ANTHROPIC_API_KEY",
+        }
+    }
+
+    manager = ProviderManager(settings)
+    cfg = manager._provider_configs["anthropic"]
+
+    resolved = manager._resolve_api_key("anthropic", cfg)
+    assert resolved == "sk-ant-from-settings"
+
+
+def test_manager_api_key_env_normalizes_wrapped_quotes(monkeypatch) -> None:
+    settings = AgentSettings()
+    settings.providers = {
+        "anthropic": {
+            "adapter_type": "anthropic",
+            "api_key_env": "ANTHROPIC_API_KEY",
+        }
+    }
+    monkeypatch.setenv("ANTHROPIC_API_KEY", '  "sk-ant-quoted"  ')
+
+    manager = ProviderManager(settings)
+    cfg = manager._provider_configs["anthropic"]
+
+    resolved = manager._resolve_api_key("anthropic", cfg)
+    assert resolved == "sk-ant-quoted"
