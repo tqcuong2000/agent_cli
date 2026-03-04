@@ -34,6 +34,9 @@ class SessionAgentRegistry:
         self._active_name: Optional[str] = None
 
     def add(self, agent: BaseAgent, *, activate: bool = False) -> None:
+        if not hasattr(agent, "name") or not str(getattr(agent, "name", "")).strip():
+            raise ValueError("Agent must have a non-empty 'name' attribute.")
+
         if agent.name in self._agents:
             raise ValueError(f"Agent '{agent.name}' is already in this session.")
 

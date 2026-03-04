@@ -1,5 +1,9 @@
 """Unit tests for the ProviderManager factory."""
 
+from types import MappingProxyType, SimpleNamespace
+
+import pytest
+
 from agent_cli.core.config import AgentSettings
 from agent_cli.memory.token_counter import (
     AnthropicTokenCounter,
@@ -7,7 +11,8 @@ from agent_cli.memory.token_counter import (
     HeuristicTokenCounter,
     TiktokenCounter,
 )
-from agent_cli.providers.manager import ProviderManager
+import agent_cli.providers.manager as manager_module
+from agent_cli.providers.manager import ADAPTER_TYPES, ProviderManager
 
 
 def test_manager_rejects_unknown_models_without_inference() -> None:
@@ -45,14 +50,24 @@ def test_manager_caching_behavior():
     settings = AgentSettings(openai_api_key="sk-test")
     manager = ProviderManager(settings)
 
-    p1 = manager.get_provider("gpt-4o")
-    p2 = manager.get_provider("gpt-4o")
+    sentinel = SimpleNamespace(provider_name="stub")
+    calls: list[str] = []
+
+    def _fake_resolve(model_name: str):
+        calls.append(model_name)
+        return sentinel
+
+    manager._resolve_provider = _fake_resolve  # type: ignore[method-assign]
+    p1 = manager.get_provider("arbitrary-model")
+    p2 = manager.get_provider("arbitrary-model")
 
     # Should be the exact same object reference
+    assert p1 is sentinel
     assert p1 is p2
+    assert calls == ["arbitrary-model"]
 
 
-def test_manager_returns_token_counters_by_provider():
+def test_manager_returns_token_counters_by_provider(monkeypatch: pytest.MonkeyPatch):
     settings = AgentSettings(
         openai_api_key="sk-test",
         anthropic_api_key="sk-ant",
@@ -65,24 +80,50 @@ def test_manager_returns_token_counters_by_provider():
             "supports_native_tools": True,
         }
     }
+    settings.providers.update(
+        {
+            "openai": {"adapter_type": "openai"},
+            "azure": {"adapter_type": "azure"},
+            "anthropic": {"adapter_type": "anthropic"},
+            "google": {"adapter_type": "google"},
+        }
+    )
     manager = ProviderManager(settings)
 
-    assert isinstance(manager.get_token_counter("gpt-4o"), TiktokenCounter)
+    model_specs = {
+        "openai-model": SimpleNamespace(provider="openai"),
+        "azure-model": SimpleNamespace(provider="azure"),
+        "anthropic-model": SimpleNamespace(provider="anthropic"),
+        "google-model": SimpleNamespace(provider="google"),
+        "local-model": SimpleNamespace(provider="local_vllm"),
+    }
+    monkeypatch.setattr(
+        type(manager._data_registry),
+        "resolve_model_spec",
+        lambda self, model: model_specs.get(model),
+    )
+
+    assert isinstance(manager.get_token_counter("openai-model"), TiktokenCounter)
     assert isinstance(
-        manager.get_token_counter("azure/gpt-4o-deployment"), HeuristicTokenCounter
+        manager.get_token_counter("azure-model"),
+        TiktokenCounter,
     )
     assert isinstance(
-        manager.get_token_counter("claude-3-5-sonnet-20241022"),
+        manager.get_token_counter("anthropic-model"),
         AnthropicTokenCounter,
     )
-    assert isinstance(manager.get_token_counter("gemini-2.5-flash"), GeminiTokenCounter)
+    assert isinstance(manager.get_token_counter("google-model"), GeminiTokenCounter)
     assert isinstance(
-        manager.get_token_counter("llama-3-8b-instruct"),
+        manager.get_token_counter("local-model"),
+        HeuristicTokenCounter,
+    )
+    assert isinstance(
+        manager.get_token_counter("unknown-model"),
         HeuristicTokenCounter,
     )
 
 
-def test_manager_token_budget_uses_provider_override():
+def test_manager_token_budget_uses_provider_override(monkeypatch: pytest.MonkeyPatch):
     settings = AgentSettings()
     settings.providers = {
         "openai": {
@@ -91,9 +132,18 @@ def test_manager_token_budget_uses_provider_override():
         }
     }
     manager = ProviderManager(settings)
+    monkeypatch.setattr(
+        type(manager._data_registry),
+        "resolve_model_spec",
+        lambda self, _: SimpleNamespace(
+            provider="openai",
+            api_model="gpt-4o",
+            model_id="openai:gpt-4o",
+        ),
+    )
 
     budget = manager.get_token_budget(
-        "gpt-4o",
+        "any-openai-model",
         response_reserve=1024,
         compaction_threshold=0.75,
     )
@@ -115,11 +165,23 @@ def test_manager_rejects_azure_prefixed_unknown_deployment():
         raise AssertionError("Expected model_not_supported for unknown deployment")
 
 
-def test_manager_token_counter_uses_model_registry_provider() -> None:
+def test_manager_token_counter_uses_model_registry_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     settings = AgentSettings(openai_api_key="sk-test")
+    settings.providers.update({"openai": {"adapter_type": "openai"}})
     manager = ProviderManager(settings)
+    monkeypatch.setattr(
+        type(manager._data_registry),
+        "resolve_model_spec",
+        lambda self, _: SimpleNamespace(
+            provider="openai",
+            api_model="gpt-4o",
+            model_id="openai:gpt-4o",
+        ),
+    )
 
-    counter = manager.get_token_counter("openai:gpt-4o")
+    counter = manager.get_token_counter("any-openai-model")
     assert isinstance(counter, TiktokenCounter)
 
 
@@ -154,3 +216,26 @@ def test_manager_api_key_env_normalizes_wrapped_quotes(monkeypatch) -> None:
 
     resolved = manager._resolve_api_key("anthropic", cfg)
     assert resolved == "sk-ant-quoted"
+
+
+def test_adapter_types_is_immutable() -> None:
+    with pytest.raises(TypeError):
+        ADAPTER_TYPES["custom"] = object  # type: ignore[index]
+
+
+def test_manager_validates_adapter_types_empty_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    invalid = MappingProxyType({"": next(iter(ADAPTER_TYPES.values()))})
+    monkeypatch.setattr(manager_module, "ADAPTER_TYPES", invalid)
+
+    with pytest.raises(RuntimeError, match="Empty adapter type key"):
+        ProviderManager(AgentSettings())
+
+
+def test_manager_validates_adapter_types_invalid_base(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid = MappingProxyType({"openai": object})  # type: ignore[dict-item]
+    monkeypatch.setattr(manager_module, "ADAPTER_TYPES", invalid)
+
+    with pytest.raises(RuntimeError, match="must inherit BaseLLMProvider"):
+        ProviderManager(AgentSettings())

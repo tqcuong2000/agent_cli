@@ -2,18 +2,16 @@
 Core command handlers — /help, /clear, /exit, /model,
 /config, /cost, /context.
 
-All handlers are registered at import time via the ``@command``
-decorator.  The bootstrap absorbs them into the live
-``CommandRegistry``.
+Handlers are registered explicitly by bootstrap via ``CommandDef``
+construction.
 """
 
 from __future__ import annotations
 
 from typing import Any, List
 
-from agent_cli.commands.base import CommandContext, CommandResult, command
+from agent_cli.commands.base import CommandContext, CommandResult
 from agent_cli.core.events.events import SettingsChangedEvent
-from agent_cli.core.logging import get_observability
 from agent_cli.core.models.config_models import (
     EffortLevel,
     effort_values,
@@ -25,19 +23,18 @@ from agent_cli.core.models.config_models import (
 # ══════════════════════════════════════════════════════════════════════
 
 
-@command(
-    name="help",
-    description="Show all available commands",
-    usage="/help [command]",
-    shortcut="ctrl+?",
-    category="System",
-)
 async def cmd_help(args: List[str], ctx: CommandContext) -> CommandResult:
     """List all commands, or show details for a specific one."""
-    from agent_cli.commands.base import _DEFAULT_REGISTRY
-
-    # Use the live registry if attached, otherwise fall back
-    registry = _DEFAULT_REGISTRY
+    registry = (
+        getattr(ctx.app_context, "command_registry", None)
+        if ctx.app_context is not None
+        else None
+    )
+    if registry is None:
+        return CommandResult(
+            success=False,
+            message="Command registry is unavailable.",
+        )
 
     if args:
         cmd_def = registry.get(args[0])
@@ -69,13 +66,6 @@ async def cmd_help(args: List[str], ctx: CommandContext) -> CommandResult:
     return CommandResult(success=True, message="\n".join(lines))
 
 
-@command(
-    name="exit",
-    description="Exit the CLI",
-    usage="/exit",
-    shortcut="ctrl+q",
-    category="System",
-)
 async def cmd_exit(args: List[str], ctx: CommandContext) -> CommandResult:
     """Exit the application."""
     if ctx.app is not None:
@@ -88,13 +78,6 @@ async def cmd_exit(args: List[str], ctx: CommandContext) -> CommandResult:
 # ══════════════════════════════════════════════════════════════════════
 
 
-@command(
-    name="clear",
-    description="Clear working memory (start fresh context)",
-    usage="/clear",
-    shortcut="ctrl+l",
-    category="Memory",
-)
 async def cmd_clear(args: List[str], ctx: CommandContext) -> CommandResult:
     """Reset working memory."""
     ctx.memory_manager.reset_working()
@@ -104,12 +87,6 @@ async def cmd_clear(args: List[str], ctx: CommandContext) -> CommandResult:
     )
 
 
-@command(
-    name="context",
-    description="Show context window usage",
-    usage="/context",
-    category="Memory",
-)
 async def cmd_context(args: List[str], ctx: CommandContext) -> CommandResult:
     """Show current token usage from working memory."""
     msg_count = len(ctx.memory_manager.get_working_context())
@@ -130,15 +107,13 @@ async def cmd_context(args: List[str], ctx: CommandContext) -> CommandResult:
     )
 
 
-@command(
-    name="cost",
-    description="Show session cost breakdown",
-    usage="/cost",
-    category="Memory",
-)
 async def cmd_cost(args: List[str], ctx: CommandContext) -> CommandResult:
     """Show session cost information."""
-    observability = get_observability()
+    observability = (
+        getattr(ctx.app_context, "observability", None)
+        if ctx.app_context is not None
+        else None
+    )
     if observability is None:
         return CommandResult(
             success=True,
@@ -164,12 +139,6 @@ async def cmd_cost(args: List[str], ctx: CommandContext) -> CommandResult:
 # ══════════════════════════════════════════════════════════════════════
 
 
-@command(
-    name="model",
-    description="Switch LLM model",
-    usage="/model <name>",
-    category="Model",
-)
 async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
     """Switch model for the active agent."""
     active_agent = None
@@ -282,12 +251,6 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
     )
 
 
-@command(
-    name="effort",
-    description="Get or set reasoning effort",
-    usage="/effort [auto|minimal|low|medium|high|max]",
-    category="Model",
-)
 async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
     """Get or set reasoning effort for the active session/runtime."""
     if not args:
@@ -342,15 +305,13 @@ async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
     return CommandResult(success=True, message=message)
 
 
-@command(
-    name="debug",
-    description="Toggle debug logging",
-    usage="/debug [on|off]",
-    category="Model",
-)
 async def cmd_debug(args: List[str], ctx: CommandContext) -> CommandResult:
     """Enable/disable DEBUG log level at runtime."""
-    observability = get_observability()
+    observability = (
+        getattr(ctx.app_context, "observability", None)
+        if ctx.app_context is not None
+        else None
+    )
     if not args:
         return CommandResult(
             success=True,
@@ -389,12 +350,6 @@ async def cmd_debug(args: List[str], ctx: CommandContext) -> CommandResult:
 # ══════════════════════════════════════════════════════════════════════
 
 
-@command(
-    name="config",
-    description="View current settings (read-only)",
-    usage="/config",
-    category="Configuration",
-)
 async def cmd_config(args: List[str], ctx: CommandContext) -> CommandResult:
     """Display current configuration values."""
     s = ctx.settings

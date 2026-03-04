@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any, Dict, Optional, Type
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Dict, Mapping, Optional, Type
 
 from agent_cli.core.config import AgentSettings, load_providers
 from agent_cli.core.models.config_models import ProviderConfig
@@ -32,9 +33,12 @@ from agent_cli.providers.provider.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from agent_cli.core.logging import ObservabilityManager
+
 
 # Registry of available adapter classes
-ADAPTER_TYPES: Dict[str, Type[BaseLLMProvider]] = {
+_ADAPTER_TYPES_INTERNAL: Dict[str, Type[BaseLLMProvider]] = {
     "openai": OpenAIProvider,
     "azure": AzureProvider,
     "anthropic": AnthropicProvider,
@@ -42,6 +46,9 @@ ADAPTER_TYPES: Dict[str, Type[BaseLLMProvider]] = {
     "ollama": OllamaProvider,
     "openai_compatible": OpenAICompatibleProvider,
 }
+ADAPTER_TYPES: Mapping[str, Type[BaseLLMProvider]] = MappingProxyType(
+    _ADAPTER_TYPES_INTERNAL
+)
 
 
 class ProviderManager:
@@ -58,9 +65,13 @@ class ProviderManager:
         settings: AgentSettings,
         *,
         data_registry: Optional[DataRegistry] = None,
+        observability: Optional["ObservabilityManager"] = None,
     ) -> None:
+        self._validate_adapter_types(ADAPTER_TYPES)
+
         self._settings = settings
         self._data_registry = data_registry or DataRegistry()
+        self._observability = observability
         self._providers: Dict[str, BaseLLMProvider] = {}
         self._fallback_token_counter: BaseTokenCounter = HeuristicTokenCounter(
             data_registry=self._data_registry
@@ -73,6 +84,31 @@ class ProviderManager:
             data_registry=self._data_registry,
         )
         self._token_counters: Dict[str, BaseTokenCounter] = self._build_token_counters()
+
+    @staticmethod
+    def _validate_adapter_types(
+        adapter_types: Mapping[str, Type[BaseLLMProvider]],
+    ) -> None:
+        """Validate adapter registry shape at manager startup."""
+        for key, cls in adapter_types.items():
+            if not isinstance(key, str) or not key.strip():
+                raise RuntimeError("Empty adapter type key in ADAPTER_TYPES.")
+            if key != key.strip():
+                raise RuntimeError(
+                    f"Adapter type key '{key}' must not contain surrounding whitespace."
+                )
+            if not isinstance(cls, type):
+                raise RuntimeError(
+                    f"Adapter '{key}' must reference a class, got {type(cls).__name__}."
+                )
+            if not issubclass(cls, BaseLLMProvider):
+                raise RuntimeError(
+                    f"Adapter '{key}' ({cls.__name__}) must inherit BaseLLMProvider."
+                )
+            if not hasattr(cls, "safe_generate"):
+                raise RuntimeError(
+                    f"Adapter '{key}' ({cls.__name__}) missing 'safe_generate' method."
+                )
 
     def get_provider(self, model_name: str) -> BaseLLMProvider:
         """Get or create a provider instance for the given model_name."""
@@ -210,6 +246,7 @@ class ProviderManager:
         provider = adapter_cls(**kwargs)
         # Inject the logical runtime name for better error reporting
         provider._runtime_provider_name = provider_name
+        provider.set_observability(self._observability)
         return provider
 
     def _resolve_api_key(

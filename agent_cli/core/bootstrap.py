@@ -30,7 +30,7 @@ from agent_cli.agent.schema import BaseSchemaValidator, SchemaValidator
 from agent_cli.agent.session_registry import SessionAgentRegistry
 
 # Phase 4.2 imports
-from agent_cli.commands.base import CommandContext, CommandRegistry
+from agent_cli.commands.base import CommandContext, CommandDef, CommandRegistry
 from agent_cli.commands.parser import CommandParser
 from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
@@ -351,7 +351,11 @@ def create_app(
     )
 
     # 4. Provider Manager (depends on Settings)
-    providers = ProviderManager(settings, data_registry=data_registry)
+    providers = ProviderManager(
+        settings,
+        data_registry=data_registry,
+        observability=observability,
+    )
     capability_probe = CapabilityProbeService(
         data_registry=data_registry,
         observability=observability,
@@ -386,6 +390,7 @@ def create_app(
         auto_approve=settings.auto_approve_tools,
         file_tracker=file_tracker,
         data_registry=data_registry,
+        observability=observability,
     )
 
     # 6. Schema Validator
@@ -624,6 +629,11 @@ def create_app(
     context.agent_registry = agent_registry
     context.session_agents = session_agents
 
+    # Freeze static registries after bootstrap population.
+    tool_registry.freeze()
+    agent_registry.freeze()
+    cmd_registry.freeze()
+
     context.orchestrator = Orchestrator(
         event_bus=context.event_bus,
         state_manager=context.state_manager,
@@ -633,6 +643,7 @@ def create_app(
         agent_registry=agent_registry,
         session_agents=session_agents,
         capability_probe=context.capability_probe,
+        observability=context.observability,
     )
 
     logger.info(
@@ -640,6 +651,7 @@ def create_app(
         resolved_default_name,
         len(agent_registry.get_all()),
     )
+    logger.info("All registries frozen; bootstrap complete.")
     return context
 
 
@@ -680,6 +692,7 @@ def register_default_agent(context: AppContext, agent: BaseAgent) -> None:
         command_parser=context.command_parser,
         session_manager=context.session_manager,
         capability_probe=context.capability_probe,
+        observability=context.observability,
     )
     logger.info("Default agent '%s' registered with Orchestrator.", agent.name)
 
@@ -727,21 +740,144 @@ def _build_tool_registry(workspace: BaseWorkspaceManager) -> ToolRegistry:
 
 
 def _build_command_registry() -> CommandRegistry:
-    """Create a CommandRegistry populated with all built-in commands.
-
-    Importing ``core`` triggers the ``@command`` decorators which
-    register into ``_DEFAULT_REGISTRY``.  We absorb that into a fresh
-    ``CommandRegistry`` instance.
-    """
-    # Import triggers @command decorator registration
-    import agent_cli.commands.handlers.agent  # noqa: F401
-    import agent_cli.commands.handlers.core  # noqa: F401
-    import agent_cli.commands.handlers.sandbox  # noqa: F401
-    import agent_cli.commands.handlers.session  # noqa: F401
-    from agent_cli.commands.base import _DEFAULT_REGISTRY
+    """Create a CommandRegistry and register all built-in commands explicitly."""
+    from agent_cli.commands.handlers.agent import cmd_agent
+    from agent_cli.commands.handlers.core import (
+        cmd_clear,
+        cmd_config,
+        cmd_context,
+        cmd_cost,
+        cmd_debug,
+        cmd_effort,
+        cmd_exit,
+        cmd_help,
+        cmd_model,
+    )
+    from agent_cli.commands.handlers.sandbox import cmd_sandbox
+    from agent_cli.commands.handlers.session import cmd_generate_title, cmd_sessions
 
     registry = CommandRegistry()
-    registry.absorb(_DEFAULT_REGISTRY)
+
+    registry.register(
+        CommandDef(
+            name="help",
+            description="Show all available commands",
+            usage="/help [command]",
+            shortcut="ctrl+?",
+            category="System",
+            handler=cmd_help,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="exit",
+            description="Exit the CLI",
+            usage="/exit",
+            shortcut="ctrl+q",
+            category="System",
+            handler=cmd_exit,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="clear",
+            description="Clear working memory (start fresh context)",
+            usage="/clear",
+            shortcut="ctrl+l",
+            category="Memory",
+            handler=cmd_clear,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="context",
+            description="Show context window usage",
+            usage="/context",
+            category="Memory",
+            handler=cmd_context,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="cost",
+            description="Show session cost breakdown",
+            usage="/cost",
+            category="Memory",
+            handler=cmd_cost,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="model",
+            description="Switch LLM model",
+            usage="/model <name>",
+            category="Model",
+            handler=cmd_model,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="effort",
+            description="Get or set reasoning effort",
+            usage="/effort [auto|minimal|low|medium|high|max]",
+            category="Model",
+            handler=cmd_effort,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="debug",
+            description="Toggle debug logging",
+            usage="/debug [on|off]",
+            category="Model",
+            handler=cmd_debug,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="config",
+            description="View current settings (read-only)",
+            usage="/config",
+            category="Configuration",
+            handler=cmd_config,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="agent",
+            description="Manage agents in the current session",
+            usage="/agent [list|add|remove|enable|disable|default] [name]",
+            category="Agent",
+            handler=cmd_agent,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="sandbox",
+            description="Control workspace sandbox mode",
+            usage="/sandbox <on|off|ls>",
+            category="Workspace",
+            handler=cmd_sandbox,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="sessions",
+            description="Open session manager overlay",
+            usage="/sessions",
+            category="Session",
+            handler=cmd_sessions,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="generate_title",
+            description="Generate a new title for the active session",
+            usage="/generate_title",
+            category="Session",
+            handler=cmd_generate_title,
+        )
+    )
 
     logger.info(
         "Command registry built with %d commands: %s",

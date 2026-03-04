@@ -9,9 +9,9 @@ from types import SimpleNamespace
 import pytest
 
 from agent_cli.agent.memory import WorkingMemoryManager
-from agent_cli.commands.base import CommandContext, CommandRegistry
+from agent_cli.commands.base import CommandContext
 from agent_cli.commands.parser import CommandParser
-from agent_cli.core.bootstrap import AppContext
+from agent_cli.core.bootstrap import AppContext, _build_command_registry
 from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AsyncEventBus
 from agent_cli.core.events.events import SettingsChangedEvent, TaskResultEvent
@@ -68,11 +68,7 @@ def _build_app_context(
 
 
 def _build_parser(ctx: CommandContext) -> CommandParser:
-    import agent_cli.commands.handlers.session  # noqa: F401
-    from agent_cli.commands.base import _DEFAULT_REGISTRY
-
-    registry = CommandRegistry()
-    registry.absorb(_DEFAULT_REGISTRY)
+    registry = _build_command_registry()
     return CommandParser(registry=registry, context=ctx)
 
 

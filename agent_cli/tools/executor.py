@@ -34,7 +34,6 @@ from agent_cli.core.interaction import (
     InteractionType,
     UserInteractionRequest,
 )
-from agent_cli.core.logging import get_observability
 from agent_cli.core.tracing import start_span
 from agent_cli.core.registry import DataRegistry
 from agent_cli.tools.output_formatter import ToolOutputFormatter
@@ -44,6 +43,7 @@ from agent_cli.tools.shell_tool import is_safe_command
 if TYPE_CHECKING:
     from agent_cli.core.events.event_bus import EventCallback
     from agent_cli.core.interaction import BaseInteractionHandler
+    from agent_cli.core.logging import ObservabilityManager
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,7 @@ class ToolExecutor:
         file_tracker: Optional[FileChangeTracker] = None,
         approval_timeout_seconds: float | None = None,
         data_registry: DataRegistry | None = None,
+        observability: Optional["ObservabilityManager"] = None,
     ) -> None:
         self.registry = registry
         self.event_bus = event_bus
@@ -86,6 +87,7 @@ class ToolExecutor:
         self._auto_approve = auto_approve
         self._interaction_handler = interaction_handler
         self._file_tracker = file_tracker
+        self._observability = observability
         defaults = (
             (data_registry or DataRegistry()).get_tool_defaults().get("executor", {})
         )
@@ -265,9 +267,8 @@ class ToolExecutor:
         duration_ms = int(timing["duration_ms"])
 
         # ── 4. Log ───────────────────────────────────────────────
-        observability = get_observability()
-        if observability is not None:
-            observability.record_tool_call(
+        if self._observability is not None:
+            self._observability.record_tool_call(
                 task_id=task_id,
                 tool_name=tool_name,
                 success=success,

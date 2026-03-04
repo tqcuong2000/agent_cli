@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from agent_cli.agent.base import BaseAgent
+from agent_cli.core.registry_base import RegistryLifecycleMixin
 
 
-class AgentRegistry:
+class AgentRegistry(RegistryLifecycleMixin):
     """Global catalog of available agents.
 
     This registry tracks all instantiated agents that can be added
@@ -17,12 +18,24 @@ class AgentRegistry:
 
     def __init__(self) -> None:
         self._agents: Dict[str, BaseAgent] = {}
+        self._registry_name = "agents"
 
     def register(self, agent: BaseAgent) -> None:
-        name = agent.name
+        self._assert_mutable()
+
+        if not hasattr(agent, "name") or not str(getattr(agent, "name", "")).strip():
+            raise ValueError("Agent must have a non-empty 'name' attribute.")
+        if not hasattr(agent, "handle_task"):
+            raise ValueError(f"Agent '{agent.name}' must have a 'handle_task' method.")
+
+        name = str(agent.name).strip()
         if name in self._agents:
             raise ValueError(f"Agent '{name}' is already registered.")
         self._agents[name] = agent
+
+    def _freeze_summary(self) -> str:
+        names = ", ".join(sorted(self._agents.keys()))
+        return f"{len(self._agents)} agents: {names}" if names else "0 agents"
 
     def get(self, name: str) -> Optional[BaseAgent]:
         return self._agents.get(name)

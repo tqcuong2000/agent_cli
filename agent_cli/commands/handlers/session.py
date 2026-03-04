@@ -6,19 +6,13 @@ import json
 import re
 from typing import List
 
-from agent_cli.commands.base import CommandContext, CommandResult, command
+from agent_cli.commands.base import CommandContext, CommandResult
 from agent_cli.core.events.events import SettingsChangedEvent
 
 _DEFAULT_SESSION_TITLE = "Untitled session"
 _MAX_TITLE_WORDS = 8
 
 
-@command(
-    name="sessions",
-    description="Open session manager overlay",
-    usage="/sessions",
-    category="Session",
-)
 async def cmd_sessions(args: List[str], ctx: CommandContext) -> CommandResult:
     """Open the TUI session overlay."""
     if ctx.app is None:
@@ -45,12 +39,6 @@ async def cmd_sessions(args: List[str], ctx: CommandContext) -> CommandResult:
     )
 
 
-@command(
-    name="generate_title",
-    description="Generate a new title for the active session",
-    usage="/generate_title",
-    category="Session",
-)
 async def cmd_generate_title(args: List[str], ctx: CommandContext) -> CommandResult:
     """Generate and persist a short title for the active session."""
     app_ctx = ctx.app_context

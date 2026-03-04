@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -96,6 +97,27 @@ def test_agent_registry_register_and_lookup() -> None:
         registry.register(agent)
 
 
+def test_agent_registry_freeze_blocks_register() -> None:
+    registry = AgentRegistry()
+    registry.register(_make_agent("default"))
+    registry.freeze()
+
+    with pytest.raises(RuntimeError, match="frozen"):
+        registry.register(_make_agent("coder"))
+
+
+def test_agent_registry_rejects_missing_name() -> None:
+    registry = AgentRegistry()
+    with pytest.raises(ValueError, match="non-empty 'name'"):
+        registry.register(object())  # type: ignore[arg-type]
+
+
+def test_agent_registry_rejects_missing_handle_task() -> None:
+    registry = AgentRegistry()
+    with pytest.raises(ValueError, match="'handle_task' method"):
+        registry.register(SimpleNamespace(name="fake"))  # type: ignore[arg-type]
+
+
 def test_session_agent_registry_add_switch_disable_enable_remove() -> None:
     session_registry = SessionAgentRegistry()
     coder = _make_agent("coder")
@@ -131,3 +153,9 @@ def test_session_agent_registry_add_switch_disable_enable_remove() -> None:
 
     with pytest.raises(KeyError):
         session_registry.switch_to("unknown")
+
+
+def test_session_agent_registry_rejects_missing_name() -> None:
+    session_registry = SessionAgentRegistry()
+    with pytest.raises(ValueError, match="non-empty 'name'"):
+        session_registry.add(object())  # type: ignore[arg-type]

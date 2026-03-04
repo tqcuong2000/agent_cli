@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from agent_cli.core.registry_base import RegistryLifecycleMixin
 from agent_cli.tools.base import BaseTool, ToolCategory
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════════════════════════════════════
 
 
-class ToolRegistry:
+class ToolRegistry(RegistryLifecycleMixin):
     """Central catalog of all available tools.
 
     Agents are initialized with a filtered subset based on their role.
@@ -32,15 +33,31 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: Dict[str, BaseTool] = {}
+        self._registry_name = "tools"
 
     # ── Registration ─────────────────────────────────────────────
 
     def register(self, tool: BaseTool) -> None:
         """Register a tool.  Raises ``ValueError`` if name is taken."""
-        if tool.name in self._tools:
-            raise ValueError(f"Tool '{tool.name}' is already registered.")
-        self._tools[tool.name] = tool
-        logger.debug("Registered tool: %s (category=%s)", tool.name, tool.category.name)
+        self._assert_mutable()
+
+        if not hasattr(tool, "name") or not str(getattr(tool, "name", "")).strip():
+            raise ValueError("Tool must have a non-empty 'name' attribute.")
+        if not hasattr(tool, "execute"):
+            raise ValueError(f"Tool '{tool.name}' must have an 'execute' method.")
+        if not hasattr(tool, "get_json_schema"):
+            raise ValueError(f"Tool '{tool.name}' must have a 'get_json_schema' method.")
+
+        name = str(tool.name).strip()
+        if name in self._tools:
+            raise ValueError(f"Tool '{name}' is already registered.")
+
+        self._tools[name] = tool
+        category_name = getattr(getattr(tool, "category", None), "name", "UNKNOWN")
+        logger.debug("Registered tool: %s (category=%s)", name, category_name)
+
+    def _freeze_summary(self) -> str:
+        return f"{len(self._tools)} tools"
 
     # ── Lookup ───────────────────────────────────────────────────
 

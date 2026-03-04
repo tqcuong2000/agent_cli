@@ -128,6 +128,49 @@ def test_create_app_wires_configurable_workspace_policy(tmp_path):
     assert manager.resolve_path("allowed.key", must_exist=True) == allowed.resolve()
 
 
+def test_create_app_freezes_static_registries(monkeypatch: pytest.MonkeyPatch):
+    class _StubProvider:
+        def __init__(self, model_name: str) -> None:
+            self.provider_name = "stub"
+            self.model_name = model_name
+            self.base_url = ""
+
+        async def safe_generate(self, *args, **kwargs):
+            raise RuntimeError("not used in bootstrap freeze test")
+
+    monkeypatch.setattr(
+        ProviderManager,
+        "get_provider",
+        lambda self, model_name: _StubProvider(str(model_name)),
+    )
+
+    ctx = create_app(settings=AgentSettings(default_model="gpt-4o"))
+    try:
+        assert ctx.tool_registry.is_frozen is True
+        assert ctx.agent_registry is not None
+        assert ctx.agent_registry.is_frozen is True
+        assert ctx.command_registry is not None
+        assert ctx.command_registry.is_frozen is True
+
+        with pytest.raises(RuntimeError, match="frozen"):
+            ctx.command_registry.register(  # type: ignore[union-attr]
+                type("Cmd", (), {"name": "tmp"})()
+            )
+        with pytest.raises(RuntimeError, match="frozen"):
+            ctx.tool_registry.register(object())
+
+        assert ctx.session_agents is not None
+
+        class _SessionAgent:
+            name = "runtime_added_agent"
+
+        ctx.session_agents.add(_SessionAgent(), activate=False)
+        assert ctx.session_agents.has("runtime_added_agent") is True
+    finally:
+        if ctx.observability is not None:
+            ctx.observability.shutdown()
+
+
 # ── Lifecycle Tests ───────────────────────────────────────────────────
 
 

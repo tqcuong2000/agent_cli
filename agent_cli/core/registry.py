@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -22,9 +23,17 @@ from agent_cli.core.models.config_models import (
     effort_values,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class DataRegistry:
     """Read-only registry of system defaults loaded from package data files."""
+
+    _CAPABILITY_ACCESSORS = {
+        "native_tools": lambda spec: spec.native_tools.supported,
+        "effort": lambda spec: spec.effort.supported,
+        "web_search": lambda spec: spec.web_search.supported,
+    }
 
     __slots__ = (
         "_data_root",
@@ -59,6 +68,18 @@ class DataRegistry:
             dict[str, CapabilityObservation],
         ] = {}
         self._capability_cache_version = 1
+        logger.info(
+            "DataRegistry loaded",
+            extra={
+                "source": "data_registry",
+                "data": {
+                    "offerings": len(self._offerings),
+                    "providers": len(
+                        self._mapping(self._providers.get("providers"))
+                    ),
+                },
+            },
+        )
 
     # -- Model Data -------------------------------------------------
 
@@ -146,16 +167,48 @@ class DataRegistry:
         """Resolve a model identifier against model ID/API model/aliases."""
         raw_name = str(model_name or "").strip()
         if not raw_name:
+            logger.debug(
+                "resolve_model_spec miss: empty model name",
+                extra={
+                    "source": "data_registry",
+                    "data": {"input": str(model_name or "")},
+                },
+            )
             return None
 
         specs = self._get_model_specs_cached()
         lookup = self._get_model_lookup_cached()
         resolved_id = lookup.get(raw_name.lower())
         if resolved_id is None:
+            logger.debug(
+                "resolve_model_spec miss",
+                extra={
+                    "source": "data_registry",
+                    "data": {"input": raw_name},
+                },
+            )
             return None
         spec = specs.get(resolved_id)
         if spec is None:
+            logger.debug(
+                "resolve_model_spec miss: dangling lookup",
+                extra={
+                    "source": "data_registry",
+                    "data": {"input": raw_name, "resolved_id": resolved_id},
+                },
+            )
             return None
+        logger.debug(
+            "resolve_model_spec hit",
+            extra={
+                "source": "data_registry",
+                "data": {
+                    "input": raw_name,
+                    "resolved_id": resolved_id,
+                    "provider": spec.provider,
+                },
+            },
+        )
         return deepcopy(spec)
 
     def get_model_capabilities(self, model_name: str) -> CapabilitySpec | None:
@@ -649,13 +702,10 @@ class DataRegistry:
 
     @staticmethod
     def _declared_support(spec: CapabilitySpec, capability_name: str) -> bool:
-        if capability_name == "native_tools":
-            return bool(spec.native_tools.supported)
-        if capability_name == "effort":
-            return bool(spec.effort.supported)
-        if capability_name == "web_search":
-            return bool(spec.web_search.supported)
-        return False
+        accessor = DataRegistry._CAPABILITY_ACCESSORS.get(capability_name)
+        if accessor is None:
+            return False
+        return bool(accessor(spec))
 
     @staticmethod
     def _capability_key(

@@ -1,16 +1,9 @@
-"""
-Command System Foundation — decorator, registry, and context.
-
-Provides the ``@command`` decorator for registering slash commands,
-a ``CommandRegistry`` for lookup/suggestion, and the ``CommandContext``
-that every handler receives.
-"""
+"""Command system foundation: registry, models, and execution context."""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from functools import wraps
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -20,6 +13,8 @@ from typing import (
     List,
     Optional,
 )
+
+from agent_cli.core.registry_base import RegistryLifecycleMixin
 
 if TYPE_CHECKING:
     from textual.app import App
@@ -85,28 +80,29 @@ class CommandContext:
 # ══════════════════════════════════════════════════════════════════════
 
 
-class CommandRegistry:
+class CommandRegistry(RegistryLifecycleMixin):
     """Central catalog of all registered slash commands.
 
-    Instantiated once (in bootstrap) and shared via ``AppContext``.
-    The module-level ``_DEFAULT_REGISTRY`` collects decorator
-    registrations and is absorbed into this instance at startup.
+    Instantiated once in bootstrap and shared via ``AppContext``.
     """
 
     def __init__(self) -> None:
         self._registry: Dict[str, CommandDef] = {}
+        self._registry_name = "commands"
 
     # ── Mutation ─────────────────────────────────────────────────
 
-    def register(self, cmd: CommandDef) -> None:
+    def register(self, cmd: CommandDef, *, override: bool = False) -> None:
         """Register a command definition."""
-        self._registry[cmd.name.lower()] = cmd
+        self._assert_mutable()
+        key = cmd.name.lower()
+        if key in self._registry and not override:
+            raise ValueError(f"Command '/{cmd.name}' is already registered.")
+        self._registry[key] = cmd
         logger.debug("Registered command: /%s", cmd.name)
 
-    def absorb(self, other: CommandRegistry) -> None:
-        """Merge all commands from *other* into this registry."""
-        for cmd in other._registry.values():
-            self.register(cmd)
+    def _freeze_summary(self) -> str:
+        return f"{len(self._registry)} commands"
 
     # ── Lookup ───────────────────────────────────────────────────
 
@@ -139,57 +135,3 @@ class CommandRegistry:
         )
         return matches
 
-
-# ══════════════════════════════════════════════════════════════════════
-# Module-level default registry (populated by @command decorator)
-# ══════════════════════════════════════════════════════════════════════
-
-_DEFAULT_REGISTRY = CommandRegistry()
-
-
-# ══════════════════════════════════════════════════════════════════════
-# @command Decorator
-# ══════════════════════════════════════════════════════════════════════
-
-
-def command(
-    name: str,
-    description: str,
-    usage: str = "",
-    shortcut: Optional[str] = None,
-    category: str = "General",
-) -> Callable:
-    """Decorator to register a slash command.
-
-    Usage::
-
-        @command(name="help", description="Show all commands",
-                 usage="/help [command]", shortcut="ctrl+?",
-                 category="System")
-        async def cmd_help(args: List[str], ctx: CommandContext) -> CommandResult:
-            ...
-
-    The handler is registered into the module-level
-    ``_DEFAULT_REGISTRY`` at import time.  At bootstrap,
-    ``_DEFAULT_REGISTRY`` is absorbed into the real
-    ``CommandRegistry`` that lives in ``AppContext``.
-    """
-
-    def decorator(func: CommandHandler) -> CommandHandler:
-        cmd_def = CommandDef(
-            name=name,
-            description=description,
-            usage=usage or f"/{name}",
-            handler=func,
-            shortcut=shortcut,
-            category=category,
-        )
-        _DEFAULT_REGISTRY.register(cmd_def)
-
-        @wraps(func)
-        async def wrapper(*a: Any, **kw: Any) -> CommandResult:
-            return await func(*a, **kw)
-
-        return wrapper
-
-    return decorator

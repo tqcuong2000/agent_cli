@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.core.error_handler.errors import (
     AgentCLIError,
@@ -26,7 +26,6 @@ from agent_cli.core.error_handler.errors import (
 )
 from agent_cli.core.error_handler.retry import retry_with_backoff
 from agent_cli.core.events.event_bus import AbstractEventBus
-from agent_cli.core.logging import get_observability
 from agent_cli.core.models.config_models import EffortLevel, normalize_effort
 from agent_cli.core.tracing import start_span
 from agent_cli.core.registry import DataRegistry
@@ -34,6 +33,9 @@ from agent_cli.providers.cost import estimate_cost
 from agent_cli.providers.models import LLMResponse, ProviderRequestOptions, StreamChunk
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from agent_cli.core.logging import ObservabilityManager
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -96,13 +98,22 @@ class BaseLLMProvider(ABC):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         data_registry: Optional[DataRegistry] = None,
+        observability: Optional["ObservabilityManager"] = None,
     ) -> None:
         self.model_name = model_name
         self.api_key = api_key
         self.base_url = base_url
         self._data_registry = data_registry
+        self._observability = observability
         self._runtime_provider_name: Optional[str] = None
         self._tool_formatter = self._create_tool_formatter()
+
+    def set_observability(
+        self,
+        observability: Optional["ObservabilityManager"],
+    ) -> None:
+        """Attach runtime observability manager after provider creation."""
+        self._observability = observability
 
     # ── Abstract Properties ──────────────────────────────────────
 
@@ -295,9 +306,8 @@ class BaseLLMProvider(ABC):
             raise
 
         timing = span.finish()
-        observability = get_observability()
-        if observability is not None:
-            observability.record_llm_call(
+        if self._observability is not None:
+            self._observability.record_llm_call(
                 task_id=task_id,
                 model=self.model_name,
                 provider=self.provider_name,

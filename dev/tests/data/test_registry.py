@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -13,8 +14,11 @@ from agent_cli.core.models.config_models import (
     CapabilityObservation,
     CapabilitySnapshot,
     CapabilitySpec,
+    EffortCapabilitySpec,
     ModelSpec,
+    NativeToolsCapabilitySpec,
     ProviderConfig,
+    WebSearchCapabilitySpec,
 )
 from agent_cli.core.registry import DataRegistry
 
@@ -217,6 +221,38 @@ def test_constructor_raises_runtime_error_for_malformed_json(
         DataRegistry()
 
 
+def test_constructor_logs_loaded_counts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _write_required_registry_files(tmp_path)
+    (tmp_path / "models" / "m1.json").write_text(
+        json.dumps(
+            {
+                "provider": "openai",
+                "api_model": "m1",
+                "context_window": 1000,
+                "tokenizer": "cl100k_base",
+                "pricing_input": 0.0,
+                "pricing_output": 0.0,
+                "capabilities": {
+                    "native_tools": {"supported": True},
+                    "effort": {"supported": False, "levels": ["auto"]},
+                    "web_search": {"supported": False, "mode": "none"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
+
+    with caplog.at_level(logging.INFO, logger="agent_cli.core.registry"):
+        DataRegistry()
+
+    assert any("DataRegistry loaded" in r.message for r in caplog.records)
+
+
 def _write_required_registry_files(root: Path) -> None:
     (root / "models.json").write_text(
         json.dumps(
@@ -417,6 +453,59 @@ def test_typed_model_validation_supports_grouped_offerings_in_one_file(
     assert "m2" in specs
     assert registry.resolve_model_spec("a1") is not None
     assert registry.resolve_model_spec("a2") is not None
+
+
+def test_resolve_model_spec_logs_hit_and_miss(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _write_required_registry_files(tmp_path)
+    (tmp_path / "models" / "m1.json").write_text(
+        json.dumps(
+            {
+                "provider": "openai",
+                "api_model": "m1",
+                "aliases": ["alias-m1"],
+                "context_window": 1000,
+                "tokenizer": "cl100k_base",
+                "pricing_input": 0.0,
+                "pricing_output": 0.0,
+                "capabilities": {
+                    "native_tools": {"supported": True},
+                    "effort": {"supported": False, "levels": ["auto"]},
+                    "web_search": {"supported": False, "mode": "none"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
+    reg = DataRegistry()
+
+    with caplog.at_level(logging.DEBUG, logger="agent_cli.core.registry"):
+        assert reg.resolve_model_spec("alias-m1") is not None
+        assert reg.resolve_model_spec("unknown-model") is None
+
+    messages = [record.message for record in caplog.records]
+    assert any("resolve_model_spec hit" in message for message in messages)
+    assert any("resolve_model_spec miss" in message for message in messages)
+
+
+def test_declared_support_uses_accessor_map(monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = CapabilitySpec(
+        native_tools=NativeToolsCapabilitySpec(supported=True),
+        effort=EffortCapabilitySpec(supported=False, levels=["auto"]),
+        web_search=WebSearchCapabilitySpec(supported=True, mode="provider_native"),
+    )
+    monkeypatch.setattr(
+        DataRegistry,
+        "_CAPABILITY_ACCESSORS",
+        {"native_tools": lambda _spec: False},
+    )
+
+    assert DataRegistry._declared_support(spec, "native_tools") is False
+    assert DataRegistry._declared_support(spec, "effort") is False
 
 
 def test_capability_snapshot_defaults_to_declared_when_no_observed(

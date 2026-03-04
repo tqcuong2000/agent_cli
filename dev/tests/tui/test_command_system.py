@@ -1,7 +1,7 @@
 """Tests for the Command System (Phase 4.2).
 
 Covers:
-- @command decorator registration
+- explicit command registry wiring
 - CommandParser.is_command()
 - CommandParser.execute() — success, failure, unknown
 - get_suggestions() prefix matching
@@ -24,9 +24,9 @@ from agent_cli.commands.base import (
     CommandDef,
     CommandRegistry,
     CommandResult,
-    command,
 )
 from agent_cli.commands.parser import CommandParser
+from agent_cli.core.bootstrap import _build_command_registry
 from agent_cli.core.registry import DataRegistry
 
 # ── Mock dependencies ────────────────────────────────────────────────
@@ -88,23 +88,21 @@ class _SimpleAgent:
     def __init__(self, name: str) -> None:
         self.name = name
 
+    async def handle_task(self, task: Any) -> str:
+        return str(task)
+
+
+async def _noop_handler(args: List[str], ctx: CommandContext) -> CommandResult:
+    return CommandResult(success=True, message="ok")
+
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def registry() -> CommandRegistry:
-    """Build a registry with the core handlers pre-loaded."""
-    # Importing triggers @command decorators
-    import agent_cli.commands.handlers.agent  # noqa: F401
-    import agent_cli.commands.handlers.core  # noqa: F401
-    import agent_cli.commands.handlers.sandbox  # noqa: F401
-    import agent_cli.commands.handlers.session  # noqa: F401
-    from agent_cli.commands.base import _DEFAULT_REGISTRY
-
-    reg = CommandRegistry()
-    reg.absorb(_DEFAULT_REGISTRY)
-    return reg
+    """Build a registry with explicit bootstrap wiring."""
+    return _build_command_registry()
 
 
 @pytest.fixture
@@ -121,6 +119,7 @@ def ctx() -> CommandContext:
 
 @pytest.fixture
 def parser(registry: CommandRegistry, ctx: CommandContext) -> CommandParser:
+    ctx.app_context = SimpleNamespace(command_registry=registry)  # type: ignore[assignment]
     return CommandParser(registry=registry, context=ctx)
 
 
@@ -128,7 +127,7 @@ def parser(registry: CommandRegistry, ctx: CommandContext) -> CommandParser:
 
 
 def test_command_decorator_registers_into_registry(registry: CommandRegistry):
-    """@command decorator populates CommandRegistry."""
+    """Built-in command registry contains expected core commands."""
     names = [c.name for c in registry.all()]
     assert "help" in names
     assert "clear" in names
@@ -142,6 +141,74 @@ def test_command_decorator_registers_into_registry(registry: CommandRegistry):
     assert "context" in names
     assert "sandbox" in names
     assert "sessions" in names
+
+
+def test_command_registry_duplicate_guard() -> None:
+    reg = CommandRegistry()
+    reg.register(
+        CommandDef(
+            name="help",
+            description="v1",
+            usage="/help",
+            handler=_noop_handler,
+        )
+    )
+    with pytest.raises(ValueError, match="already registered"):
+        reg.register(
+            CommandDef(
+                name="help",
+                description="v2",
+                usage="/help",
+                handler=_noop_handler,
+            )
+        )
+
+
+def test_command_registry_override_replaces_definition() -> None:
+    reg = CommandRegistry()
+    reg.register(
+        CommandDef(
+            name="help",
+            description="v1",
+            usage="/help",
+            handler=_noop_handler,
+        )
+    )
+    reg.register(
+        CommandDef(
+            name="help",
+            description="v2",
+            usage="/help",
+            handler=_noop_handler,
+        ),
+        override=True,
+    )
+    resolved = reg.get("help")
+    assert resolved is not None
+    assert resolved.description == "v2"
+
+
+def test_command_registry_freeze_blocks_register() -> None:
+    reg = CommandRegistry()
+    reg.register(
+        CommandDef(
+            name="help",
+            description="v1",
+            usage="/help",
+            handler=_noop_handler,
+        )
+    )
+    reg.freeze()
+    assert reg.is_frozen is True
+    with pytest.raises(RuntimeError, match="frozen"):
+        reg.register(
+            CommandDef(
+                name="model",
+                description="switch model",
+                usage="/model",
+                handler=_noop_handler,
+            )
+        )
 
 
 def test_parser_is_command_true_false():
@@ -349,6 +416,56 @@ async def test_debug_command_updates_log_level(
     assert result.success is True
     assert ctx.settings.log_level == "DEBUG"
 
+
+@pytest.mark.asyncio
+async def test_cost_command_uses_injected_observability(
+    parser: CommandParser, ctx: CommandContext, registry: CommandRegistry
+):
+    class _Metrics:
+        @staticmethod
+        def to_summary() -> dict[str, Any]:
+            return {
+                "cost_usd": 0.012345,
+                "llm_calls": 3,
+                "tokens": {"input": 11, "output": 22, "total": 33},
+            }
+
+    class _Observability:
+        metrics = _Metrics()
+
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        command_registry=registry,
+        observability=_Observability(),
+    )
+
+    result = await parser.execute("/cost")
+    assert result.success is True
+    assert "Total cost: $0.012345" in result.message
+    assert "LLM calls: 3" in result.message
+    assert "Total tokens: 33" in result.message
+
+
+@pytest.mark.asyncio
+async def test_debug_command_uses_injected_observability(
+    parser: CommandParser, ctx: CommandContext, registry: CommandRegistry
+):
+    class _Observability:
+        def __init__(self) -> None:
+            self.levels: list[str] = []
+
+        def set_level(self, level: str) -> None:
+            self.levels.append(level)
+
+    obs = _Observability()
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        command_registry=registry,
+        observability=obs,
+    )
+
+    result = await parser.execute("/debug on")
+    assert result.success is True
+    assert ctx.settings.log_level == "DEBUG"
+    assert obs.levels == ["DEBUG"]
 
 @pytest.mark.asyncio
 async def test_model_command_updates_active_agent_and_persists_override(

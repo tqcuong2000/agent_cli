@@ -371,7 +371,6 @@ class ObservabilityManager:
         self.summary_file.write_text(payload, encoding="utf-8")
 
     def shutdown(self) -> None:
-        global _OBSERVABILITY
         self._logger.info(
             "Observability shutdown",
             extra={
@@ -380,9 +379,7 @@ class ObservabilityManager:
             },
         )
         self.write_summary()
-        if _OBSERVABILITY is self:
-            _remove_managed_handlers()
-            _OBSERVABILITY = None
+        _remove_managed_handlers()
 
     def _configure_handlers(self, level: str) -> None:
         numeric_level = getattr(logging, level.upper(), logging.INFO)
@@ -412,34 +409,21 @@ def _remove_managed_handlers() -> None:
             handler.close()
 
 
-_OBSERVABILITY: Optional[ObservabilityManager] = None
-
-
 def configure_observability(
     settings: Any,
     *,
     data_registry: Optional[DataRegistry] = None,
 ) -> ObservabilityManager:
-    """Create/reset the global observability manager for current app session."""
-    global _OBSERVABILITY
-
-    if _OBSERVABILITY is not None:
-        _OBSERVABILITY.shutdown()
+    """Create a fresh observability manager for the current app session."""
 
     log_dir = Path(
         str(getattr(settings, "log_directory", "~/.agent_cli/logs"))
     ).expanduser()
     level = str(getattr(settings, "log_level", "INFO"))
     max_size_mb = int(getattr(settings, "log_max_file_size_mb", _DEFAULT_MAX_SIZE_MB))
-    _OBSERVABILITY = ObservabilityManager(
+    return ObservabilityManager(
         log_dir=log_dir,
         level=level,
         max_size_mb=max_size_mb,
         data_registry=data_registry,
     )
-    return _OBSERVABILITY
-
-
-def get_observability() -> Optional[ObservabilityManager]:
-    """Return the global observability manager."""
-    return _OBSERVABILITY

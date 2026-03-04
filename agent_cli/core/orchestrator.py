@@ -36,7 +36,6 @@ from agent_cli.core.events.events import (
     TaskResultEvent,
     UserRequestEvent,
 )
-from agent_cli.core.logging import get_observability
 from agent_cli.core.state.state_manager import AbstractStateManager
 from agent_cli.core.state.state_models import TaskState
 from agent_cli.core.tracing import bind_trace, new_trace_id
@@ -44,6 +43,7 @@ from agent_cli.session.base import AbstractSessionManager, Session
 
 if TYPE_CHECKING:
     from agent_cli.commands.parser import CommandParser
+    from agent_cli.core.logging import ObservabilityManager
     from agent_cli.providers.capability_probe import CapabilityProbeService
 
 logger = logging.getLogger(__name__)
@@ -79,6 +79,7 @@ class Orchestrator:
         agent_registry: Optional[AgentRegistry] = None,
         session_agents: Optional[SessionAgentRegistry] = None,
         capability_probe: Optional[CapabilityProbeService] = None,
+        observability: Optional[ObservabilityManager] = None,
     ) -> None:
         self._event_bus = event_bus
         self._state_manager = state_manager
@@ -88,6 +89,7 @@ class Orchestrator:
         self._agent_registry = agent_registry
         self._session_agents = session_agents
         self._capability_probe = capability_probe
+        self._observability = observability
         self._request_lock = asyncio.Lock()
         self._running_callbacks: set[asyncio.Task[Any]] = set()
         self._active_request_task: Optional[asyncio.Task[Any]] = None
@@ -543,9 +545,8 @@ class Orchestrator:
             session.messages.extend(new_messages)
 
         # Accumulate task-specific cost into the session's cumulative total
-        obs = get_observability()
-        if obs is not None:
-            task_metrics = obs.get_task_metrics(task_id)
+        if self._observability is not None:
+            task_metrics = self._observability.get_task_metrics(task_id)
             task_cost = float(task_metrics.get("cost_usd", 0.0))
             session.total_cost = round(session.total_cost + task_cost, 6)
 
@@ -663,9 +664,7 @@ class Orchestrator:
             )
         )
 
-    @staticmethod
-    def _log_task_metrics(task_id: str, *, is_success: bool) -> None:
-        observability = get_observability()
-        if observability is None:
+    def _log_task_metrics(self, task_id: str, *, is_success: bool) -> None:
+        if self._observability is None:
             return
-        observability.log_task_summary(task_id, is_success=is_success)
+        self._observability.log_task_summary(task_id, is_success=is_success)

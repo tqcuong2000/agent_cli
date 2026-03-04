@@ -5,16 +5,10 @@ from __future__ import annotations
 from typing import List
 
 from agent_cli.agent.session_registry import AgentStatus
-from agent_cli.commands.base import CommandContext, CommandResult, command
+from agent_cli.commands.base import CommandContext, CommandResult
 from agent_cli.core.events.events import SettingsChangedEvent
 
 
-@command(
-    name="agent",
-    description="Manage agents in the current session",
-    usage="/agent [list|add|remove|enable|disable|default] [name]",
-    category="Agent",
-)
 async def cmd_agent(args: List[str], ctx: CommandContext) -> CommandResult:
     app_ctx = ctx.app_context
     if app_ctx is None or app_ctx.orchestrator is None:

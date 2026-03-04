@@ -4,16 +4,10 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from agent_cli.commands.base import CommandContext, CommandResult, command
+from agent_cli.commands.base import CommandContext, CommandResult
 from agent_cli.workspace.sandbox import SandboxWorkspaceManager
 
 
-@command(
-    name="sandbox",
-    description="Control workspace sandbox mode",
-    usage="/sandbox <on|off|ls>",
-    category="Workspace",
-)
 async def cmd_sandbox(args: List[str], ctx: CommandContext) -> CommandResult:
     manager = _get_sandbox_manager(ctx)
     if manager is None:

@@ -7,8 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_cli.commands.base import CommandContext, CommandRegistry
+from agent_cli.commands.base import CommandContext
 from agent_cli.commands.parser import CommandParser
+from agent_cli.core.bootstrap import _build_command_registry
 from agent_cli.core.events.event_bus import AsyncEventBus
 from agent_cli.core.state.state_manager import TaskStateManager
 from agent_cli.workspace.sandbox import SandboxWorkspaceManager
@@ -82,12 +83,7 @@ async def test_sandbox_lazy_apply_keeps_changes(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_sandbox_command_flow(tmp_path: Path):
     sandbox = _build_lazy_sandbox(tmp_path)
-
-    import agent_cli.commands.handlers.sandbox  # noqa: F401
-    from agent_cli.commands.base import _DEFAULT_REGISTRY
-
-    registry = CommandRegistry()
-    registry.absorb(_DEFAULT_REGISTRY)
+    registry = _build_command_registry()
 
     event_bus = AsyncEventBus()
     ctx = CommandContext(

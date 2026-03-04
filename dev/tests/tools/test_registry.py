@@ -1,6 +1,7 @@
 """Tests for ToolRegistry and ToolOutputFormatter."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from pydantic import BaseModel
@@ -101,6 +102,42 @@ def test_tool_registry_get_definitions_for_llm():
     assert d["description"] == "A file tool."
     assert "parameters" in d
     assert d["category"] == "FILE"
+
+
+def test_tool_registry_freeze_blocks_register():
+    registry = ToolRegistry()
+    registry.register(DummyFileTool())
+    registry.freeze()
+
+    with pytest.raises(RuntimeError, match="frozen"):
+        registry.register(DummyExecTool())
+
+
+def test_tool_registry_freeze_idempotent():
+    registry = ToolRegistry()
+    registry.freeze()
+    registry.freeze()
+    assert registry.is_frozen is True
+
+
+def test_tool_registry_rejects_missing_name():
+    registry = ToolRegistry()
+    with pytest.raises(ValueError, match="non-empty 'name'"):
+        registry.register(object())  # type: ignore[arg-type]
+
+
+def test_tool_registry_rejects_missing_execute():
+    registry = ToolRegistry()
+    fake = SimpleNamespace(name="fake_tool", get_json_schema=lambda: {})
+    with pytest.raises(ValueError, match="'execute' method"):
+        registry.register(fake)  # type: ignore[arg-type]
+
+
+def test_tool_registry_rejects_missing_get_json_schema():
+    registry = ToolRegistry()
+    fake = SimpleNamespace(name="fake_tool", execute=lambda **kwargs: None)
+    with pytest.raises(ValueError, match="'get_json_schema' method"):
+        registry.register(fake)  # type: ignore[arg-type]
 
 
 def test_tool_output_formatter():
