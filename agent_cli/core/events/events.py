@@ -298,6 +298,14 @@ class ChangedFileReviewActionEvent(BaseEvent):
 
 
 @dataclass
+class SessionLoadedEvent(BaseEvent):
+    """Fired when an entire session history is hydrated into memory."""
+
+    session_id: str = ""
+    messages: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
 class SessionSavedEvent(BaseEvent):
     """Published after a session is persisted to disk."""
 

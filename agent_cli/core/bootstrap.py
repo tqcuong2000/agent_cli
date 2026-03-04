@@ -292,8 +292,8 @@ class AppContext:
             return False
 
         try:
-            if self.observability is not None:
-                active.total_cost = self.observability.metrics.total_cost_usd
+            # Note: total_cost is now managed incrementally by the Orchestrator per-task
+            # to ensure session isolation and persistence across process restarts.
             self.session_manager.save(active)
         except Exception:
             logger.exception(

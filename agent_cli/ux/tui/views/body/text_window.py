@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+import re
 from collections import defaultdict
 from typing import TYPE_CHECKING, DefaultDict, List, Optional, Tuple
+
+from agent_cli.agent.schema import SchemaValidator
 
 from textual import events
 from textual.app import ComposeResult
@@ -20,6 +24,7 @@ from agent_cli.core.events.events import (
     ToolExecutionResultEvent,
     ToolExecutionStartEvent,
     UserRequestEvent,
+    SessionLoadedEvent,
 )
 from agent_cli.ux.tui.views.body.messages.agent_response import AgentResponseContainer
 from agent_cli.ux.tui.views.body.messages.changed_file_detail_block import DiffLine
@@ -114,6 +119,13 @@ class TextWindowContainer(Container):
             bus.subscribe(
                 "ChangedFileReviewActionEvent",
                 self._on_changed_file_review_action,
+                priority=50,
+            )
+        )
+        self._subscriptions.append(
+            bus.subscribe(
+                "SessionLoadedEvent",
+                self._on_session_loaded,
                 priority=50,
             )
         )
@@ -287,6 +299,100 @@ class TextWindowContainer(Container):
             if detail_path == target_path:
                 detail.remove()
 
+        self.call_after_refresh(self._scroll_to_end)
+
+    async def _on_session_loaded(self, event: BaseEvent) -> None:
+        if not isinstance(event, SessionLoadedEvent):
+            return
+
+        # Clear existing messages
+        self._messages.remove_children()
+        self._current_arc = None
+        self._active_task_id = ""
+        self._pending_tools.clear()
+
+        if not event.messages:
+            self._show_empty_state()
+            return
+
+        # Rebuild messages from history
+        for msg in event.messages:
+            role = str(msg.get("role", "")).lower()
+            content = str(msg.get("content", ""))
+            
+            if role == "user":
+                self._messages.mount(UserMessageContainer(content))
+                self._current_arc = None
+            elif role == "assistant":
+                self._current_arc = AgentResponseContainer()
+                self._messages.mount(self._current_arc)
+                
+                # Try JSON protocol parsing
+                validator = SchemaValidator(registered_tools=[])
+                parsed = validator._extract_json_object(content)
+
+                if isinstance(parsed, dict) and "decision" in parsed:
+                    title = str(parsed.get("title", "")).strip()
+                    thought = str(parsed.get("thought", "")).strip()
+                    if thought or title:
+                        tb = self._current_arc.append_thinking()
+                        tb.append_chunk(json.dumps({"title": title, "thought": thought}))
+                        tb.finish_streaming()
+                        
+                    decision = parsed.get("decision", {})
+                    dtype = str(decision.get("type", ""))
+                    if dtype == "execute_action":
+                        tool = str(decision.get("tool", ""))
+                        args = decision.get("args", {})
+                        if isinstance(args, dict):
+                            self._current_arc.append_tool_step(tool, args).mark_success(0)
+                        self._current_arc = None
+                        continue
+                    elif dtype in ("notify_user", "yield"):
+                        ans = decision.get("message", parsed.get("final_answer", ""))
+                        if ans:
+                            self._current_arc.set_answer(str(ans).strip())
+                        self._current_arc = None
+                        continue
+                        
+                # Native Tool Fallback
+                lines = content.splitlines()
+                text_lines = []
+                found_tools = False
+                for line in lines:
+                    try:
+                        p = json.loads(line)
+                        if isinstance(p, dict) and p.get("type") == "tool_call" and "payload" in p:
+                            if text_lines:
+                                tb = self._current_arc.append_thinking()
+                                tb.append_chunk("\n".join(text_lines).strip())
+                                tb.finish_streaming()
+                                text_lines = []
+                            payload = p.get("payload", {})
+                            tool = str(payload.get("tool", ""))
+                            args = payload.get("args", {})
+                            if isinstance(args, dict):
+                                self._current_arc.append_tool_step(tool, args).mark_success(0)
+                            found_tools = True
+                            continue
+                    except Exception:
+                        pass
+                    text_lines.append(line)
+                    
+                if not found_tools:
+                    self._current_arc.set_answer(content)
+                elif text_lines:
+                    ans = "\n".join(text_lines).strip()
+                    if ans:
+                        self._current_arc.set_answer(ans)
+                    
+                self._current_arc = None
+            elif role == "system":
+                if "Schema Error:" in content or "Tool Error:" in content:
+                    continue
+                self._messages.mount(SystemMessageContainer(content))
+                self._current_arc = None
+                
         self.call_after_refresh(self._scroll_to_end)
 
     def _ensure_current_response(self) -> AgentResponseContainer:

@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, Vertical
 from textual.widgets import Input, Static
 
-from agent_cli.core.events.events import SettingsChangedEvent
+from agent_cli.core.events.events import SessionLoadedEvent, SettingsChangedEvent
 from agent_cli.session.base import SessionSummary
 
 if TYPE_CHECKING:
@@ -280,6 +280,9 @@ class SessionOverlay(Container):
             )
             setattr(row, "_session_id", summary.session_id)
             area.mount(row)
+        
+        # Ensure the selected row is visible after rendering
+        self.call_after_refresh(self._update_selected_row_styles)
 
     def _update_selected_row_styles(self) -> None:
         area = self.query_one("#session-list", Container)
@@ -287,6 +290,7 @@ class SessionOverlay(Container):
         for i, row in enumerate(rows):
             if i == self._selected_index:
                 row.add_class("selected")
+                area.scroll_to_widget(row, animate=False)
             else:
                 row.remove_class("selected")
 
@@ -320,9 +324,20 @@ class SessionOverlay(Container):
 
         # Hydrate memory immediately for context visibility commands.
         app_context.memory_manager.reset_working()
+        loaded_messages = []
         for message in session.messages:
             if isinstance(message, dict):
                 app_context.memory_manager.add_working_event(message)
+                loaded_messages.append(message)
+
+        if loaded_messages and app_context.event_bus:
+            await app_context.event_bus.publish(
+                SessionLoadedEvent(
+                    session_id=session.session_id,
+                    messages=loaded_messages,
+                    source="session_overlay",
+                )
+            )
 
         if (
             session.active_model

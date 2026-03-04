@@ -215,7 +215,18 @@ class StatusContainer(Container):
         if not isinstance(event, SettingsChangedEvent):
             return
         if event.setting_name == "active_agent":
-            self.update_active_agent(str(event.new_value))
+            agent_name = str(event.new_value)
+            self.update_active_agent(agent_name)
+
+            # Sync model name from the new active agent
+            app_context = getattr(self.app, "app_context", None)
+            orchestrator = getattr(app_context, "orchestrator", None)
+            if orchestrator is not None:
+                agent = orchestrator.active_agent
+                if agent is not None:
+                    # Use the model name from the agent's provider for the most accurate display
+                    model_name = getattr(agent.provider, "model_name", agent.config.model)
+                    self.update_model(str(model_name))
 
     def _sync_active_agent(self) -> None:
         app_context = getattr(self.app, "app_context", None)
@@ -223,7 +234,14 @@ class StatusContainer(Container):
         if orchestrator is None:
             return
         try:
-            self.update_active_agent(orchestrator.active_agent_name)
+            agent = orchestrator.active_agent
+            self.update_active_agent(agent.name)
+
+            # Sync model name from the active agent's provider
+            # This ensures that even if we initialize with a non-default agent,
+            # we show the correct model name.
+            model_name = getattr(agent.provider, "model_name", agent.config.model)
+            self.update_model(str(model_name))
         except Exception:
             return
 

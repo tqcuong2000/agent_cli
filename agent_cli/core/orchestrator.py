@@ -542,6 +542,13 @@ class Orchestrator:
         if new_messages:
             session.messages.extend(new_messages)
 
+        # Accumulate task-specific cost into the session's cumulative total
+        obs = get_observability()
+        if obs is not None:
+            task_metrics = obs.get_task_metrics(task_id)
+            task_cost = float(task_metrics.get("cost_usd", 0.0))
+            session.total_cost = round(session.total_cost + task_cost, 6)
+
         session_title_changed = False
         current_name = str(session.name or "").strip()
         if not current_name:
