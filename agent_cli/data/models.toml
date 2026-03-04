@@ -3,133 +3,157 @@
 routing_model = "gemini-2.5-flash-lite"
 summarization_model = "gemini-2.5-flash-lite"
 
-# -- Context Windows ---------------------------------------------------
-[context_windows]
-"gpt-4o" = 128_000
-"o1" = 200_000
-"o3" = 200_000
-"gemini-1.5-pro" = 2_000_000
+# -- Entry-Based Model Registry (Phase 1) ------------------------------
+[models."gpt-4o"]
+provider = "openai"
+api_model = "gpt-4o"
+aliases = ["openai/gpt-4o", "openai:gpt-4o"]
+context_window = 128_000
+tokenizer = "o200k_base"
+pricing_input = 2.50
+pricing_output = 10.00
 
-default_context_window = 128_000
+[models."gpt-4o".capabilities]
+native_tools = { supported = true }
+effort = { supported = false, levels = ["auto"] }
+web_search = { supported = true, mode = "responses_api", tool_type = "web_search_preview" }
 
-[[context_window_prefixes]]
-prefix = "gpt-4o"
-tokens = 128_000
+[models."gpt-4o-mini"]
+provider = "openai"
+api_model = "gpt-4o-mini"
+aliases = ["openai/gpt-4o-mini", "openai:gpt-4o-mini"]
+context_window = 128_000
+tokenizer = "o200k_base"
+pricing_input = 0.15
+pricing_output = 0.60
 
-[[context_window_prefixes]]
-prefix = "gpt-4.1"
-tokens = 128_000
+[models."gpt-4o-mini".capabilities]
+native_tools = { supported = true }
+effort = { supported = false, levels = ["auto"] }
+web_search = { supported = true, mode = "responses_api", tool_type = "web_search_preview" }
 
-[[context_window_prefixes]]
-prefix = "gpt-5"
-tokens = 128_000
+[models."o1"]
+provider = "openai"
+api_model = "o1"
+aliases = ["openai/o1", "openai:o1"]
+context_window = 200_000
+tokenizer = "o200k_base"
+pricing_input = 0.0
+pricing_output = 0.0
 
-[[context_window_prefixes]]
-prefix = "o1"
-tokens = 200_000
+[models."o1".capabilities]
+native_tools = { supported = true }
+effort = { supported = false, levels = ["auto"] }
+web_search = { supported = false, mode = "none" }
 
-[[context_window_prefixes]]
-prefix = "o3"
-tokens = 200_000
+[models."o1-mini"]
+provider = "openai"
+api_model = "o1-mini"
+aliases = ["openai/o1-mini", "openai:o1-mini"]
+context_window = 200_000
+tokenizer = "o200k_base"
+pricing_input = 0.0
+pricing_output = 0.0
 
-[[context_window_prefixes]]
-prefix = "o4"
-tokens = 200_000
+[models."o1-mini".capabilities]
+native_tools = { supported = true }
+effort = { supported = false, levels = ["auto"] }
+web_search = { supported = false, mode = "none" }
 
-[[context_window_prefixes]]
-prefix = "claude"
-tokens = 200_000
+[models."claude-3-5-sonnet-20241022"]
+provider = "anthropic"
+api_model = "claude-3-5-sonnet-20241022"
+aliases = ["anthropic/claude-3-5-sonnet-20241022", "anthropic:claude-3-5-sonnet-20241022"]
+context_window = 200_000
+tokenizer = "cl100k_base"
+pricing_input = 3.00
+pricing_output = 15.00
 
-[[context_window_prefixes]]
-prefix = "gemini-1.5-pro"
-tokens = 2_000_000
+[models."claude-3-5-sonnet-20241022".capabilities]
+native_tools = { supported = true }
+effort = { supported = false, levels = ["auto"] }
+web_search = { supported = true, mode = "provider_native" }
 
-[[context_window_prefixes]]
-prefix = "gemini"
-tokens = 1_000_000
+[models."claude-3-5-haiku-20241022"]
+provider = "anthropic"
+api_model = "claude-3-5-haiku-20241022"
+aliases = ["anthropic/claude-3-5-haiku-20241022", "anthropic:claude-3-5-haiku-20241022"]
+context_window = 200_000
+tokenizer = "cl100k_base"
+pricing_input = 0.80
+pricing_output = 4.00
 
-# -- Pricing (USD per 1M tokens) --------------------------------------
-[pricing]
-"gpt-4.5" = { input = 75.00, output = 150.00 }
-"gpt-4.5-mini" = { input = 0.40, output = 1.60 }
-"gpt-4o" = { input = 2.50, output = 10.00 }
-"gpt-4o-mini" = { input = 0.15, output = 0.60 }
-"gpt-5" = { input = 2.00, output = 8.00 }
-"gpt-5-mini" = { input = 0.30, output = 1.20 }
-"o3" = { input = 2.00, output = 8.00 }
-"o3-mini" = { input = 1.10, output = 4.40 }
-"o3-pro" = { input = 20.00, output = 80.00 }
-"o4-mini" = { input = 1.10, output = 4.40 }
-"codex-mini" = { input = 1.50, output = 6.00 }
-"claude-sonnet-4.6" = { input = 3.00, output = 15.00 }
-"claude-opus-4.6" = { input = 15.00, output = 75.00 }
-"claude-haiku-4.5" = { input = 0.80, output = 4.00 }
-"claude-sonnet-4" = { input = 3.00, output = 15.00 }
-"claude-opus-4" = { input = 15.00, output = 75.00 }
-"claude-3-5-sonnet" = { input = 3.00, output = 15.00 }
-"claude-3-opus" = { input = 15.00, output = 75.00 }
-"gemini-2.5-pro" = { input = 1.25, output = 10.00 }
-"gemini-2.5-flash" = { input = 0.15, output = 0.60 }
-"gemini-2.0-flash" = { input = 0.10, output = 0.40 }
-"llama-3-8b" = { input = 0.0, output = 0.0 }
-"codestral" = { input = 0.0, output = 0.0 }
+[models."claude-3-5-haiku-20241022".capabilities]
+native_tools = { supported = true }
+effort = { supported = false, levels = ["auto"] }
+web_search = { supported = true, mode = "provider_native" }
 
-default_pricing = { input = 0.0, output = 0.0 }
+[models."claude-3-opus-20240229"]
+provider = "anthropic"
+api_model = "claude-3-opus-20240229"
+aliases = ["anthropic/claude-3-opus-20240229", "anthropic:claude-3-opus-20240229"]
+context_window = 200_000
+tokenizer = "cl100k_base"
+pricing_input = 15.00
+pricing_output = 75.00
 
-# -- Tokenizer Encoding Selection -------------------------------------
-[tokenizer]
-o200k_prefixes = ["gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4"]
-default_encoding = "cl100k_base"
+[models."claude-3-opus-20240229".capabilities]
+native_tools = { supported = true }
+effort = { supported = false, levels = ["auto"] }
+web_search = { supported = true, mode = "provider_native" }
 
-# -- Built-in Providers ------------------------------------------------
-[providers.openai]
-adapter_type = "openai"
-models = ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini"]
-default_model = "gpt-4o"
+[models."gemini-2.5-flash"]
+provider = "google"
+api_model = "gemini-2.5-flash"
+aliases = ["google/gemini-2.5-flash", "google:gemini-2.5-flash"]
+context_window = 1_000_000
+tokenizer = "cl100k_base"
+pricing_input = 0.15
+pricing_output = 0.60
 
-[providers.azure]
-adapter_type = "azure"
-base_url = "https://YOUR-RESOURCE.openai.azure.com/openai/v1"
-api_key_env = "AZURE_OPENAI_API_KEY"
-models = []
-default_model = "default-deployment"
+[models."gemini-2.5-flash".capabilities]
+native_tools = { supported = true }
+effort = { supported = true, levels = ["auto", "minimal", "low", "medium", "high"] }
+web_search = { supported = true, mode = "provider_native" }
 
-[providers.anthropic]
-adapter_type = "anthropic"
-models = [
-    "claude-3-5-sonnet-20241022",
-    "claude-3-5-haiku-20241022",
-    "claude-3-opus-20240229",
-]
-default_model = "claude-3-5-sonnet-20241022"
+[models."gemini-2.5-flash-lite"]
+provider = "google"
+api_model = "gemini-2.5-flash-lite"
+aliases = ["google/gemini-2.5-flash-lite", "google:gemini-2.5-flash-lite"]
+context_window = 1_000_000
+tokenizer = "cl100k_base"
+pricing_input = 0.15
+pricing_output = 0.60
 
-[providers.google]
-adapter_type = "google"
-models = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-pro",
-]
-default_model = "gemini-2.5-flash-lite"
+[models."gemini-2.5-flash-lite".capabilities]
+native_tools = { supported = true }
+effort = { supported = true, levels = ["auto", "minimal", "low", "medium", "high"] }
+web_search = { supported = true, mode = "provider_native" }
 
-[providers.huggingface]
-adapter_type = "openai_compatible"
-base_url = "https://router.huggingface.co/v1"
-models = [
-    "mistralai/Mistral-7B-Instruct-v0.3",
-    "meta-llama/Llama-3.1-8B-Instruct",
-    "microsoft/Phi-3-mini-4k-instruct",
-]
-default_model = "mistralai/Mistral-7B-Instruct-v0.3"
+[models."gemini-2.0-flash"]
+provider = "google"
+api_model = "gemini-2.0-flash"
+aliases = ["google/gemini-2.0-flash", "google:gemini-2.0-flash"]
+context_window = 1_000_000
+tokenizer = "cl100k_base"
+pricing_input = 0.10
+pricing_output = 0.40
 
-[providers.openrouter]
-adapter_type = "openai_compatible"
-base_url = "https://openrouter.ai/api/v1"
-models = [
-    "anthropic/claude-3.5-sonnet",
-    "deepseek/deepseek-chat",
-    "google/gemini-2.5-flash",
-    "meta-llama/llama-3.1-8b-instruct",
-]
-default_model = "anthropic/claude-3.5-sonnet"
+[models."gemini-2.0-flash".capabilities]
+native_tools = { supported = true }
+effort = { supported = true, levels = ["auto", "minimal", "low", "medium", "high"] }
+web_search = { supported = true, mode = "provider_native" }
+
+[models."gemini-2.0-pro"]
+provider = "google"
+api_model = "gemini-2.0-pro"
+aliases = ["google/gemini-2.0-pro", "google:gemini-2.0-pro"]
+context_window = 1_000_000
+tokenizer = "cl100k_base"
+pricing_input = 0.0
+pricing_output = 0.0
+
+[models."gemini-2.0-pro".capabilities]
+native_tools = { supported = true }
+effort = { supported = true, levels = ["auto", "minimal", "low", "medium", "high"] }
+web_search = { supported = true, mode = "provider_native" }

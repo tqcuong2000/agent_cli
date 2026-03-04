@@ -57,8 +57,10 @@ class SchemaValidator(BaseSchemaValidator):
         if response.tool_mode == ToolCallMode.NATIVE:
             action = self._parse_native_fc(response)
             if action is not None:
+                title, _ = self._extract_json_reasoning(response.text_content)
                 return AgentResponse(
                     decision=AgentDecision.EXECUTE_ACTION,
+                    title=title,
                     thought=self.extract_thinking(response.text_content),
                     action=action,
                     final_answer=None,
@@ -145,6 +147,7 @@ class SchemaValidator(BaseSchemaValidator):
         if decision_type == AgentDecision.REFLECT.value:
             return AgentResponse(
                 decision=AgentDecision.REFLECT,
+                title=title,
                 thought=thought,
                 action=None,
                 final_answer=None,
@@ -176,6 +179,7 @@ class SchemaValidator(BaseSchemaValidator):
 
             return AgentResponse(
                 decision=AgentDecision.EXECUTE_ACTION,
+                title=title,
                 thought=thought,
                 action=ParsedAction(tool_name=tool_name, arguments=arguments),
                 final_answer=None,
@@ -204,6 +208,7 @@ class SchemaValidator(BaseSchemaValidator):
                     if decision_type == AgentDecision.NOTIFY_USER.value
                     else AgentDecision.YIELD
                 ),
+                title=title,
                 thought=thought,
                 action=None,
                 final_answer=message.strip(),
@@ -231,6 +236,7 @@ class SchemaValidator(BaseSchemaValidator):
             return None
 
         candidates: list[str] = [stripped]
+        candidates.extend(self._repair_json_candidates(stripped))
 
         code_fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.DOTALL)
         if code_fence:
@@ -249,6 +255,62 @@ class SchemaValidator(BaseSchemaValidator):
                 return parsed
 
         return None
+
+    def _repair_json_candidates(self, text: str) -> list[str]:
+        """Generate best-effort repaired JSON candidates for common model artifacts."""
+        repaired: list[str] = []
+
+        # Strip provider/tool sentinel artifacts sometimes appended after JSON.
+        stripped_markers = re.sub(r"\s*<\|[^|>]+?\|>\s*", " ", text).strip()
+        if stripped_markers and stripped_markers != text:
+            repaired.append(stripped_markers)
+
+        # Build candidates from the first object-looking slice onward.
+        start = stripped_markers.find("{")
+        if start >= 0:
+            core = stripped_markers[start:].strip()
+            repaired.append(core)
+
+            # Common malformed case: one or more missing trailing "}".
+            closed = self._close_unbalanced_braces(core)
+            if closed != core:
+                repaired.append(closed)
+
+        # Deduplicate while preserving order.
+        seen: set[str] = set()
+        unique: list[str] = []
+        for candidate in repaired:
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                unique.append(candidate)
+        return unique
+
+    @staticmethod
+    def _close_unbalanced_braces(text: str) -> str:
+        """Append missing closing braces if text appears to be truncated JSON."""
+        depth = 0
+        in_str = False
+        escape_next = False
+        for ch in text:
+            if in_str:
+                if escape_next:
+                    escape_next = False
+                elif ch == "\\":
+                    escape_next = True
+                elif ch == '"':
+                    in_str = False
+                continue
+
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth = max(depth - 1, 0)
+
+        if depth <= 0:
+            return text
+        return text + ("}" * depth)
 
     @staticmethod
     def _extract_balanced_json_object(text: str) -> Optional[str]:

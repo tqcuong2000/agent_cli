@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from agent_cli.core.models.config_models import EffortLevel, normalize_effort
 from agent_cli.session.base import (
     AbstractSessionManager,
     Session,
@@ -43,6 +44,7 @@ class FileSessionManager(AbstractSessionManager):
             updated_at=now,
             messages=[],
             active_model=self._default_model,
+            desired_effort=EffortLevel.AUTO.value,
             total_cost=0.0,
             task_ids=[],
             last_activity_at=now,
@@ -188,6 +190,7 @@ class FileSessionManager(AbstractSessionManager):
             "last_message_preview": session.last_message_preview,
             "messages": session.messages,
             "active_model": session.active_model,
+            "desired_effort": _coerce_effort(session.desired_effort),
             "total_cost": session.total_cost,
             "task_ids": session.task_ids,
         }
@@ -213,6 +216,7 @@ class FileSessionManager(AbstractSessionManager):
             ),
             messages=messages,
             active_model=str(payload.get("active_model", "")),
+            desired_effort=_coerce_effort(payload.get("desired_effort")),
             total_cost=float(payload.get("total_cost", 0.0)),
             task_ids=[str(v) for v in payload.get("task_ids", [])],
         )
@@ -231,6 +235,14 @@ def _coerce_messages(value: Any) -> List[Dict[str, Any]]:
     if isinstance(value, list):
         return [m for m in value if isinstance(m, dict)]
     return []
+
+
+def _coerce_effort(value: Any) -> str:
+    """Parse persisted effort values with backward-compatible fallback."""
+    try:
+        return normalize_effort(value).value
+    except Exception:
+        return EffortLevel.AUTO.value
 
 
 def _derive_last_message_preview(messages: List[Dict[str, Any]]) -> str:

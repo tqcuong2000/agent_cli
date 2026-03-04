@@ -23,6 +23,9 @@ class Session:
     updated_at: datetime = field(default_factory=utc_now)
     messages: List[Dict[str, Any]] = field(default_factory=list)
     active_model: str = ""
+    # User-requested reasoning effort preference for this session.
+    # Applied by runtime layers that support effort-aware providers.
+    desired_effort: str = "auto"
     total_cost: float = 0.0
     task_ids: List[str] = field(default_factory=list)
     # UI-friendly metadata for session manager overlays/lists.

@@ -6,6 +6,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 
 from agent_cli.core.bootstrap import create_app
+from agent_cli.core.events.events import BaseEvent, SettingsChangedEvent
 from agent_cli.ux.tui.views.body.body import BodyContainer
 from agent_cli.ux.tui.views.common.command_popup import CommandPopup
 from agent_cli.ux.tui.views.common.error_popup import ErrorPopup
@@ -14,6 +15,7 @@ from agent_cli.ux.tui.views.common.popup_list import BasePopupListView
 from agent_cli.ux.tui.views.common.session_overlay import SessionOverlay
 from agent_cli.ux.tui.views.footer.footer import FooterContainer
 from agent_cli.ux.tui.views.header.header import HeaderContainer
+from agent_cli.ux.tui.views.header.title import TitleComponent
 
 if TYPE_CHECKING:
     from agent_cli.core.bootstrap import AppContext
@@ -56,6 +58,7 @@ class AgentCLIApp(App):
         self.file_popup = FileDiscoveryPopup(app_context=self.app_context)
         self.error_popup = ErrorPopup(id="error_popup")
         self.session_overlay = SessionOverlay()
+        self._settings_subscription_id: Optional[str] = None
         self._bind_command_parser_context()
 
     def compose(self) -> ComposeResult:
@@ -79,9 +82,11 @@ class AgentCLIApp(App):
         # Ensure command handlers can access this app instance.
         self._bind_command_parser_context()
         self._bind_interaction_handler()
+        self._bind_settings_events()
 
         # Initialize status bar from settings
         self._init_status_bar()
+        self._init_session_title()
 
     def _bind_command_parser_context(self) -> None:
         parser = getattr(self.app_context, "command_parser", None)
@@ -100,6 +105,16 @@ class AgentCLIApp(App):
         if tool_executor is not None:
             tool_executor.set_interaction_handler(handler)
 
+    def _bind_settings_events(self) -> None:
+        event_bus = getattr(self.app_context, "event_bus", None)
+        if event_bus is None or self._settings_subscription_id is not None:
+            return
+        self._settings_subscription_id = event_bus.subscribe(
+            "SettingsChangedEvent",
+            self._on_settings_changed,
+            priority=40,
+        )
+
     def _init_status_bar(self) -> None:
         """Push current settings into the reactive status bar."""
         try:
@@ -117,6 +132,34 @@ class AgentCLIApp(App):
             badge.update(active_name)
         except Exception:
             pass  # StatusContainer may not be mounted
+
+    def _init_session_title(self) -> None:
+        manager = getattr(self.app_context, "session_manager", None)
+        if manager is None:
+            return
+        try:
+            active = manager.get_active()
+        except Exception:
+            return
+        if active is None:
+            return
+        self._apply_session_title(active.name or "Untitled session")
+
+    async def _on_settings_changed(self, event: BaseEvent) -> None:
+        if not isinstance(event, SettingsChangedEvent):
+            return
+        if event.setting_name != "session_title":
+            return
+        self._apply_session_title(str(event.new_value or "Untitled session"))
+
+    def _apply_session_title(self, title: str) -> None:
+        cleaned = " ".join(str(title).split()).strip() or "Untitled session"
+        try:
+            title_widget = self.query_one(TitleComponent)
+            title_widget.update_title(cleaned)
+        except Exception:
+            pass
+        self.title = f"Engine CLI - {cleaned}"
 
     def on_base_popup_list_view_item_selected(
         self, event: BasePopupListView.ItemSelected
@@ -195,4 +238,9 @@ class AgentCLIApp(App):
 
     async def on_unmount(self) -> None:
         """Flush and release app context resources on TUI shutdown."""
+        if self._settings_subscription_id is not None:
+            event_bus = getattr(self.app_context, "event_bus", None)
+            if event_bus is not None:
+                event_bus.unsubscribe(self._settings_subscription_id)
+            self._settings_subscription_id = None
         await self.app_context.shutdown()

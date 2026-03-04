@@ -19,12 +19,13 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from agent_cli.core.models.config_models import EffortLevel
 from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
-    StopReason,
+    ProviderRequestOptions,
     StreamChunk,
     ToolCall,
     ToolCallMode,
@@ -86,7 +87,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
     ) -> LLMResponse:
+        _ = effort
+        _ = request_options
         # For prompt-mode JSON: inject tools into the system prompt.
         if tools and not self._native_tools:
             tool_text = self._tool_formatter.format_for_prompt_injection(tools)
@@ -146,7 +151,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
     ) -> AsyncGenerator[StreamChunk, None]:
+        _ = effort
+        _ = request_options
         self._buffered_text = []
         self._buffered_usage = {"input": 0, "output": 0}
 

@@ -15,6 +15,7 @@ def test_file_session_manager_round_trip(tmp_path: Path):
     session.messages.append({"role": "assistant", "content": "hi"})
     session.task_ids.append("task-1")
     session.total_cost = 0.42
+    session.desired_effort = "high"
 
     manager.save(session)
 
@@ -22,6 +23,7 @@ def test_file_session_manager_round_trip(tmp_path: Path):
     assert loaded.session_id == session.session_id
     assert loaded.name == "my-session"
     assert loaded.active_model == "gpt-4o"
+    assert loaded.desired_effort == "high"
     assert loaded.task_ids == ["task-1"]
     assert loaded.total_cost == 0.42
     assert len(loaded.messages) == 2
@@ -53,4 +55,26 @@ def test_file_session_manager_active_session_persists_across_instances(tmp_path:
     assert active is not None
     assert active.session_id == session.session_id
     assert active.active_model == "claude-3-5-sonnet"
+    assert active.desired_effort == "auto"
     assert len(active.messages) == 1
+
+
+def test_file_session_manager_backfills_missing_desired_effort(tmp_path: Path):
+    """Legacy session JSON without desired_effort should restore to auto."""
+    manager = FileSessionManager(session_dir=tmp_path, default_model="gpt-4o")
+    session = manager.create_session(name="legacy")
+    manager.save(session)
+
+    session_path = tmp_path / f"{session.session_id}.json"
+    payload = session_path.read_text(encoding="utf-8")
+    assert '"desired_effort"' in payload
+
+    # Simulate legacy format by removing desired_effort and rewriting.
+    import json
+
+    data = json.loads(payload)
+    data.pop("desired_effort", None)
+    session_path.write_text(json.dumps(data, ensure_ascii=True, indent=2), "utf-8")
+
+    restored = manager.load(session.session_id)
+    assert restored.desired_effort == "auto"

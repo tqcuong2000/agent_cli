@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from agent_cli.core.error_handler.errors import ToolExecutionError
+from agent_cli.tools import shell_tool
 from agent_cli.tools.shell_tool import RunCommandTool, is_safe_command
 from agent_cli.tools.workspace import WorkspaceContext
 
@@ -44,7 +45,7 @@ async def test_run_command_tool_stderr(workspace, tmp_path):
     tool = RunCommandTool(workspace)
 
     # Simple error
-    res = await tool.execute("python -c \"1/0\"", timeout=5)
+    res = await tool.execute('python -c "1/0"', timeout=5)
     assert "[Exit Code:" in res
     assert "ZeroDivisionError" in res
     assert "[stderr]" in res
@@ -56,4 +57,40 @@ async def test_run_command_tool_timeout(workspace, tmp_path):
 
     # Use a sleep command that ignores the small timeout
     with pytest.raises(ToolExecutionError, match="Command timed out after 1s"):
-        await tool.execute("python -c \"import time; time.sleep(5)\"", timeout=1)
+        await tool.execute('python -c "import time; time.sleep(5)"', timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_run_command_uses_devnull_and_strips_terminal_control_sequences(
+    workspace, monkeypatch
+):
+    tool = RunCommandTool(workspace)
+    captured: dict[str, object] = {}
+
+    class _FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            # Includes xterm mouse report + ANSI color + OSC title + control chars.
+            stdout = b"prefix \x1b[<35;63;19M color=\x1b[31mred\x1b[0m \x00\x01 done\n"
+            stderr = b"\x1b]0;title\x07err\x1b[2K\n"
+            return stdout, stderr
+
+    async def _fake_create_subprocess_shell(*args, **kwargs):
+        captured.update(kwargs)
+        return _FakeProc()
+
+    monkeypatch.setattr(
+        shell_tool.asyncio,
+        "create_subprocess_shell",
+        _fake_create_subprocess_shell,
+    )
+
+    result = await tool.execute("echo hello", timeout=5)
+
+    assert captured.get("stdin") == asyncio.subprocess.DEVNULL
+    assert "\x1b" not in result
+    assert "prefix" in result
+    assert "color=red" in result
+    assert "done" in result
+    assert "err" in result

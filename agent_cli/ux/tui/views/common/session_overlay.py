@@ -221,7 +221,7 @@ class SessionOverlay(Container):
             return
 
         new_name = event.value.strip() or None
-        if self._rename_session(self._renaming_session_id, new_name):
+        if await self._rename_session(self._renaming_session_id, new_name):
             label = new_name or "(unnamed)"
             self._notify(f"Renamed session: {label}")
         self._hide_rename_input()
@@ -339,6 +339,7 @@ class SessionOverlay(Container):
         else:
             self._notify(f"Restored session: {summary.display_name}")
 
+        await self._publish_session_title(session.name)
         self.hide_overlay()
 
     def _delete_selected_session(self) -> None:
@@ -379,7 +380,7 @@ class SessionOverlay(Container):
         rename_input.value = ""
         self._renaming_session_id = None
 
-    def _rename_session(self, session_id: str, new_name: Optional[str]) -> bool:
+    async def _rename_session(self, session_id: str, new_name: Optional[str]) -> bool:
         manager = self._get_session_manager()
         if manager is None:
             return False
@@ -388,10 +389,26 @@ class SessionOverlay(Container):
             session = manager.load(session_id)
             session.name = new_name
             manager.save(session)
+            await self._publish_session_title(new_name)
             return True
         except Exception as exc:
             self._notify(f"Failed to rename session: {exc}", severity="error")
             return False
+
+    async def _publish_session_title(self, title: Optional[str]) -> None:
+        app_context = self._get_app_context()
+        if app_context is None:
+            return
+        event_bus = getattr(app_context, "event_bus", None)
+        if event_bus is None:
+            return
+        await event_bus.publish(
+            SettingsChangedEvent(
+                setting_name="session_title",
+                new_value=title or "Untitled session",
+                source="session_overlay",
+            )
+        )
 
     async def _switch_runtime_model(self, model_name: str) -> Optional[str]:
         app_context = self._get_app_context()

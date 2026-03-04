@@ -9,11 +9,16 @@ decorator.  The bootstrap absorbs them into the live
 
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 from agent_cli.commands.base import CommandContext, CommandResult, command
 from agent_cli.core.events.events import SettingsChangedEvent
 from agent_cli.core.logging import get_observability
+from agent_cli.core.models.config_models import (
+    EffortLevel,
+    effort_values,
+    normalize_effort,
+)
 
 # ══════════════════════════════════════════════════════════════════════
 # System
@@ -199,7 +204,7 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
             target_memory = agent.memory
             _persist_agent_model_override(ctx, agent.name, model_name)
 
-            # Keep legacy default_model behavior only for the default agent.
+            # Keep settings.default_model aligned with the configured default agent.
             if agent.name == getattr(ctx.settings, "default_agent", "default"):
                 ctx.settings.default_model = model_name
         except Exception as e:
@@ -236,6 +241,24 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
                 message=f"Failed to update token budget for '{model_name}': {e}",
             )
 
+    # Best-effort runtime capability probe after successful provider/model switch.
+    if ctx.app_context and ctx.app_context.orchestrator:
+        capability_probe = getattr(ctx.app_context, "capability_probe", None)
+        if capability_probe is not None:
+            try:
+                active_provider = getattr(
+                    ctx.app_context.orchestrator.active_agent,
+                    "provider",
+                    None,
+                )
+                if active_provider is not None:
+                    capability_probe.probe_provider(
+                        active_provider,
+                        trigger="model_switch",
+                    )
+            except Exception:
+                pass
+
     # Emit event so reactive components can update when model changes.
     if ctx.event_bus:
         await ctx.event_bus.publish(
@@ -257,6 +280,66 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
         success=True,
         message=f"Switched model for '{target_agent_name}' to: {model_name}",
     )
+
+
+@command(
+    name="effort",
+    description="Get or set reasoning effort",
+    usage="/effort [auto|minimal|low|medium|high]",
+    category="Model",
+)
+async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
+    """Get or set reasoning effort for the active session/runtime."""
+    if not args:
+        desired = _get_desired_effort(ctx)
+        return CommandResult(
+            success=True,
+            message=_format_effort_status(ctx, desired),
+        )
+
+    if len(args) != 1:
+        allowed = "|".join(effort_values())
+        return CommandResult(
+            success=False,
+            message=f"Usage: /effort [{allowed}]",
+        )
+
+    try:
+        desired = normalize_effort(args[0]).value
+    except Exception:
+        allowed = ", ".join(effort_values())
+        return CommandResult(
+            success=False,
+            message=f"Invalid effort value. Allowed: {allowed}",
+        )
+
+    saved_to_session = False
+    app_ctx = ctx.app_context
+    session_manager = getattr(app_ctx, "session_manager", None) if app_ctx else None
+    if session_manager is not None:
+        session = session_manager.get_active()
+        if session is None:
+            session = session_manager.create_session()
+        session.desired_effort = desired
+        session_manager.save(session)
+        saved_to_session = True
+    else:
+        ctx.settings.default_effort = desired
+
+    if ctx.event_bus is not None:
+        await ctx.event_bus.publish(
+            SettingsChangedEvent(
+                setting_name="effort",
+                new_value=desired,
+                source="cmd_effort",
+            )
+        )
+
+    scope = "session" if saved_to_session else "settings default"
+    message = (
+        f"Effort updated ({scope}): {desired}\n{_format_effort_status(ctx, desired)}"
+    )
+    return CommandResult(success=True, message=message)
 
 
 @command(
@@ -320,6 +403,7 @@ async def cmd_config(args: List[str], ctx: CommandContext) -> CommandResult:
         f"  default_model:        {s.default_model}",
         f"  default_agent:        {getattr(s, 'default_agent', 'default')}",
         f"  max_iterations:       {getattr(s, 'max_iterations', 100)}",
+        f"  default_effort:       {getattr(s, 'default_effort', 'auto')}",
         f"  auto_approve_tools:   {s.auto_approve_tools}",
         f"  show_agent_thinking:  {s.show_agent_thinking}",
         f"  log_level:            {s.log_level}",
@@ -371,3 +455,120 @@ def _persist_agent_model_override(
     entry = raw_entry if isinstance(raw_entry, dict) else {}
     entry["model"] = model_name
     agents[agent_name] = entry
+
+
+def _get_desired_effort(ctx: CommandContext) -> str:
+    """Resolve desired effort with session override precedence."""
+    app_ctx = ctx.app_context
+    session_manager = getattr(app_ctx, "session_manager", None) if app_ctx else None
+    if session_manager is not None:
+        active = session_manager.get_active()
+        if active is not None:
+            try:
+                return normalize_effort(getattr(active, "desired_effort", None)).value
+            except Exception:
+                pass
+    try:
+        return normalize_effort(getattr(ctx.settings, "default_effort", None)).value
+    except Exception:
+        return EffortLevel.AUTO.value
+
+
+def _format_effort_status(ctx: CommandContext, desired: str) -> str:
+    """Build a user-facing desired/effective effort status message."""
+    desired_norm = normalize_effort(desired).value
+    provider = None
+    model_name = ""
+    provider_name = "unknown"
+
+    app_ctx = ctx.app_context
+    orchestrator = getattr(app_ctx, "orchestrator", None) if app_ctx else None
+    if orchestrator is not None:
+        agent = getattr(orchestrator, "active_agent", None)
+        if agent is not None:
+            provider = getattr(agent, "provider", None)
+    if provider is not None:
+        provider_name = str(getattr(provider, "provider_name", "unknown"))
+        model_name = str(getattr(provider, "model_name", ""))
+    else:
+        model_name = str(getattr(ctx.settings, "default_model", ""))
+
+    effective = EffortLevel.AUTO.value
+    note = ""
+    if provider is not None:
+        status, reason = _get_effective_capability_status(
+            ctx=ctx,
+            provider=provider,
+            capability_name="effort",
+        )
+        if desired_norm == EffortLevel.AUTO.value:
+            effective = EffortLevel.AUTO.value
+        elif status == "supported":
+            effective = desired_norm
+        else:
+            effective = EffortLevel.AUTO.value
+
+        if desired_norm != EffortLevel.AUTO.value and status != "supported":
+            if reason:
+                note = f" (effective capability: {status}; {reason})"
+            else:
+                note = f" (effective capability: {status})"
+    else:
+        note = " (no active provider)"
+
+    return (
+        f"Desired effort: {desired_norm}\n"
+        f"Effective effort ({provider_name}/{model_name}): {effective}{note}"
+    )
+
+
+def _get_effective_capability_status(
+    *,
+    ctx: CommandContext,
+    provider: Any,
+    capability_name: str,
+) -> tuple[str, str]:
+    """Return effective capability status/reason from capability snapshot."""
+    app_ctx = ctx.app_context
+    data_registry = getattr(app_ctx, "data_registry", None) if app_ctx else None
+    if data_registry is None:
+        return "unknown", "missing_data_registry"
+
+    provider_name = str(getattr(provider, "provider_name", "")).strip()
+    model_name = str(getattr(provider, "model_name", "")).strip()
+    base_url = str(getattr(provider, "base_url", "") or "").strip()
+    if not provider_name or not model_name:
+        return "unknown", "missing_provider_identity"
+
+    deployment_id = _build_deployment_id(
+        provider_name=provider_name,
+        model_name=model_name,
+        base_url=base_url,
+    )
+    try:
+        snapshot = data_registry.get_capability_snapshot(
+            provider=provider_name,
+            model=model_name,
+            deployment_id=deployment_id,
+        )
+    except Exception:
+        return "unknown", "snapshot_lookup_failed"
+
+    observation = snapshot.effective.get(str(capability_name).strip())
+    if observation is None:
+        return "unknown", "capability_missing"
+    status = str(getattr(observation, "status", "unknown")).strip().lower() or "unknown"
+    reason = str(getattr(observation, "reason", "")).strip()
+    return status, reason
+
+
+def _build_deployment_id(
+    *, provider_name: str, model_name: str, base_url: str = ""
+) -> str:
+    """Build stable provider/model deployment identity."""
+    provider = str(provider_name).strip() or "unknown"
+    model = str(model_name).strip() or "unknown"
+    base = str(base_url).strip()
+    if base:
+        return f"{provider}:{model}@{base}"
+    return f"{provider}:{model}"

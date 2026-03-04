@@ -75,6 +75,7 @@ def test_parse_native_fc_success(validator: SchemaValidator) -> None:
     assert result.action.tool_name == "foo"
     assert result.action.arguments == {"x": 1}
     assert result.action.native_call_id == "call_1"
+    assert result.title == "Use tool"
 
 
 def test_parse_native_fc_unknown_tool(validator: SchemaValidator) -> None:
@@ -104,6 +105,7 @@ def test_parse_prompt_json_execute_action(validator: SchemaValidator) -> None:
     assert result.action is not None
     assert result.action.tool_name == "foo"
     assert result.action.arguments == {"x": 1}
+    assert result.title == "Use foo safely"
     assert "Title: Use foo safely" in result.thought
 
 
@@ -122,6 +124,7 @@ def test_parse_prompt_json_notify_user(validator: SchemaValidator) -> None:
     assert result.decision == AgentDecision.NOTIFY_USER
     assert result.final_answer == "Here is the result."
     assert result.action is None
+    assert result.title == "Complete response"
 
 
 def test_parse_prompt_json_yield(validator: SchemaValidator) -> None:
@@ -138,6 +141,7 @@ def test_parse_prompt_json_yield(validator: SchemaValidator) -> None:
     result = validator.parse_and_validate(response)
     assert result.decision == AgentDecision.YIELD
     assert result.final_answer == "Missing permissions."
+    assert result.title == "Blocked"
 
 
 def test_parse_prompt_json_reflect(validator: SchemaValidator) -> None:
@@ -154,6 +158,7 @@ def test_parse_prompt_json_reflect(validator: SchemaValidator) -> None:
     assert result.decision == AgentDecision.REFLECT
     assert result.action is None
     assert result.final_answer is None
+    assert result.title == "Think first"
 
 
 def test_parse_code_fenced_json(validator: SchemaValidator) -> None:
@@ -170,6 +175,42 @@ def test_parse_json_inside_extra_text(validator: SchemaValidator) -> None:
     result = validator.parse_and_validate(response)
     assert result.decision == AgentDecision.NOTIFY_USER
     assert result.final_answer == "done"
+
+
+def test_repairs_missing_trailing_brace_with_tool_markers(
+    validator: SchemaValidator,
+) -> None:
+    malformed = (
+        '{"title":"Move CSS","thought":"Write file now.",'
+        '"decision":{"type":"execute_action","tool":"foo","args":{"x":1}}'
+        " <|tool_call_end|> <|tool_calls_section_end|>"
+    )
+    response = LLMResponse(text_content=malformed, tool_mode=ToolCallMode.PROMPT_JSON)
+    result = validator.parse_and_validate(response)
+
+    assert result.decision == AgentDecision.EXECUTE_ACTION
+    assert result.action is not None
+    assert result.action.tool_name == "foo"
+    assert result.action.arguments == {"x": 1}
+    assert result.title == "Move CSS"
+
+
+def test_repairs_valid_json_with_trailing_tool_markers(
+    validator: SchemaValidator,
+) -> None:
+    payload = _json_response(
+        "notify_user",
+        message="complete",
+        title="Done",
+        thought="All done.",
+    )
+    malformed = payload + " <|tool_call_end|> <|tool_calls_section_end|>"
+    response = LLMResponse(text_content=malformed, tool_mode=ToolCallMode.PROMPT_JSON)
+    result = validator.parse_and_validate(response)
+
+    assert result.decision == AgentDecision.NOTIFY_USER
+    assert result.final_answer == "complete"
+    assert result.title == "Done"
 
 
 def test_rejects_legacy_tag_style_payload(validator: SchemaValidator) -> None:

@@ -38,8 +38,11 @@ from agent_cli.core.error_handler.errors import (
 )
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.events.events import AgentMessageEvent
+from agent_cli.core.models.config_models import EffortLevel, normalize_effort
 from agent_cli.core.state.state_manager import AbstractStateManager
 from agent_cli.data import DataRegistry
+from agent_cli.providers.base import BaseLLMProvider
+from agent_cli.providers.models import LLMResponse, ProviderRequestOptions
 from agent_cli.tools.executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -98,6 +101,8 @@ class BaseAgent(ABC):
     inheriting the full loop logic.
     """
 
+    _provider_managed_tool_tokens = frozenset({"web_search"})
+
     def __init__(
         self,
         config: AgentConfig,
@@ -131,9 +136,11 @@ class BaseAgent(ABC):
         self._data_registry = data_registry or DataRegistry()
         self._schema_defaults = self._data_registry.get_schema_defaults()
         self._retry_defaults = self._data_registry.get_retry_defaults()
+        self._cached_capability_snapshot: Any = None
 
         # Task-local message delta captured from the most recent handle_task() call.
         self._last_task_messages: List[Dict[str, Any]] = []
+        self._last_task_title: str = ""
 
     @property
     def name(self) -> str:
@@ -177,6 +184,7 @@ class BaseAgent(ABC):
         task_description: str,
         prior_context: str = "",
         session_messages: Optional[List[Dict[str, Any]]] = None,
+        desired_effort: Optional[str] = None,
     ) -> str:
         """The main ReAct reasoning loop.
 
@@ -202,12 +210,22 @@ class BaseAgent(ABC):
             self.config.max_iterations_override
             or getattr(self.settings, "max_iterations", 100)
         )
+        effort_source = (
+            desired_effort
+            if desired_effort is not None
+            else getattr(self.settings, "default_effort", EffortLevel.AUTO.value)
+        )
+        requested_effort = normalize_effort(effort_source).value
+        effort_value = self._resolve_effective_effort_from_capabilities(
+            requested_effort
+        )
 
         # ── Build system prompt ──────────────────────────────────
         system_prompt = await self.build_system_prompt(task_description)
 
         # ── Initialize Working Memory ────────────────────────────
         task_delta: List[Dict[str, Any]] = []
+        self._last_task_title = ""
 
         def _append_message(
             message: Dict[str, Any], *, track_for_session: bool
@@ -229,6 +247,20 @@ class BaseAgent(ABC):
                 {"role": "system", "content": system_prompt}, track_for_session=False
             )
 
+        # First persisted turn: ask the agent to produce a concise session title.
+        if session_messages is not None and not session_messages:
+            _append_message(
+                {
+                    "role": "system",
+                    "content": (
+                        "This is the first user request in a new session. "
+                        "Set a concise session title in the top-level `title` field "
+                        "(2-8 words, plain text)."
+                    ),
+                },
+                track_for_session=False,
+            )
+
         # Inject prior context from previous agents (ExecutionPlan)
         if prior_context:
             _append_message(
@@ -246,6 +278,11 @@ class BaseAgent(ABC):
         )
 
         # ── Tracking ─────────────────────────────────────────────
+        tool_definitions = self._get_tool_definitions()
+        request_options = ProviderRequestOptions(
+            provider_managed_tools=self._get_provider_managed_tools()
+        )
+
         schema_error_count = 0
         max_schema_errors = int(
             self._schema_defaults.get("validation", {}).get(
@@ -277,7 +314,7 @@ class BaseAgent(ABC):
                     task_id,
                 )
 
-                llm_response: Any | None = None
+                llm_response: LLMResponse | None = None
                 llm_response_text = ""
                 try:
                     # Token-aware compaction before making an LLM call.
@@ -295,7 +332,9 @@ class BaseAgent(ABC):
                     # ── STEP 1: Generate (LLM Call) ──────────────────
                     llm_response = await self.provider.safe_generate(
                         context=self.memory.get_working_context(),
-                        tools=self._get_tool_definitions(),
+                        tools=tool_definitions,
+                        effort=effort_value,
+                        request_options=request_options,
                         max_retries=int(self._retry_defaults.get("llm_max_retries", 3)),
                         base_delay=float(
                             self._retry_defaults.get("llm_retry_base_delay", 1.0)
@@ -334,6 +373,9 @@ class BaseAgent(ABC):
                     response: AgentResponse = self.validator.parse_and_validate(
                         llm_response
                     )
+                    title_text = response.title.strip()
+                    if title_text:
+                        self._last_task_title = title_text
                     schema_error_count = 0  # Reset on success
 
                     # ── STEP 4: Dispatch on Decision ─────────────
@@ -398,6 +440,7 @@ class BaseAgent(ABC):
                                     "Invalid agent response: notify_user requires a non-null final answer message.",
                                     raw_response=llm_response_text,
                                 )
+                            final_answer_text: str = final_answer
 
                             reflect_count = 0
                             _append_message(
@@ -410,7 +453,7 @@ class BaseAgent(ABC):
                                 track_for_session=True,
                             )
 
-                            final = await self.on_final_answer(final_answer)
+                            final = await self.on_final_answer(final_answer_text)
 
                             # Publish to TUI
                             await self.event_bus.emit(
@@ -570,6 +613,7 @@ class BaseAgent(ABC):
             )
         finally:
             self._last_task_messages = list(task_delta)
+            self._cached_capability_snapshot = None
 
     # ── Private Helpers ──────────────────────────────────────────
 
@@ -592,6 +636,10 @@ class BaseAgent(ABC):
     def get_last_task_messages(self) -> List[Dict[str, Any]]:
         """Return messages added during the most recent task execution."""
         return list(self._last_task_messages)
+
+    def get_last_task_title(self) -> str:
+        """Return the best-effort title generated during the most recent task."""
+        return self._last_task_title
 
     @staticmethod
     def _format_assistant_history(llm_response: Any) -> str:
@@ -631,9 +679,120 @@ class BaseAgent(ABC):
 
     def _get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Retrieve tool definitions for the LLM."""
-        if not self.config.tools:
+        executable_tools, _ = self._resolve_configured_tool_names()
+        if not executable_tools:
             return []
-        return self.tool_executor.registry.get_definitions_for_llm(self.config.tools)
+        return self.tool_executor.registry.get_definitions_for_llm(executable_tools)
+
+    def get_prompt_tool_names(self) -> List[str]:
+        """Return locally executable tool names for prompt construction."""
+        executable_tools, _ = self._resolve_configured_tool_names()
+        return executable_tools
+
+    def _get_provider_managed_tools(self) -> List[str]:
+        """Return provider-managed capability tokens from configured tools."""
+        _, provider_managed = self._resolve_configured_tool_names()
+        supported: List[str] = []
+        for capability_name in provider_managed:
+            if self._is_effective_capability_supported(capability_name):
+                supported.append(capability_name)
+        return supported
+
+    def _resolve_configured_tool_names(self) -> tuple[List[str], List[str]]:
+        """Split configured tools into executable and provider-managed groups."""
+        if not self.config.tools:
+            return [], []
+
+        executable: List[str] = []
+        provider_managed: List[str] = []
+        unknown: List[str] = []
+        known_tools = set(self.tool_executor.registry.get_all_names())
+
+        for raw_name in self.config.tools:
+            name = str(raw_name).strip()
+            if not name:
+                continue
+            if name in known_tools:
+                executable.append(name)
+                continue
+            if name in self._provider_managed_tool_tokens:
+                provider_managed.append(name)
+                continue
+            unknown.append(name)
+
+        if unknown:
+            available = sorted(known_tools | set(self._provider_managed_tool_tokens))
+            raise ValueError(
+                "Unknown configured tool(s): "
+                f"{', '.join(sorted(set(unknown)))}. Available: {', '.join(available)}"
+            )
+        return executable, provider_managed
+
+    def _resolve_effective_effort_from_capabilities(self, desired_effort: str) -> str:
+        """Resolve effort against effective capability status for this runtime."""
+        normalized = normalize_effort(desired_effort).value
+        if normalized == EffortLevel.AUTO.value:
+            return normalized
+        if self._is_effective_capability_supported("effort"):
+            return normalized
+        return EffortLevel.AUTO.value
+
+    def _is_effective_capability_supported(self, capability_name: str) -> bool:
+        """Whether the effective capability snapshot says this capability is supported."""
+        snapshot = self._get_capability_snapshot()
+        if snapshot is None:
+            return False
+        effective = getattr(snapshot, "effective", {})
+        capability = effective.get(str(capability_name).strip())
+        status = str(getattr(capability, "status", "unknown")).strip().lower()
+        return status == "supported"
+
+    def _supports_native_tools_effective(self) -> bool:
+        """Effective native-tools support for prompt/schema behavior."""
+        return self._is_effective_capability_supported("native_tools")
+
+    def _get_capability_snapshot(self) -> Any:
+        """Load effective capability snapshot for current provider/model identity."""
+        cached = self._cached_capability_snapshot
+        if cached is not None:
+            return cached
+
+        provider = self.provider
+        if not isinstance(provider, BaseLLMProvider):
+            return None
+
+        provider_name = str(getattr(provider, "provider_name", "")).strip()
+        model_name = str(getattr(provider, "model_name", "")).strip()
+        base_url = str(getattr(provider, "base_url", "") or "").strip()
+        if not provider_name or not model_name:
+            return None
+
+        deployment_id = self._build_deployment_id(
+            provider_name=provider_name,
+            model_name=model_name,
+            base_url=base_url,
+        )
+        snapshot = self._data_registry.get_capability_snapshot(
+            provider=provider_name,
+            model=model_name,
+            deployment_id=deployment_id,
+        )
+        self._cached_capability_snapshot = snapshot
+        return snapshot
+
+    @staticmethod
+    def _build_deployment_id(
+        *,
+        provider_name: str,
+        model_name: str,
+        base_url: str = "",
+    ) -> str:
+        provider = str(provider_name).strip() or "unknown"
+        model = str(model_name).strip() or "unknown"
+        base = str(base_url).strip()
+        if base:
+            return f"{provider}:{model}@{base}"
+        return f"{provider}:{model}"
 
     def _build_schema_recovery_message(self, error: SchemaValidationError) -> str:
         """Build a concrete, mode-aware schema recovery instruction."""
@@ -643,7 +802,7 @@ class BaseAgent(ABC):
             "Use exactly one decision, no empty response, and output exactly one JSON object."
         )
 
-        native_mode = bool(getattr(self.provider, "supports_native_tools", False))
+        native_mode = self._supports_native_tools_effective()
         if native_mode:
             return (
                 f"{header}\n"

@@ -1,8 +1,4 @@
-"""
-Unit tests for the ProviderManager factory.
-"""
-
-from typing import Any, Dict
+"""Unit tests for the ProviderManager factory."""
 
 from agent_cli.core.config import AgentSettings
 from agent_cli.memory.token_counter import (
@@ -12,38 +8,22 @@ from agent_cli.memory.token_counter import (
     TiktokenCounter,
 )
 from agent_cli.providers.manager import ProviderManager
-from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
-from agent_cli.providers.provider.azure_provider import AzureProvider
-from agent_cli.providers.provider.google_provider import GoogleProvider
-from agent_cli.providers.provider.openai_compat import OpenAICompatibleProvider
-from agent_cli.providers.provider.openai_provider import OpenAIProvider
 
 
-def test_manager_infers_known_model_prefixes():
-    """Verify inference for standard models (gpt, claude, gemini)."""
-    settings = AgentSettings(
-        openai_api_key="sk-test",
-        anthropic_api_key="sk-ant",
-        google_api_key="AIzaSy",
-    )
+def test_manager_rejects_unknown_models_without_inference() -> None:
+    settings = AgentSettings(openai_api_key="sk-test")
     manager = ProviderManager(settings)
 
-    p1 = manager._infer_provider("gpt-4.5")
-    assert isinstance(p1, OpenAIProvider)
-    assert p1.provider_name == "openai"
-    assert p1.model_name == "gpt-4.5"
-
-    p2 = manager._infer_provider("claude-sonnet-4.6")
-    assert isinstance(p2, AnthropicProvider)
-    assert p2.provider_name == "anthropic"
-
-    p3 = manager._infer_provider("gemini-2.5-pro")
-    assert isinstance(p3, GoogleProvider)
-    assert p3.provider_name == "google"
+    try:
+        manager.get_provider("gpt-4.5")
+    except ValueError as exc:
+        assert "model_not_supported" in str(exc)
+    else:
+        raise AssertionError("Expected model_not_supported in strict resolution mode")
 
 
 def test_manager_creates_from_config():
-    """Verify custom TOML configurations are respected."""
+    """Verify custom TOML provider configs are loaded."""
     settings = AgentSettings()
     settings.providers = {
         "local_vllm": {
@@ -56,14 +36,10 @@ def test_manager_creates_from_config():
 
     manager = ProviderManager(settings)
 
-    # "llama-3-8b-instruct" mapped to the custom local_vllm provider
-    provider = manager.get_provider("llama-3-8b-instruct")
-
-    assert isinstance(provider, OpenAICompatibleProvider)
-    assert provider.provider_name == "local_vllm"
-    assert provider.model_name == "llama-3-8b-instruct"
-    assert provider.supports_native_tools is True
-    assert provider.client.base_url == "http://localhost:8000/v1/"
+    config = manager._provider_configs["local_vllm"]
+    assert config.adapter_type == "openai_compatible"
+    assert config.base_url == "http://localhost:8000/v1"
+    assert "llama-3-8b-instruct" in config.models
 
 
 def test_manager_caching_behavior():
@@ -71,8 +47,8 @@ def test_manager_caching_behavior():
     settings = AgentSettings(openai_api_key="sk-test")
     manager = ProviderManager(settings)
 
-    p1 = manager.get_provider("gpt-5")
-    p2 = manager.get_provider("gpt-5")
+    p1 = manager.get_provider("gpt-4o")
+    p2 = manager.get_provider("gpt-4o")
 
     # Should be the exact same object reference
     assert p1 is p2
@@ -96,7 +72,7 @@ def test_manager_returns_token_counters_by_provider():
 
     assert isinstance(manager.get_token_counter("gpt-4o"), TiktokenCounter)
     assert isinstance(
-        manager.get_token_counter("azure/gpt-4o-deployment"), TiktokenCounter
+        manager.get_token_counter("azure/gpt-4o-deployment"), HeuristicTokenCounter
     )
     assert isinstance(
         manager.get_token_counter("claude-3-5-sonnet-20241022"),
@@ -112,17 +88,16 @@ def test_manager_returns_token_counters_by_provider():
 def test_manager_token_budget_uses_provider_override():
     settings = AgentSettings()
     settings.providers = {
-        "custom_provider": {
-            "adapter_type": "openai_compatible",
-            "base_url": "http://localhost:8000/v1",
-            "models": ["custom-model-a"],
+        "openai": {
+            "adapter_type": "openai",
+            "models": ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini"],
             "max_context_tokens": 42_000,
         }
     }
     manager = ProviderManager(settings)
 
     budget = manager.get_token_budget(
-        "custom-model-a",
+        "gpt-4o",
         response_reserve=1024,
         compaction_threshold=0.75,
     )
@@ -132,23 +107,21 @@ def test_manager_token_budget_uses_provider_override():
     assert budget.compaction_threshold == 0.75
 
 
-def test_manager_creates_azure_provider_from_prefix():
+def test_manager_rejects_azure_prefixed_unknown_deployment():
     settings = AgentSettings(azure_openai_api_key="az-test-key")
-    settings.providers = {
-        "azure": {
-            "adapter_type": "azure",
-            "base_url": "https://example-resource.openai.azure.com/openai/v1",
-            "models": [],
-            "default_model": "azure/default-deployment",
-        }
-    }
     manager = ProviderManager(settings)
 
-    provider = manager.get_provider("azure/my-deployment")
+    try:
+        manager.get_provider("azure/my-deployment")
+    except ValueError as exc:
+        assert "model_not_supported" in str(exc)
+    else:
+        raise AssertionError("Expected model_not_supported for unknown deployment")
 
-    assert isinstance(provider, AzureProvider)
-    assert provider.provider_name == "azure"
-    assert provider.model_name == "my-deployment"
-    assert str(provider.client.base_url).startswith(
-        "https://example-resource.openai.azure.com/openai/v1"
-    )
+
+def test_manager_token_counter_uses_model_registry_provider() -> None:
+    settings = AgentSettings(openai_api_key="sk-test")
+    manager = ProviderManager(settings)
+
+    counter = manager.get_token_counter("openai:gpt-4o")
+    assert isinstance(counter, TiktokenCounter)

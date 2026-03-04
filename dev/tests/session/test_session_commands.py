@@ -14,7 +14,7 @@ from agent_cli.commands.parser import CommandParser
 from agent_cli.core.bootstrap import AppContext
 from agent_cli.core.config import AgentSettings
 from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.events.events import TaskResultEvent
+from agent_cli.core.events.events import SettingsChangedEvent, TaskResultEvent
 from agent_cli.core.state.state_manager import TaskStateManager
 from agent_cli.data import DataRegistry
 from agent_cli.session.file_store import FileSessionManager
@@ -202,5 +202,96 @@ async def test_session_command_is_removed(tmp_path: Path):
     result = await parser.execute("/session list")
     assert result.success is False
     assert "Unknown command: /session" in result.message
+
+    await app_context.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_generate_title_updates_active_session_name(tmp_path: Path):
+    session_dir = tmp_path / "sessions"
+    app_context = _build_app_context(session_dir=session_dir)
+    await app_context.startup()
+
+    active = app_context.session_manager.create_session()
+    active.messages = [
+        {"role": "user", "content": "Plan a release checklist for next sprint"},
+        {"role": "assistant", "content": "I can draft milestones and owners."},
+    ]
+    app_context.session_manager.save(active)
+
+    class _Provider:
+        async def safe_generate(self, **kwargs):
+            return SimpleNamespace(text_content="Sprint Release Checklist")
+
+    updates: list[SettingsChangedEvent] = []
+
+    async def _on_settings(event):
+        if isinstance(event, SettingsChangedEvent):
+            updates.append(event)
+
+    app_context.event_bus.subscribe("SettingsChangedEvent", _on_settings)
+
+    ctx = CommandContext(
+        settings=app_context.settings,
+        event_bus=app_context.event_bus,
+        state_manager=app_context.state_manager,
+        memory_manager=app_context.memory_manager,
+        app_context=SimpleNamespace(
+            session_manager=app_context.session_manager,
+            providers=SimpleNamespace(),
+            orchestrator=SimpleNamespace(
+                active_agent=SimpleNamespace(provider=_Provider())
+            ),
+        ),
+    )
+    parser = _build_parser(ctx)
+
+    result = await parser.execute("/generate_title")
+    assert result.success is True
+    assert "Sprint Release Checklist" in result.message
+
+    restored = app_context.session_manager.get_active()
+    assert restored is not None
+    assert restored.name == "Sprint Release Checklist"
+    assert any(e.setting_name == "session_title" for e in updates)
+
+    await app_context.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_generate_title_falls_back_when_model_output_empty(tmp_path: Path):
+    session_dir = tmp_path / "sessions"
+    app_context = _build_app_context(session_dir=session_dir)
+    await app_context.startup()
+
+    active = app_context.session_manager.create_session()
+    active.messages = [{"role": "user", "content": "Hello"}]
+    app_context.session_manager.save(active)
+
+    class _Provider:
+        async def safe_generate(self, **kwargs):
+            return SimpleNamespace(text_content="")
+
+    ctx = CommandContext(
+        settings=app_context.settings,
+        event_bus=app_context.event_bus,
+        state_manager=app_context.state_manager,
+        memory_manager=app_context.memory_manager,
+        app_context=SimpleNamespace(
+            session_manager=app_context.session_manager,
+            providers=SimpleNamespace(),
+            orchestrator=SimpleNamespace(
+                active_agent=SimpleNamespace(provider=_Provider())
+            ),
+        ),
+    )
+    parser = _build_parser(ctx)
+
+    result = await parser.execute("/generate_title")
+    assert result.success is True
+    assert "Untitled session" in result.message
+    restored = app_context.session_manager.get_active()
+    assert restored is not None
+    assert restored.name == "Untitled session"
 
     await app_context.shutdown()

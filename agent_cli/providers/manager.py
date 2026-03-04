@@ -3,13 +3,12 @@ Provider Manager — factory and cache for LLM adapters.
 
 Reads provider configurations from ``AgentSettings`` (via ``load_providers``)
 and instantiates the correct adapter (OpenAI, Anthropic, Google, etc.).
-Includes fallback inference if a model isn't explicitly configured.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Type
 
 from agent_cli.core.config import AgentSettings, load_providers
 from agent_cli.core.models.config_models import ProviderConfig
@@ -86,31 +85,47 @@ class ProviderManager:
         )
         return provider
 
+    def get_runtime_identity(self, model_name: str) -> Dict[str, str]:
+        """Return provider/model/deployment identity for diagnostics."""
+        provider = self.get_provider(model_name)
+        provider_name = str(getattr(provider, "provider_name", "") or "unknown")
+        resolved_model = str(getattr(provider, "model_name", "") or model_name)
+        base_url = str(getattr(provider, "base_url", "") or "").strip()
+        deployment_id = self._build_deployment_id(
+            provider_name=provider_name,
+            model_name=resolved_model,
+            base_url=base_url,
+        )
+        return {
+            "requested_model": str(model_name),
+            "provider": provider_name,
+            "resolved_model": resolved_model,
+            "deployment_id": deployment_id,
+        }
+
+    def get_capability_source_summary(self) -> Dict[str, str]:
+        """Return a phase-0 summary of capability source ownership."""
+        return {
+            "declared": "model_registry",
+            "observed": "capability_probe",
+            "effective": "registry_snapshot_merge",
+        }
+
     def _resolve_provider(self, model_name: str) -> BaseLLMProvider:
         """Logic for finding the correct config for a model."""
-        resolved = self._resolve_config_match(model_name)
-        if resolved:
-            provider_name, config, actual_model = resolved
-            return self._create_provider(provider_name, config, actual_model)
-
-        # 3. Fallback inference based on common model roots
-        return self._infer_provider(model_name)
+        return self._resolve_provider_v2(model_name)
 
     def get_token_counter(self, model_name: str) -> BaseTokenCounter:
         """Return the best token counter implementation for a model."""
-        resolved = self._resolve_config_match(model_name)
-        if resolved:
-            _, config, _ = resolved
-            return self._token_counters.get(
-                config.adapter_type, self._fallback_token_counter
-            )
-
-        inferred_provider = self._infer_provider_key(model_name)
-        if inferred_provider:
-            return self._token_counters.get(
-                inferred_provider, self._fallback_token_counter
-            )
-        return self._fallback_token_counter
+        spec = self._data_registry.resolve_model_spec(model_name)
+        if spec is None:
+            return self._fallback_token_counter
+        config = self._provider_configs.get(spec.provider)
+        if config is None:
+            return self._fallback_token_counter
+        return self._token_counters.get(
+            config.adapter_type, self._fallback_token_counter
+        )
 
     def get_token_budget(
         self,
@@ -120,37 +135,49 @@ class ProviderManager:
         compaction_threshold: float = 0.80,
     ) -> TokenBudget:
         """Return a TokenBudget for the target model."""
-        resolved = self._resolve_config_match(model_name)
-        max_context_override: Optional[int] = None
-        if resolved:
-            _, config, _ = resolved
-            max_context_override = config.max_context_tokens
+        spec = self._data_registry.resolve_model_spec(model_name)
+        if spec is None:
+            return budget_for_model(
+                model_name,
+                response_reserve=response_reserve,
+                compaction_threshold=compaction_threshold,
+                data_registry=self._data_registry,
+            )
 
+        config = self._provider_configs.get(spec.provider)
+        max_context_override = config.max_context_tokens if config is not None else None
         return budget_for_model(
-            model_name,
+            spec.api_model,
             response_reserve=response_reserve,
             compaction_threshold=compaction_threshold,
             max_context_override=max_context_override,
             data_registry=self._data_registry,
         )
 
-    def _resolve_config_match(
-        self, model_name: str
-    ) -> Optional[Tuple[str, ProviderConfig, str]]:
-        """Resolve a model against explicit provider config entries."""
-        # 1. Exact match in configured models list or default_model
-        for name, config in self._provider_configs.items():
-            if model_name in config.models or model_name == config.default_model:
-                return name, config, model_name
+    def _resolve_provider_v2(self, model_name: str) -> BaseLLMProvider:
+        """Resolve provider strictly through the v2 model registry."""
+        spec = self._data_registry.resolve_model_spec(model_name)
+        if spec is None:
+            raise ValueError(
+                "model_not_supported: "
+                f"'{model_name}' is not registered in the model registry."
+            )
 
-        # 2. Match by provider name prefix (e.g. "openai/gpt-4o")
-        for name, config in self._provider_configs.items():
-            for sep in ["/", ":"]:
-                prefix = f"{name}{sep}"
-                if model_name.startswith(prefix):
-                    actual_model = model_name[len(prefix) :]
-                    return name, config, actual_model
-        return None
+        provider_name = str(spec.provider).strip()
+        if not provider_name:
+            raise ValueError(
+                f"model_not_supported: model '{spec.model_id}' has no provider binding."
+            )
+
+        config = self._provider_configs.get(provider_name)
+        if config is None:
+            raise ValueError(
+                "provider_not_configured: "
+                f"provider '{provider_name}' for model '{spec.model_id}' is not configured."
+            )
+
+        resolved_model = str(spec.api_model or spec.model_id).strip()
+        return self._create_provider(provider_name, config, resolved_model)
 
     def _create_provider(
         self, provider_name: str, config: ProviderConfig, model_name: str
@@ -218,53 +245,17 @@ class ProviderManager:
             "openai_compatible": heuristic,
         }
 
-    def _infer_provider_key(self, model_name: str) -> Optional[str]:
-        """Infer logical provider key from known model naming patterns."""
-        lower_model = model_name.lower()
-
-        if "gpt-" in lower_model or "o1" in lower_model or "o3" in lower_model:
-            return "openai"
-        if "claude" in lower_model:
-            return "anthropic"
-        if "gemini" in lower_model:
-            return "google"
-        return None
-
-    def _infer_provider(self, model_name: str) -> BaseLLMProvider:
-        """Fallback heuristics for unknown models not in config."""
-        provider_key = self._infer_provider_key(model_name)
-
-        if provider_key == "openai":
-            config = self._provider_configs.get("openai")
-            if config:
-                return self._create_provider("openai", config, model_name)
-            return OpenAIProvider(
-                model_name,
-                self._settings.openai_api_key,
-                data_registry=self._data_registry,
-            )
-
-        elif provider_key == "anthropic":
-            config = self._provider_configs.get("anthropic")
-            if config:
-                return self._create_provider("anthropic", config, model_name)
-            return AnthropicProvider(
-                model_name,
-                self._settings.anthropic_api_key,
-                data_registry=self._data_registry,
-            )
-
-        elif provider_key == "google":
-            config = self._provider_configs.get("google")
-            if config:
-                return self._create_provider("google", config, model_name)
-            return GoogleProvider(
-                model_name,
-                self._settings.google_api_key,
-                data_registry=self._data_registry,
-            )
-
-        raise ValueError(
-            f"Cannot strictly infer provider for model '{model_name}'. "
-            f"Please register it in config.toml under [providers.<name>]."
-        )
+    @staticmethod
+    def _build_deployment_id(
+        *,
+        provider_name: str,
+        model_name: str,
+        base_url: str = "",
+    ) -> str:
+        """Build a stable deployment identity key for diagnostics."""
+        provider = str(provider_name).strip() or "unknown"
+        model = str(model_name).strip() or "unknown"
+        base = str(base_url).strip()
+        if base:
+            return f"{provider}:{model}@{base}"
+        return f"{provider}:{model}"

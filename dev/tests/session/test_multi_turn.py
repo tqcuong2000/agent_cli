@@ -32,6 +32,7 @@ class ContextCaptureProvider(BaseLLMProvider):
     def __init__(self) -> None:
         super().__init__("mock-model")
         self.context_calls: List[List[Dict[str, Any]]] = []
+        self.effort_calls: List[str] = []
 
     @property
     def provider_name(self) -> str:
@@ -78,7 +79,20 @@ class ContextCaptureProvider(BaseLLMProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         **kwargs,
     ) -> LLMResponse:
+        effort = kwargs.get("effort")
+        if effort is not None:
+            self.effort_calls.append(str(effort))
         return await self.generate(context=context, tools=tools)
+
+
+class EffortCapableContextProvider(ContextCaptureProvider):
+    @property
+    def provider_name(self) -> str:
+        return "google"
+
+    @property
+    def supports_effort(self) -> bool:
+        return True
 
 
 class SessionAwareAgent(BaseAgent):
@@ -90,6 +104,24 @@ class SessionAwareAgent(BaseAgent):
 
     async def on_final_answer(self, answer: str) -> str:
         return answer
+
+
+class EmptyTitleProvider(ContextCaptureProvider):
+    async def generate(
+        self,
+        context: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        self.context_calls.append(deepcopy(context))
+        text = json.dumps(
+            {
+                "title": "",
+                "thought": "Processing request.",
+                "decision": {"type": "notify_user", "message": "ok"},
+            }
+        )
+        return LLMResponse(text_content=text, tool_mode=ToolCallMode.PROMPT_JSON)
 
 
 @pytest.mark.asyncio
@@ -151,6 +183,84 @@ async def test_orchestrator_persists_and_rehydrates_multi_turn_context(tmp_path:
     ]
     assert "first question" in user_contents
     assert "second question" in user_contents
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_sets_session_name_from_first_agent_title(tmp_path: Path):
+    event_bus = AsyncEventBus()
+    state_manager = TaskStateManager(event_bus)
+    registry = ToolRegistry()
+    tool_executor = ToolExecutor(
+        registry=registry,
+        event_bus=event_bus,
+        output_formatter=ToolOutputFormatter(),
+        auto_approve=True,
+    )
+    validator = SchemaValidator(registry.get_all_names())
+    provider = ContextCaptureProvider()
+    agent = SessionAwareAgent(
+        config=AgentConfig(name="session-agent"),
+        provider=provider,
+        tool_executor=tool_executor,
+        schema_validator=validator,
+        memory_manager=WorkingMemoryManager(),
+        event_bus=event_bus,
+        state_manager=state_manager,
+        prompt_builder=PromptBuilder(registry),
+    )
+    session_manager = FileSessionManager(
+        session_dir=tmp_path / "sessions", default_model="mock-model"
+    )
+    orchestrator = Orchestrator(
+        event_bus=event_bus,
+        state_manager=state_manager,
+        default_agent=agent,
+        session_manager=session_manager,
+    )
+
+    await orchestrator.handle_request("summarize this project")
+    active = session_manager.get_active()
+    assert active is not None
+    assert active.name == "Respond to user task now"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_falls_back_to_untitled_session(tmp_path: Path):
+    event_bus = AsyncEventBus()
+    state_manager = TaskStateManager(event_bus)
+    registry = ToolRegistry()
+    tool_executor = ToolExecutor(
+        registry=registry,
+        event_bus=event_bus,
+        output_formatter=ToolOutputFormatter(),
+        auto_approve=True,
+    )
+    validator = SchemaValidator(registry.get_all_names())
+    provider = EmptyTitleProvider()
+    agent = SessionAwareAgent(
+        config=AgentConfig(name="session-agent"),
+        provider=provider,
+        tool_executor=tool_executor,
+        schema_validator=validator,
+        memory_manager=WorkingMemoryManager(),
+        event_bus=event_bus,
+        state_manager=state_manager,
+        prompt_builder=PromptBuilder(registry),
+    )
+    session_manager = FileSessionManager(
+        session_dir=tmp_path / "sessions", default_model="mock-model"
+    )
+    orchestrator = Orchestrator(
+        event_bus=event_bus,
+        state_manager=state_manager,
+        default_agent=agent,
+        session_manager=session_manager,
+    )
+
+    await orchestrator.handle_request("hello")
+    active = session_manager.get_active()
+    assert active is not None
+    assert active.name == "Untitled session"
 
 
 @pytest.mark.asyncio
@@ -287,3 +397,95 @@ async def test_end_to_end_switch_save_and_restore_session(tmp_path: Path):
     restored_context = coder_provider_2.context_calls[0]
     assert any(m.get("content") == "write tests" for m in restored_context)
     assert any(m.get("content") == "evaluate risks" for m in restored_context)
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_passes_session_desired_effort_to_agent(tmp_path: Path):
+    event_bus = AsyncEventBus()
+    state_manager = TaskStateManager(event_bus)
+    registry = ToolRegistry()
+    tool_executor = ToolExecutor(
+        registry=registry,
+        event_bus=event_bus,
+        output_formatter=ToolOutputFormatter(),
+        auto_approve=True,
+    )
+    validator = SchemaValidator(registry.get_all_names())
+    provider = EffortCapableContextProvider()
+    provider.model_name = "gemini-2.5-flash-lite"
+    agent = SessionAwareAgent(
+        config=AgentConfig(name="session-agent"),
+        provider=provider,
+        tool_executor=tool_executor,
+        schema_validator=validator,
+        memory_manager=WorkingMemoryManager(),
+        event_bus=event_bus,
+        state_manager=state_manager,
+        prompt_builder=PromptBuilder(registry),
+    )
+    session_manager = FileSessionManager(
+        session_dir=tmp_path / "sessions", default_model="mock-model"
+    )
+    active = session_manager.create_session()
+    active.desired_effort = "high"
+    session_manager.save(active)
+
+    orchestrator = Orchestrator(
+        event_bus=event_bus,
+        state_manager=state_manager,
+        default_agent=agent,
+        session_manager=session_manager,
+    )
+
+    await orchestrator.handle_request("use effort")
+    assert provider.effort_calls
+    assert provider.effort_calls[-1] == "high"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_probes_capabilities_once_on_first_session_creation(
+    tmp_path: Path,
+):
+    class _ProbeRecorder:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def probe_provider(self, provider: Any, *, trigger: str) -> None:
+            self.calls.append(trigger)
+
+    event_bus = AsyncEventBus()
+    state_manager = TaskStateManager(event_bus)
+    registry = ToolRegistry()
+    tool_executor = ToolExecutor(
+        registry=registry,
+        event_bus=event_bus,
+        output_formatter=ToolOutputFormatter(),
+        auto_approve=True,
+    )
+    validator = SchemaValidator(registry.get_all_names())
+    provider = ContextCaptureProvider()
+    agent = SessionAwareAgent(
+        config=AgentConfig(name="session-agent"),
+        provider=provider,
+        tool_executor=tool_executor,
+        schema_validator=validator,
+        memory_manager=WorkingMemoryManager(),
+        event_bus=event_bus,
+        state_manager=state_manager,
+        prompt_builder=PromptBuilder(registry),
+    )
+    session_manager = FileSessionManager(
+        session_dir=tmp_path / "sessions", default_model="mock-model"
+    )
+    probe = _ProbeRecorder()
+    orchestrator = Orchestrator(
+        event_bus=event_bus,
+        state_manager=state_manager,
+        default_agent=agent,
+        session_manager=session_manager,
+        capability_probe=probe,  # type: ignore[arg-type]
+    )
+
+    await orchestrator.handle_request("first")
+    await orchestrator.handle_request("second")
+    assert probe.calls == ["session_start"]

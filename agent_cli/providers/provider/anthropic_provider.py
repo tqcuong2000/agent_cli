@@ -11,11 +11,13 @@ import importlib
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from agent_cli.core.models.config_models import EffortLevel
 from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.json_formatter import JSONToolFormatter
 from agent_cli.providers.models import (
     LLMResponse,
+    ProviderRequestOptions,
     StopReason,
     StreamChunk,
     ToolCall,
@@ -97,6 +99,10 @@ class AnthropicProvider(BaseLLMProvider):
     def supports_native_tools(self) -> bool:
         return True
 
+    @property
+    def supports_web_search(self) -> bool:
+        return True
+
     # ── generate() ───────────────────────────────────────────────
 
     async def generate(
@@ -104,7 +110,10 @@ class AnthropicProvider(BaseLLMProvider):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
     ) -> LLMResponse:
+        _ = effort
         system_msg, chat_history = self._split_system_message(context)
 
         kwargs: Dict[str, Any] = {
@@ -114,8 +123,13 @@ class AnthropicProvider(BaseLLMProvider):
         }
         if system_msg:
             kwargs["system"] = system_msg
+        request_tools: List[Dict[str, Any]] = []
         if tools:
-            kwargs["tools"] = self._tool_formatter.format_for_native_fc(tools)
+            request_tools.extend(self._tool_formatter.format_for_native_fc(tools))
+        if self._web_search_enabled(request_options):
+            request_tools.append(self._build_web_search_tool())
+        if request_tools:
+            kwargs["tools"] = request_tools
 
         response = await self.client.messages.create(**kwargs)
         return self._normalize(response)
@@ -128,6 +142,8 @@ class AnthropicProvider(BaseLLMProvider):
             if block.type == "text":
                 text_parts.append(block.text)
             elif block.type == "tool_use":
+                if self._is_provider_managed_tool(block.name):
+                    continue
                 tool_calls.append(
                     ToolCall(
                         tool_name=block.name,
@@ -162,7 +178,10 @@ class AnthropicProvider(BaseLLMProvider):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
     ) -> AsyncGenerator[StreamChunk, None]:
+        _ = effort
         self._buffered_text = []
         self._buffered_tool_calls = []
         self._buffered_usage = {"input": 0, "output": 0}
@@ -176,8 +195,13 @@ class AnthropicProvider(BaseLLMProvider):
         }
         if system_msg:
             kwargs["system"] = system_msg
+        request_tools: List[Dict[str, Any]] = []
         if tools:
-            kwargs["tools"] = self._tool_formatter.format_for_native_fc(tools)
+            request_tools.extend(self._tool_formatter.format_for_native_fc(tools))
+        if self._web_search_enabled(request_options):
+            request_tools.append(self._build_web_search_tool())
+        if request_tools:
+            kwargs["tools"] = request_tools
 
         async with self.client.messages.stream(**kwargs) as stream:
             async for event in stream:
@@ -195,6 +219,8 @@ class AnthropicProvider(BaseLLMProvider):
                         hasattr(event, "content_block")
                         and event.content_block.type == "tool_use"
                     ):
+                        if self._is_provider_managed_tool(event.content_block.name):
+                            continue
                         self._buffered_tool_calls.append(
                             ToolCall(
                                 tool_name=event.content_block.name,
@@ -246,6 +272,41 @@ class AnthropicProvider(BaseLLMProvider):
 
     def _create_tool_formatter(self) -> BaseToolFormatter:
         return AnthropicToolFormatter()
+
+    def _web_search_enabled(
+        self,
+        request_options: ProviderRequestOptions | None,
+    ) -> bool:
+        if request_options is None or not request_options.web_search_enabled:
+            return False
+        registry = self._data_registry or DataRegistry()
+        defaults = registry.get_web_search_provider_defaults("anthropic")
+        return bool(defaults.get("enabled", True))
+
+    def _build_web_search_tool(self) -> Dict[str, Any]:
+        registry = self._data_registry or DataRegistry()
+        defaults = registry.get_web_search_provider_defaults("anthropic")
+        max_uses_raw = defaults.get("max_uses", 10)
+        try:
+            max_uses = max(int(max_uses_raw), 1)
+        except (TypeError, ValueError):
+            max_uses = 10
+
+        tool: Dict[str, Any] = {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": max_uses,
+        }
+        allowed_domains = defaults.get("allowed_domains", [])
+        if isinstance(allowed_domains, list):
+            normalized = [str(domain).strip() for domain in allowed_domains if domain]
+            if normalized:
+                tool["allowed_domains"] = normalized
+        return tool
+
+    @staticmethod
+    def _is_provider_managed_tool(tool_name: Any) -> bool:
+        return str(tool_name).strip().lower() == "web_search"
 
     @staticmethod
     def _map_stop_reason(reason: Optional[str]) -> StopReason:

@@ -30,6 +30,10 @@ from agent_cli.workspace.base import BaseWorkspaceManager
 _SHELL_DEFAULTS = DataRegistry().get_tool_defaults().get("shell", {})
 _DEFAULT_TIMEOUT = int(_SHELL_DEFAULTS.get("default_timeout", 30))
 _MAX_TIMEOUT = int(_SHELL_DEFAULTS.get("max_timeout", 120))
+_ANSI_CSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_ANSI_OSC_RE = re.compile(r"\x1B\][^\x1B\x07]*(?:\x07|\x1B\\)")
+_ANSI_SS3_RE = re.compile(r"\x1BO[@-~]")
+_CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]")
 
 
 def is_safe_command(command: str) -> bool:
@@ -97,6 +101,7 @@ class RunCommandTool(BaseTool):
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
             cwd=str(self.workspace.get_root()),
         )
 
@@ -110,8 +115,12 @@ class RunCommandTool(BaseTool):
                 tool_name=self.name,
             )
 
-        stdout_text = stdout.decode("utf-8", errors="replace")
-        stderr_text = stderr.decode("utf-8", errors="replace")
+        stdout_text = _sanitize_terminal_output(
+            stdout.decode("utf-8", errors="replace")
+        )
+        stderr_text = _sanitize_terminal_output(
+            stderr.decode("utf-8", errors="replace")
+        )
         exit_code = proc.returncode
 
         output_parts: list[str] = [f"[Exit Code: {exit_code}]"]
@@ -127,3 +136,16 @@ class RunCommandTool(BaseTool):
 def _compiled_safe_patterns() -> tuple[re.Pattern[str], ...]:
     defaults = DataRegistry().get_safe_command_patterns()
     return tuple(re.compile(pattern) for pattern in defaults)
+
+
+def _sanitize_terminal_output(text: str) -> str:
+    """Strip terminal control sequences from command output.
+
+    This prevents TUI mouse/keyboard escape streams and ANSI cursor control
+    sequences from polluting the rendered transcript.
+    """
+    sanitized = _ANSI_OSC_RE.sub("", text)
+    sanitized = _ANSI_CSI_RE.sub("", sanitized)
+    sanitized = _ANSI_SS3_RE.sub("", sanitized)
+    sanitized = _CTRL_CHARS_RE.sub("", sanitized)
+    return sanitized

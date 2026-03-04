@@ -7,22 +7,27 @@ works end-to-end.
 """
 
 import asyncio
-import os
 
 import pytest
 
 from agent_cli.core.bootstrap import AppContext, create_app
 from agent_cli.core.config import AgentSettings
-from agent_cli.core.models.config_models import ProtocolMode
-
-os.environ["OPENAI_API_KEY"] = "mock_key_for_testing"
 from agent_cli.core.error_handler.errors import ToolExecutionError
 from agent_cli.core.events.event_bus import AsyncEventBus, BusState
 from agent_cli.core.events.events import StateChangeEvent, UserRequestEvent
+from agent_cli.core.models.config_models import ProtocolMode
 from agent_cli.core.state.state_models import TaskState
 from agent_cli.data import DataRegistry
 from agent_cli.providers.manager import ProviderManager
 from agent_cli.workspace.sandbox import SandboxWorkspaceManager
+
+
+@pytest.fixture(autouse=True)
+def _stable_model_env(monkeypatch: pytest.MonkeyPatch):
+    """Keep bootstrap tests deterministic regardless of local user config."""
+    monkeypatch.setenv("OPENAI_API_KEY", "mock_key_for_testing")
+    monkeypatch.setenv("AGENT_DEFAULT_MODEL", "gpt-4o")
+
 
 # ── Factory Tests ─────────────────────────────────────────────────────
 
@@ -41,6 +46,7 @@ def test_create_app_returns_app_context():
     assert ctx.file_indexer is not None
     assert ctx.agent_registry is not None
     assert ctx.session_agents is not None
+    assert ctx.capability_probe is not None
     assert ctx.orchestrator is not None
     assert ctx.orchestrator.active_agent_name == "default"
     assert ctx.is_running is False  # Not started yet
@@ -66,7 +72,7 @@ def test_create_app_applies_built_in_agent_overrides_from_settings():
         default_model="gpt-4o-mini",
         agents={
             "coder": {
-                "model": "gpt-5-mini",
+                "model": "o1-mini",
                 "max_iterations": 220,
             }
         },
@@ -76,7 +82,7 @@ def test_create_app_applies_built_in_agent_overrides_from_settings():
 
     coder = ctx.agent_registry.get("coder")
     assert coder is not None
-    assert coder.config.model == "gpt-5-mini"
+    assert coder.config.model == "o1-mini"
     assert coder.config.max_iterations_override == 220
 
 
@@ -84,6 +90,23 @@ def test_create_app_registers_ask_user_tool():
     """Default tool registry should include ask_user for clarification flow."""
     ctx = create_app()
     assert "ask_user" in ctx.tool_registry.get_all_names()
+
+
+def test_builtin_agent_capabilities_include_web_search_for_default_and_researcher():
+    ctx = create_app()
+    assert ctx.agent_registry is not None
+
+    default_agent = ctx.agent_registry.get("default")
+    researcher_agent = ctx.agent_registry.get("researcher")
+    coder_agent = ctx.agent_registry.get("coder")
+
+    assert default_agent is not None
+    assert researcher_agent is not None
+    assert coder_agent is not None
+
+    assert "web_search" in default_agent.config.tools
+    assert "web_search" in researcher_agent.config.tools
+    assert "web_search" not in coder_agent.config.tools
 
 
 def test_create_app_wires_configurable_workspace_policy(tmp_path):

@@ -23,24 +23,25 @@ def test_models_toml_structure() -> None:
         "routing_model",
         "summarization_model",
     }
+    assert "models" in data
+    gpt_4o = data["models"]["gpt-4o"]
+    assert gpt_4o["provider"] == "openai"
+    assert gpt_4o["api_model"] == "gpt-4o"
+    assert isinstance(gpt_4o["aliases"], list)
+    assert gpt_4o["context_window"] == 128_000
+    assert gpt_4o["tokenizer"] == "o200k_base"
+    assert gpt_4o["pricing_input"] == 2.5
+    assert gpt_4o["pricing_output"] == 10.0
 
-    assert isinstance(data["context_windows"], dict)
-    assert "default_context_window" in data["context_windows"]
-    assert isinstance(data["context_window_prefixes"], list)
-    assert data["context_window_prefixes"]
-    for item in data["context_window_prefixes"]:
-        assert "prefix" in item and "tokens" in item
+    capabilities = gpt_4o["capabilities"]
+    assert capabilities["native_tools"]["supported"] is True
+    assert isinstance(capabilities["effort"]["levels"], list)
+    assert "supported" in capabilities["web_search"]
+    assert "mode" in capabilities["web_search"]
 
-    pricing = data["pricing"]
-    assert isinstance(pricing, dict)
-    assert "default_pricing" in pricing
-    assert "gpt-4o" in pricing
-    assert {"input", "output"} <= set(pricing["gpt-4o"].keys())
 
-    tokenizer = data["tokenizer"]
-    assert isinstance(tokenizer["o200k_prefixes"], list)
-    assert isinstance(tokenizer["default_encoding"], str)
-
+def test_providers_toml_structure() -> None:
+    data = _load_toml("providers.toml")
     providers = data["providers"]
     for name in (
         "openai",

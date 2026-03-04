@@ -77,6 +77,7 @@ class AgentResponse:
     """
 
     decision: AgentDecision = AgentDecision.REFLECT
+    title: str = ""
     thought: str = ""
     action: Optional[ParsedAction] = None
     final_answer: Optional[str] = None

@@ -137,6 +137,7 @@ class PromptBuilder:
         workspace_context: str = "",
         extra_instructions: str = "",
         native_tool_mode: bool = False,
+        provider_managed_capabilities: List[str] | None = None,
     ) -> str:
         """Assemble a complete system prompt.
 
@@ -166,6 +167,12 @@ class PromptBuilder:
         if tool_names:
             tool_defs = self.tool_registry.get_definitions_for_llm(tool_names)
             sections.append(self._tools_section(tool_defs))
+
+        # 3.5 Provider-managed capabilities (not local ToolRegistry tools)
+        if provider_managed_capabilities:
+            sections.append(
+                self._provider_capabilities_section(provider_managed_capabilities)
+            )
 
         # 4. Clarification policy (only if ask_user is available)
         if "ask_user" in tool_names:
@@ -217,3 +224,26 @@ class PromptBuilder:
     def _ask_user_policy_section(self) -> str:
         """Hard policy for how the agent must ask user questions."""
         return self._data_registry.get_prompt_template("clarification_policy")
+
+    @staticmethod
+    def _provider_capabilities_section(capabilities: List[str]) -> str:
+        """Render provider-managed capabilities that are not local tools."""
+        normalized = [str(item).strip() for item in capabilities if str(item).strip()]
+        if not normalized:
+            return ""
+
+        lines = [
+            "# Provider-Managed Capabilities",
+            (
+                "The following capabilities are available through the model provider "
+                "and are not listed as local tools:"
+            ),
+        ]
+        for capability in sorted(set(normalized)):
+            if capability == "web_search":
+                lines.append(
+                    "- `web_search`: Provider-native web search is configured, but availability depends on provider/deployment support at runtime."
+                )
+            else:
+                lines.append(f"- `{capability}`")
+        return "\n".join(lines)

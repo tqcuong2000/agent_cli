@@ -184,3 +184,15 @@ class StreamChunk:
     usage: Optional[Dict[str, int]] = (
         None  # {"input_tokens": ..., "output_tokens": ...}
     )
+
+
+@dataclass
+class ProviderRequestOptions:
+    """Provider-managed request options derived from agent capabilities."""
+
+    provider_managed_tools: List[str] = field(default_factory=list)
+
+    @property
+    def web_search_enabled(self) -> bool:
+        tools = {str(name).strip().lower() for name in self.provider_managed_tools}
+        return "web_search" in tools

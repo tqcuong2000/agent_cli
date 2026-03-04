@@ -96,6 +96,10 @@ class SessionMetrics:
     total_tasks_failed: int = 0
     total_tool_calls: int = 0
     total_tool_errors: int = 0
+    resolver_usage: int = 0
+    capability_probe_successes: int = 0
+    capability_probe_failures: int = 0
+    unknown_capability_fallbacks: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -121,6 +125,12 @@ class SessionMetrics:
             "tools": {
                 "calls": self.total_tool_calls,
                 "errors": self.total_tool_errors,
+            },
+            "migration": {
+                "resolver_usage": self.resolver_usage,
+                "capability_probe_successes": self.capability_probe_successes,
+                "capability_probe_failures": self.capability_probe_failures,
+                "unknown_capability_fallbacks": self.unknown_capability_fallbacks,
             },
             "cost_usd": round(self.total_cost_usd, 6),
         }
@@ -207,6 +217,38 @@ class ObservabilityManager:
             else:
                 self.metrics.total_tasks_failed += 1
 
+    def record_migration_counter(self, name: str, count: int = 1) -> None:
+        """Record migration telemetry counters for capability-registry rollout."""
+        if count <= 0:
+            return
+
+        normalized = str(name).strip().lower()
+        attr_map = {
+            "resolver_usage": "resolver_usage",
+            "probe_successes": "capability_probe_successes",
+            "probe_failures": "capability_probe_failures",
+            "unknown_capability_fallbacks": "unknown_capability_fallbacks",
+        }
+        attr_name = attr_map.get(normalized)
+        if attr_name is None:
+            return
+
+        with self._lock:
+            current = int(getattr(self.metrics, attr_name, 0))
+            setattr(self.metrics, attr_name, current + int(count))
+
+        self._logger.info(
+            "Migration telemetry updated",
+            extra={
+                "source": "observability",
+                "data": {
+                    "counter": normalized,
+                    "delta": int(count),
+                    "value": int(getattr(self.metrics, attr_name, 0)),
+                },
+            },
+        )
+
     def record_llm_call(
         self,
         *,
@@ -217,6 +259,8 @@ class ObservabilityManager:
         output_tokens: int,
         duration_ms: int,
         cost_usd: Optional[float] = None,
+        desired_effort: Optional[str] = None,
+        effective_effort: Optional[str] = None,
     ) -> None:
         resolved_cost = (
             cost_usd
@@ -253,6 +297,8 @@ class ObservabilityManager:
                     "output_tokens": int(output_tokens),
                     "duration_ms": int(duration_ms),
                     "cost_usd": round(float(resolved_cost), 6),
+                    "desired_effort": str(desired_effort or ""),
+                    "effective_effort": str(effective_effort or ""),
                 },
             },
         )

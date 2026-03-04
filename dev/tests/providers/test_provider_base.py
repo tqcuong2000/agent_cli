@@ -19,12 +19,14 @@ from agent_cli.core.error_handler.errors import (
     LLMRateLimitError,
     LLMTransientError,
 )
+from agent_cli.core.models.config_models import EffortLevel
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.providers.models import (
     LLMRequest,
     LLMResponse,
     Message,
     MessageRole,
+    ProviderRequestOptions,
     StopReason,
     StreamChunk,
     ToolCall,
@@ -67,7 +69,11 @@ class MockProvider(BaseLLMProvider):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
     ) -> LLMResponse:
+        _ = effort
+        _ = request_options
         self.call_count += 1
         if self.simulate_error:
             raise self.simulate_error
@@ -83,7 +89,11 @@ class MockProvider(BaseLLMProvider):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
     ) -> AsyncGenerator[StreamChunk, None]:
+        _ = effort
+        _ = request_options
         yield StreamChunk(text="Chunk")
 
     def get_buffered_response(self) -> LLMResponse:
@@ -200,7 +210,16 @@ async def test_safe_generate_retries_transient_error():
 
     # We'll raise a 429 on the first call, succeed on the second
     class FlakyProvider(MockProvider):
-        async def generate(self, context, tools=None, max_tokens=4096):
+        async def generate(
+            self,
+            context,
+            tools=None,
+            max_tokens=4096,
+            effort=None,
+            request_options=None,
+        ):
+            _ = effort
+            _ = request_options
             self.call_count += 1
             if self.call_count == 1:
                 raise Exception("429 Rate Limit Exceeded")
@@ -239,6 +258,32 @@ async def test_safe_generate_fails_immediately_on_auth_error():
     assert provider.call_count == 1  # Only tried once, no retries
 
 
+@pytest.mark.asyncio
+async def test_safe_generate_forwards_effort():
+    """safe_generate should forward effort hint to provider.generate."""
+
+    class EffortCaptureProvider(MockProvider):
+        def __init__(self, model_name: str):
+            super().__init__(model_name)
+            self.last_effort: str | EffortLevel | None = None
+
+        async def generate(
+            self,
+            context,
+            tools=None,
+            max_tokens=4096,
+            effort=None,
+            request_options=None,
+        ):
+            self.call_count += 1
+            self.last_effort = effort
+            return LLMResponse(text_content="ok", provider="capture")
+
+    provider = EffortCaptureProvider("test-model")
+    await provider.safe_generate([], effort=EffortLevel.HIGH, max_retries=1)
+    assert provider.last_effort == EffortLevel.HIGH
+
+
 # ── Utilities ────────────────────────────────────────────────────────
 
 
@@ -264,3 +309,19 @@ def test_inject_tools_into_system_prompt():
     assert len(modified) == 1
     assert "You are a bot" in modified[0]["content"]
     assert "<tools>1</tools>" in modified[0]["content"]
+
+
+def test_resolve_effective_effort_defaults_to_auto_when_unsupported():
+    provider = MockProvider("test-model", supports_fc=True)
+    assert provider.supports_effort is False
+    assert provider.resolve_effective_effort("high") == EffortLevel.AUTO
+
+
+def test_resolve_effective_effort_keeps_requested_when_supported():
+    class EffortProvider(MockProvider):
+        @property
+        def supports_effort(self) -> bool:
+            return True
+
+    provider = EffortProvider("test-model", supports_fc=True)
+    assert provider.resolve_effective_effort("high") == EffortLevel.HIGH

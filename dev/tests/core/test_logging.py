@@ -60,6 +60,8 @@ def test_observability_records_metrics_and_writes_summary(tmp_path):
         output_tokens=500,
         duration_ms=12,
         cost_usd=0.01,
+        desired_effort="high",
+        effective_effort="auto",
     )
     obs.record_tool_call(
         task_id="task-a",
@@ -80,3 +82,10 @@ def test_observability_records_metrics_and_writes_summary(tmp_path):
     assert summary["tokens"]["total"] == 1500
     assert summary["tasks"]["created"] == 1
     assert summary["tasks"]["succeeded"] == 1
+
+    log_lines = obs.log_file.read_text(encoding="utf-8").splitlines()
+    llm_entry = next(
+        json.loads(line) for line in log_lines if "LLM response received" in line
+    )
+    assert llm_entry["data"]["desired_effort"] == "high"
+    assert llm_entry["data"]["effective_effort"] == "auto"

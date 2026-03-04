@@ -27,3 +27,6 @@ approval_timeout_seconds = 300.0
 [workspace]
 terminal_max_lines = 2000
 index_max_files = 5000
+
+[web_search.defaults]
+allowed_domains = []

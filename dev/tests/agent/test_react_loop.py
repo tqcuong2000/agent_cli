@@ -1,19 +1,27 @@
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import pytest
 from pydantic import BaseModel
 
 from agent_cli.agent.base import AgentConfig, BaseAgent
+from agent_cli.agent.default import DefaultAgent
 from agent_cli.agent.memory import WorkingMemoryManager
 from agent_cli.agent.react_loop import PromptBuilder
 from agent_cli.agent.schema import SchemaValidator
 from agent_cli.core.error_handler.errors import MaxIterationsExceededError
 from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
 from agent_cli.core.state.state_manager import TaskState, TaskStateManager
+from agent_cli.data import DataRegistry
 from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
-from agent_cli.providers.models import LLMResponse, ToolCall, ToolCallMode
+from agent_cli.providers.models import (
+    LLMResponse,
+    ProviderRequestOptions,
+    ToolCall,
+    ToolCallMode,
+)
 from agent_cli.tools.ask_user_tool import AskUserTool
 from agent_cli.tools.base import BaseTool, ToolCategory
 from agent_cli.tools.executor import ToolExecutor
@@ -42,19 +50,34 @@ class MockMathTool(BaseTool):
 
 
 class MockLLMProvider(BaseLLMProvider):
-    def __init__(self, responses: List[str]):
-        super().__init__("mock_model")
+    def __init__(
+        self,
+        responses: List[str],
+        *,
+        model_name: str = "mock_model",
+        provider_name: str = "mock",
+        supports_effort: bool = False,
+    ):
+        super().__init__(model_name)
         self.responses = responses
         self.call_count = 0
         self.requests = []
+        self.request_options: List[ProviderRequestOptions | None] = []
+        self.efforts: List[str | None] = []
+        self._provider_name = provider_name
+        self._supports_effort = supports_effort
 
     @property
     def provider_name(self) -> str:
-        return "mock"
+        return self._provider_name
 
     @property
     def supports_native_tools(self) -> bool:
         return False
+
+    @property
+    def supports_effort(self) -> bool:
+        return self._supports_effort
 
     def _create_tool_formatter(self) -> BaseToolFormatter:
         return _MockToolFormatter()
@@ -96,6 +119,9 @@ class MockLLMProvider(BaseLLMProvider):
         **kwargs,
     ) -> LLMResponse:
         # Override safe_generate directly since we mock everything
+        self.request_options.append(kwargs.get("request_options"))
+        effort = kwargs.get("effort")
+        self.efforts.append(str(effort) if effort is not None else None)
         return await self.generate(context, tools, max_tokens)
 
     async def stream(
@@ -114,7 +140,7 @@ class DummyAgent(BaseAgent):
     async def build_system_prompt(self, task_context: str) -> str:
         return self.prompt_builder.build(
             persona="You are a dummy.",
-            tool_names=self.config.tools,
+            tool_names=self.get_prompt_tool_names(),
         )
 
     async def on_tool_result(self, tool_name: str, result: str) -> None:
@@ -130,6 +156,20 @@ class _MockToolFormatter(BaseToolFormatter):
 
     def format_for_prompt_injection(self, tools: List[Dict[str, Any]]) -> str:
         return ""
+
+
+class MockWebSearchProvider(MockLLMProvider):
+    def __init__(self, responses: List[str]):
+        super().__init__(
+            responses,
+            model_name="gemini-2.5-flash-lite",
+            provider_name="google",
+            supports_effort=True,
+        )
+
+    @property
+    def supports_web_search(self) -> bool:
+        return True
 
 
 def _json_response(
@@ -484,3 +524,172 @@ def test_prompt_builder_switches_native_vs_prompt_json_output_template():
 
     assert "Return exactly ONE JSON object" in prompt_json
     assert "native function-calling" in native_prompt
+
+
+def test_prompt_builder_renders_provider_managed_capabilities_section():
+    registry = ToolRegistry()
+    registry.register(MockMathTool())
+    prompt_builder = PromptBuilder(registry)
+
+    prompt = prompt_builder.build(
+        persona="You are a tester.",
+        tool_names=["add"],
+        provider_managed_capabilities=["web_search"],
+    )
+
+    assert "# Provider-Managed Capabilities" in prompt
+    assert "web_search" in prompt
+
+
+def test_agent_prompt_tools_exclude_provider_managed_tokens(base_deps):
+    provider = MockLLMProvider([])
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add", "web_search"]),
+        provider=provider,
+        **base_deps,
+    )
+    assert agent.get_prompt_tool_names() == ["add"]
+
+
+@pytest.mark.asyncio
+async def test_default_agent_prompt_includes_web_search_capability_when_supported(
+    base_deps,
+):
+    provider = MockWebSearchProvider([])
+    agent = DefaultAgent(
+        config=AgentConfig(name="default", tools=["add", "web_search"]),
+        provider=provider,
+        **base_deps,
+    )
+
+    prompt = await agent.build_system_prompt("")
+    assert "# Provider-Managed Capabilities" in prompt
+    assert "web_search" in prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_passes_web_search_request_option_to_provider(base_deps):
+    provider = MockWebSearchProvider(
+        [
+            _json_response(
+                "notify_user",
+                message="done",
+                title="Finish quickly",
+                thought="Done.",
+            )
+        ]
+    )
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add", "web_search"]),
+        provider=provider,
+        **base_deps,
+    )
+    task = await base_deps["state_manager"].create_task("web")
+    await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
+    await base_deps["state_manager"].transition(task.task_id, TaskState.WORKING)
+
+    result = await agent.handle_task(task_id=task.task_id, task_description="web")
+    assert result == "FINAL: done"
+    assert provider.request_options
+    option = provider.request_options[0]
+    assert option is not None
+    assert option.web_search_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_agent_disables_web_search_when_effective_capability_is_unsupported(
+    base_deps,
+):
+    registry = DataRegistry()
+    provider = MockWebSearchProvider(
+        [
+            _json_response(
+                "notify_user",
+                message="done",
+                title="Finish quickly",
+                thought="Done.",
+            )
+        ]
+    )
+    registry.save_capability_observation(
+        provider="google",
+        model="gemini-2.5-flash-lite",
+        deployment_id="google:gemini-2.5-flash-lite",
+        observation={
+            "web_search": {
+                "status": "unsupported",
+                "reason": "runtime_rejected",
+                "source": "probe",
+                "checked_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add", "web_search"]),
+        provider=provider,
+        data_registry=registry,
+        **base_deps,
+    )
+    task = await base_deps["state_manager"].create_task("web")
+    await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
+    await base_deps["state_manager"].transition(task.task_id, TaskState.WORKING)
+
+    result = await agent.handle_task(task_id=task.task_id, task_description="web")
+    assert result == "FINAL: done"
+    assert provider.request_options
+    option = provider.request_options[0]
+    assert option is not None
+    assert option.web_search_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_agent_forces_effort_auto_when_effective_capability_is_unsupported(
+    base_deps,
+):
+    registry = DataRegistry()
+    provider = MockLLMProvider(
+        [
+            _json_response(
+                "notify_user",
+                message="done",
+                title="Finish quickly",
+                thought="Done.",
+            )
+        ],
+        model_name="gemini-2.5-flash-lite",
+        provider_name="google",
+        supports_effort=True,
+    )
+    registry.save_capability_observation(
+        provider="google",
+        model="gemini-2.5-flash-lite",
+        deployment_id="google:gemini-2.5-flash-lite",
+        observation={
+            "effort": {
+                "status": "unsupported",
+                "reason": "runtime_rejected",
+                "source": "probe",
+                "checked_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add"]),
+        provider=provider,
+        data_registry=registry,
+        **base_deps,
+    )
+    task = await base_deps["state_manager"].create_task("effort")
+    await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
+    await base_deps["state_manager"].transition(task.task_id, TaskState.WORKING)
+
+    result = await agent.handle_task(
+        task_id=task.task_id,
+        task_description="effort",
+        desired_effort="high",
+    )
+    assert result == "FINAL: done"
+    assert provider.efforts
+    assert provider.efforts[0] == "auto"

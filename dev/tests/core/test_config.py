@@ -22,7 +22,12 @@ from agent_cli.core.config import (
     _deep_merge,
     load_providers,
 )
-from agent_cli.core.models.config_models import ProtocolMode
+from agent_cli.core.models.config_models import (
+    EffortLevel,
+    ProtocolMode,
+    effort_values,
+    normalize_effort,
+)
 
 # ── Defaults & Env Var Tests ──────────────────────────────────────────
 
@@ -76,6 +81,26 @@ def test_protocol_mode_rejects_invalid_value():
     with pytest.raises(ValidationError) as exc_info:
         AgentSettings(core={"protocol_mode": "legacy_tags"})
     assert "core.protocol_mode must be one of" in str(exc_info.value)
+
+
+def test_default_effort_normalizes_case_and_whitespace():
+    """default_effort should be normalized to lowercase canonical values."""
+    settings = AgentSettings(default_effort=" HIGH ")
+    assert settings.default_effort == EffortLevel.HIGH.value
+
+
+def test_default_effort_rejects_invalid_value():
+    """Unknown effort values should fail validation."""
+    with pytest.raises(ValidationError) as exc_info:
+        AgentSettings(default_effort="extreme")
+    assert "default_effort must be one of" in str(exc_info.value)
+
+
+def test_effort_helpers_cover_all_enum_values():
+    """Effort helper utilities should stay in sync with the enum."""
+    assert set(effort_values()) == {level.value for level in EffortLevel}
+    assert normalize_effort(None) == EffortLevel.AUTO
+    assert normalize_effort("medium") == EffortLevel.MEDIUM
 
 
 # ── TOML Merging Tests ────────────────────────────────────────────────

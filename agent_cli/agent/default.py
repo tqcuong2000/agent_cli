@@ -24,13 +24,15 @@ class DefaultAgent(BaseAgent):
                 self.persona_template_name
             ).strip()
 
-        native_tools = getattr(self.provider, "supports_native_tools", False)
+        native_tools = self._supports_native_tools_effective()
+        provider_capabilities = self._get_provider_managed_tools()
 
         prompt = self.prompt_builder.build(
             persona=persona,
-            tool_names=self.config.tools,
+            tool_names=self.get_prompt_tool_names(),
             workspace_context=f"Operating System: {platform.system() or 'Unknown'}",
             native_tool_mode=native_tools,
+            provider_managed_capabilities=provider_capabilities,
         )
         return prompt
 

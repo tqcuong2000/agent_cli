@@ -11,6 +11,7 @@ Covers:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +27,7 @@ from agent_cli.commands.base import (
     command,
 )
 from agent_cli.commands.parser import CommandParser
+from agent_cli.data import DataRegistry
 
 # ── Mock dependencies ────────────────────────────────────────────────
 
@@ -35,6 +37,7 @@ class _MockSettings:
 
     def __init__(self) -> None:
         self.default_model = "gpt-4o"
+        self.default_effort = "auto"
         self.default_agent = "default"
         self.max_iterations = 100
         self.agents = {}
@@ -132,6 +135,7 @@ def test_command_decorator_registers_into_registry(registry: CommandRegistry):
     assert "exit" in names
     assert "agent" in names
     assert "model" in names
+    assert "effort" in names
     assert "debug" in names
     assert "config" in names
     assert "cost" in names
@@ -222,6 +226,122 @@ async def test_model_command_updates_model_and_emits_settings_event(
 
 
 @pytest.mark.asyncio
+async def test_effort_command_sets_session_effort_and_emits_settings_event(
+    parser: CommandParser, ctx: CommandContext
+):
+    class _Session:
+        desired_effort = "auto"
+
+    class _SessionManager:
+        def __init__(self):
+            self._active = _Session()
+
+        def get_active(self):
+            return self._active
+
+        def create_session(self):
+            self._active = _Session()
+            return self._active
+
+        def save(self, session):
+            self._active = session
+
+    class _Provider:
+        provider_name = "google"
+        model_name = "gemini-2.5-flash-lite"
+        supports_effort = True
+
+        def resolve_effective_effort(self, effort):
+            return effort
+
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        session_manager=_SessionManager(),
+        data_registry=DataRegistry(),
+        orchestrator=SimpleNamespace(
+            active_agent=SimpleNamespace(provider=_Provider())
+        ),
+    )
+
+    result = await parser.execute("/effort high")
+    assert result.success is True
+    assert "Effort updated" in result.message
+    assert "Desired effort: high" in result.message
+    assert "Effective effort (google/gemini-2.5-flash-lite): high" in result.message
+    assert any(
+        getattr(event, "setting_name", "") == "effort"
+        for event in ctx.event_bus.published_events
+    )
+
+
+@pytest.mark.asyncio
+async def test_effort_command_reports_unsupported_provider(
+    parser: CommandParser, ctx: CommandContext
+):
+    class _Provider:
+        provider_name = "openai"
+        model_name = "gpt-4o"
+        supports_effort = False
+
+        def resolve_effective_effort(self, effort):
+            return "auto"
+
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        session_manager=None,
+        data_registry=DataRegistry(),
+        orchestrator=SimpleNamespace(
+            active_agent=SimpleNamespace(provider=_Provider())
+        ),
+    )
+
+    result = await parser.execute("/effort high")
+    assert result.success is True
+    assert "Desired effort: high" in result.message
+    assert "Effective effort (openai/gpt-4o): auto" in result.message
+
+
+@pytest.mark.asyncio
+async def test_effort_command_uses_effective_capability_snapshot_over_provider_flag(
+    parser: CommandParser, ctx: CommandContext
+):
+    class _Provider:
+        provider_name = "google"
+        model_name = "gemini-2.5-flash-lite"
+        base_url = ""
+        supports_effort = True
+
+        def resolve_effective_effort(self, effort):
+            return effort
+
+    data_registry = DataRegistry()
+    data_registry.save_capability_observation(
+        provider="google",
+        model="gemini-2.5-flash-lite",
+        deployment_id="google:gemini-2.5-flash-lite",
+        observation={
+            "effort": {
+                "status": "unsupported",
+                "reason": "runtime_probe_rejected",
+                "source": "probe",
+                "checked_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        session_manager=None,
+        data_registry=data_registry,
+        orchestrator=SimpleNamespace(
+            active_agent=SimpleNamespace(provider=_Provider())
+        ),
+    )
+
+    result = await parser.execute("/effort high")
+    assert result.success is True
+    assert "Desired effort: high" in result.message
+    assert "Effective effort (google/gemini-2.5-flash-lite): auto" in result.message
+
+
+@pytest.mark.asyncio
 async def test_debug_command_updates_log_level(
     parser: CommandParser, ctx: CommandContext
 ):
@@ -260,10 +380,16 @@ async def test_model_command_updates_active_agent_and_persists_override(
         provider: Any = field(default_factory=lambda: _MockProvider("gpt-4o"))
 
     active_agent = _MockAgent()
+    probe_calls: list[str] = []
+
+    class _Probe:
+        def probe_provider(self, provider: Any, *, trigger: str) -> None:
+            probe_calls.append(trigger)
 
     ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
         orchestrator=SimpleNamespace(active_agent=active_agent),
         providers=_MockProviders(),
+        capability_probe=_Probe(),
         data_registry=SimpleNamespace(
             get_context_budget=lambda: {"compaction_threshold": 0.80}
         ),
@@ -275,6 +401,56 @@ async def test_model_command_updates_active_agent_and_persists_override(
     assert active_agent.config.model == "gpt-4o-mini"
     assert active_agent.provider.model_name == "gpt-4o-mini"
     assert ctx.settings.agents["coder"]["model"] == "gpt-4o-mini"
+    assert probe_calls == ["model_switch"]
+
+
+@pytest.mark.asyncio
+async def test_model_command_probe_failure_does_not_fail_switch(
+    parser: CommandParser, ctx: CommandContext
+):
+    class _MockProvider:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+
+    class _MockProviders:
+        def get_provider(self, model_name: str) -> _MockProvider:
+            return _MockProvider(model_name)
+
+        def get_token_counter(self, model_name: str) -> object:
+            return object()
+
+        def get_token_budget(self, model_name: str, **kwargs: Any) -> object:
+            return object()
+
+    @dataclass
+    class _AgentConfig:
+        model: str = "gpt-4o"
+
+    @dataclass
+    class _MockAgent:
+        name: str = "coder"
+        config: _AgentConfig = field(default_factory=_AgentConfig)
+        memory: Any = field(default_factory=_MockMemoryManager)
+        provider: Any = field(default_factory=lambda: _MockProvider("gpt-4o"))
+
+    class _Probe:
+        def probe_provider(self, provider: Any, *, trigger: str) -> None:
+            raise RuntimeError("probe failed")
+
+    active_agent = _MockAgent()
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        orchestrator=SimpleNamespace(active_agent=active_agent),
+        providers=_MockProviders(),
+        capability_probe=_Probe(),
+        data_registry=SimpleNamespace(
+            get_context_budget=lambda: {"compaction_threshold": 0.80}
+        ),
+    )
+
+    result = await parser.execute("/model gpt-4o-mini")
+
+    assert result.success is True
+    assert active_agent.config.model == "gpt-4o-mini"
 
 
 @pytest.mark.asyncio

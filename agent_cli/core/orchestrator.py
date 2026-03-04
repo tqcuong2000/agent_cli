@@ -43,6 +43,7 @@ from agent_cli.session.base import AbstractSessionManager, Session
 
 if TYPE_CHECKING:
     from agent_cli.commands.parser import CommandParser
+    from agent_cli.providers.capability_probe import CapabilityProbeService
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class Orchestrator:
         session_manager: Optional[AbstractSessionManager] = None,
         agent_registry: Optional[AgentRegistry] = None,
         session_agents: Optional[SessionAgentRegistry] = None,
+        capability_probe: Optional[CapabilityProbeService] = None,
     ) -> None:
         self._event_bus = event_bus
         self._state_manager = state_manager
@@ -84,6 +86,7 @@ class Orchestrator:
         self._session_manager = session_manager
         self._agent_registry = agent_registry
         self._session_agents = session_agents
+        self._capability_probe = capability_probe
         self._request_lock = asyncio.Lock()
         self._running_callbacks: set[asyncio.Task[Any]] = set()
         self._active_request_task: Optional[asyncio.Task[Any]] = None
@@ -310,6 +313,11 @@ class Orchestrator:
             if active_session and use_session_messages
             else None
         )
+        session_desired_effort = (
+            str(getattr(active_session, "desired_effort", "")).strip()
+            if active_session is not None
+            else ""
+        )
 
         # 1. Create task
         task = await self._state_manager.create_task(
@@ -352,9 +360,12 @@ class Orchestrator:
                     task_description=text,
                     prior_context=prior_context,
                     session_messages=session_messages,
+                    desired_effort=session_desired_effort or None,
                 )
 
-                self._persist_session_after_task(active_session, task_id, agent=agent)
+                await self._persist_session_after_task(
+                    active_session, task_id, agent=agent
+                )
 
                 # 6. WORKING → SUCCESS
                 await self._state_manager.transition(
@@ -376,7 +387,7 @@ class Orchestrator:
         except asyncio.CancelledError:
             cancel_msg = "Task cancelled by user."
             await self._safe_transition_to_cancelled(task_id)
-            self._persist_session_after_task(active_session, task_id, agent=agent)
+            await self._persist_session_after_task(active_session, task_id, agent=agent)
             await self._event_bus.publish(
                 TaskResultEvent(
                     source="orchestrator",
@@ -407,7 +418,7 @@ class Orchestrator:
         except AgentCLIError as e:
             # Transition to FAILED
             await self._safe_transition_to_failed(task_id, e.user_message)
-            self._persist_session_after_task(active_session, task_id, agent=agent)
+            await self._persist_session_after_task(active_session, task_id, agent=agent)
 
             await self._event_bus.publish(
                 TaskResultEvent(
@@ -430,7 +441,7 @@ class Orchestrator:
             )
 
             await self._safe_transition_to_failed(task_id, error_msg)
-            self._persist_session_after_task(active_session, task_id, agent=agent)
+            await self._persist_session_after_task(active_session, task_id, agent=agent)
 
             await self._event_bus.publish(
                 TaskResultEvent(
@@ -488,9 +499,22 @@ class Orchestrator:
 
         active = self._session_manager.create_session()
         self._session_manager.save(active)
+        self._probe_active_provider_capabilities(trigger="session_start")
         return active
 
-    def _persist_session_after_task(
+    def _probe_active_provider_capabilities(self, *, trigger: str) -> None:
+        """Best-effort capability probe for the active provider identity."""
+        if self._capability_probe is None:
+            return
+        provider = getattr(self.active_agent, "provider", None)
+        if provider is None:
+            return
+        try:
+            self._capability_probe.probe_provider(provider, trigger=trigger)
+        except Exception:
+            logger.exception("Capability probe failed in orchestrator (%s)", trigger)
+
+    async def _persist_session_after_task(
         self,
         session: Optional[Session],
         task_id: str,
@@ -512,7 +536,22 @@ class Orchestrator:
         if new_messages:
             session.messages.extend(new_messages)
 
+        session_title_changed = False
+        current_name = str(session.name or "").strip()
+        if not current_name:
+            candidate = agent.get_last_task_title().strip()
+            session.name = candidate or "Untitled session"
+            session_title_changed = True
+
         self._session_manager.save(session)
+        if session_title_changed:
+            await self._event_bus.publish(
+                SettingsChangedEvent(
+                    source="orchestrator",
+                    setting_name="session_title",
+                    new_value=session.name,
+                )
+            )
 
     @staticmethod
     def _parse_mention(message: str) -> tuple[Optional[str], str]:

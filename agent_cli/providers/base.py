@@ -27,10 +27,11 @@ from agent_cli.core.error_handler.errors import (
 from agent_cli.core.error_handler.retry import retry_with_backoff
 from agent_cli.core.events.event_bus import AbstractEventBus
 from agent_cli.core.logging import get_observability
+from agent_cli.core.models.config_models import EffortLevel, normalize_effort
 from agent_cli.core.tracing import start_span
 from agent_cli.data import DataRegistry
 from agent_cli.providers.cost import estimate_cost
-from agent_cli.providers.models import LLMResponse, StreamChunk
+from agent_cli.providers.models import LLMResponse, ProviderRequestOptions, StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,16 @@ class BaseLLMProvider(ABC):
         """
         ...
 
+    @property
+    def supports_effort(self) -> bool:
+        """Whether provider supports explicit reasoning-effort controls."""
+        return False
+
+    @property
+    def supports_web_search(self) -> bool:
+        """Whether provider supports native provider-managed web search."""
+        return False
+
     # ── Abstract Methods ─────────────────────────────────────────
 
     @abstractmethod
@@ -131,6 +142,8 @@ class BaseLLMProvider(ABC):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
     ) -> LLMResponse:
         """Make a single API call and return a normalized ``LLMResponse``.
 
@@ -138,6 +151,7 @@ class BaseLLMProvider(ABC):
             context:    Conversation history (list of message dicts).
             tools:      Tool definitions (the provider decides HOW to deliver).
             max_tokens: Max tokens for the response.
+            effort:     Optional provider-agnostic thinking effort hint.
 
         Raises:
             AgentCLIError subclass on any API error.
@@ -150,6 +164,8 @@ class BaseLLMProvider(ABC):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Yield ``StreamChunk`` objects as content arrives from the API.
 
@@ -195,6 +211,8 @@ class BaseLLMProvider(ABC):
         context: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 4096,
+        effort: str | EffortLevel | None = None,
+        request_options: ProviderRequestOptions | None = None,
         max_retries: Optional[int] = None,
         base_delay: Optional[float] = None,
         max_delay: Optional[float] = None,
@@ -213,11 +231,20 @@ class BaseLLMProvider(ABC):
 
         async def _attempt() -> LLMResponse:
             try:
-                return await self.generate(context, tools, max_tokens)
+                return await self.generate(
+                    context,
+                    tools,
+                    max_tokens,
+                    effort,
+                    request_options=request_options,
+                )
             except AgentCLIError:
                 raise  # Already classified
             except Exception as e:
                 raise self._classify_error(e) from e
+
+        requested_effort = normalize_effort(effort).value
+        effective_effort = self.resolve_effective_effort(requested_effort).value
 
         retry_defaults = (
             self._data_registry.get_retry_defaults()
@@ -278,8 +305,22 @@ class BaseLLMProvider(ABC):
                 output_tokens=response.output_tokens,
                 duration_ms=int(timing["duration_ms"]),
                 cost_usd=response.cost_usd,
+                desired_effort=requested_effort,
+                effective_effort=effective_effort,
             )
         return response
+
+    def resolve_effective_effort(
+        self,
+        effort: str | EffortLevel | None,
+    ) -> EffortLevel:
+        """Resolve effective effort applied by this provider."""
+        requested = normalize_effort(effort)
+        if requested == EffortLevel.AUTO:
+            return EffortLevel.AUTO
+        if self.supports_effort:
+            return requested
+        return EffortLevel.AUTO
 
     # ── Error Classification ─────────────────────────────────────
 

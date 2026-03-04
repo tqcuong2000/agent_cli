@@ -25,7 +25,12 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from agent_cli.core.models.config_models import ProtocolMode, ProviderConfig
+from agent_cli.core.models.config_models import (
+    EffortLevel,
+    ProtocolMode,
+    ProviderConfig,
+    effort_values,
+)
 from agent_cli.data import DataRegistry
 
 logger = logging.getLogger(__name__)
@@ -123,6 +128,12 @@ class AgentSettings(BaseSettings):
         ge=0,
         le=5,
         description="How many times to retry a failed task before giving up.",
+    )
+    default_effort: str = Field(
+        default=EffortLevel.AUTO.value,
+        description=(
+            "Default reasoning effort for providers that support thinking levels."
+        ),
     )
 
     # ── Memory & Context ─────────────────────────────────────────
@@ -256,19 +267,30 @@ class AgentSettings(BaseSettings):
             return value
 
         raw_mode = value.get("protocol_mode")
-        if raw_mode is None:
-            return value
+        if raw_mode is not None:
+            normalized = str(raw_mode).strip().lower()
+            allowed = {mode.value for mode in ProtocolMode}
+            if normalized not in allowed:
+                allowed_str = ", ".join(sorted(allowed))
+                raise ValueError(
+                    f"core.protocol_mode must be one of: {allowed_str}. Got: {raw_mode!r}"
+                )
+            value["protocol_mode"] = normalized
 
-        normalized = str(raw_mode).strip().lower()
-        allowed = {mode.value for mode in ProtocolMode}
+        return value
+
+    @field_validator("default_effort")
+    @classmethod
+    def _validate_default_effort(cls, value: str) -> str:
+        """Normalize and validate the configured default effort value."""
+        normalized = str(value).strip().lower()
+        allowed = set(effort_values())
         if normalized not in allowed:
             allowed_str = ", ".join(sorted(allowed))
             raise ValueError(
-                f"core.protocol_mode must be one of: {allowed_str}. Got: {raw_mode!r}"
+                f"default_effort must be one of: {allowed_str}. Got: {value!r}"
             )
-
-        value["protocol_mode"] = normalized
-        return value
+        return normalized
 
     @property
     def protocol_mode(self) -> ProtocolMode:
@@ -394,6 +416,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 default_model = "gemini-2.5-flash-lite"
 default_agent = "default"
 max_iterations = 100
+default_effort = "auto"
 show_agent_thinking = true
 log_level = "INFO"
 log_max_file_size_mb = 50

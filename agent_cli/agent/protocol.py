@@ -1,7 +1,6 @@
 """Protocol models for JSON-based agent/system communication.
 
-Phase 1 introduces typed protocol payloads while keeping runtime behavior
-backward-compatible with legacy XML parsing paths.
+Typed protocol payloads for the JSON-only runtime path.
 """
 
 from __future__ import annotations
@@ -9,7 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict
+from typing import Any, Dict, TypeGuard
 from uuid import uuid4
 
 
@@ -21,6 +20,11 @@ def _utc_now_iso() -> str:
 def _message_id() -> str:
     """Return a stable protocol message identifier."""
     return f"msg_{uuid4().hex}"
+
+
+def _is_dataclass_instance(value: Any) -> TypeGuard[Any]:
+    """True only for dataclass instances (not dataclass types)."""
+    return is_dataclass(value) and not isinstance(value, type)
 
 
 class ProtocolVersion(str, Enum):
@@ -147,7 +151,7 @@ class MessageEnvelope:
         version: str = ProtocolVersion.V1_0.value,
     ) -> "MessageEnvelope":
         """Build an envelope from dataclass or mapping payloads."""
-        if is_dataclass(payload) and not isinstance(payload, type):
+        if _is_dataclass_instance(payload):
             payload_dict = asdict(payload)
         elif isinstance(payload, dict):
             payload_dict = dict(payload)

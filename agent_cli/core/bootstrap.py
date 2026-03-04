@@ -41,6 +41,7 @@ from agent_cli.core.orchestrator import Orchestrator
 from agent_cli.core.state.state_manager import AbstractStateManager, TaskStateManager
 from agent_cli.data import DataRegistry
 from agent_cli.memory.summarizer import SummarizingMemoryManager
+from agent_cli.providers.capability_probe import CapabilityProbeService
 from agent_cli.providers.manager import ProviderManager
 from agent_cli.session.base import AbstractSessionManager
 from agent_cli.session.file_store import FileSessionManager
@@ -98,6 +99,7 @@ class AppContext:
     orchestrator: Optional[Orchestrator] = None  # None until an agent is registered
     session_manager: Optional[AbstractSessionManager] = None
     observability: Optional["ObservabilityManager"] = None
+    capability_probe: Optional[CapabilityProbeService] = None
 
     # ── Phase 4.2 Command System ─────────────────────────────────
     command_registry: Optional[CommandRegistry] = None
@@ -151,6 +153,41 @@ class AppContext:
 
         if self.file_indexer is not None:
             self.file_indexer.start(self.event_bus)
+
+        runtime_identity: dict[str, str] = {
+            "requested_model": self.settings.default_model,
+            "provider": "unknown",
+            "resolved_model": self.settings.default_model,
+            "deployment_id": "unknown",
+        }
+        capability_sources: dict[str, str] = {
+            "declared": "unknown",
+            "observed": "unknown",
+            "effective": "unknown",
+        }
+        try:
+            runtime_identity = self.providers.get_runtime_identity(
+                self.settings.default_model
+            )
+            capability_sources = self.providers.get_capability_source_summary()
+        except Exception:
+            logger.exception(
+                "Failed to compute model-registry startup diagnostics (model=%s)",
+                self.settings.default_model,
+            )
+
+        logger.info(
+            "Model registry startup diagnostics",
+            extra={
+                "source": "bootstrap",
+                "data": {
+                    **runtime_identity,
+                    "capability_sources": capability_sources,
+                },
+            },
+        )
+        if self.observability is not None:
+            self.observability.record_migration_counter("resolver_usage")
 
         self._started = True
         if self.observability is not None:
@@ -315,6 +352,10 @@ def create_app(
 
     # 4. Provider Manager (depends on Settings)
     providers = ProviderManager(settings, data_registry=data_registry)
+    capability_probe = CapabilityProbeService(
+        data_registry=data_registry,
+        observability=observability,
+    )
 
     # 5. Tool System
     workspace_root = Path(root_folder) if root_folder else Path.cwd()
@@ -408,6 +449,7 @@ def create_app(
         file_indexer=file_indexer,
         orchestrator=None,
         session_manager=session_manager,
+        capability_probe=capability_probe,
         command_registry=cmd_registry,
         command_parser=cmd_parser,
         interaction_handler=None,
@@ -440,14 +482,16 @@ def create_app(
         name: str,
         description: str,
         persona: str = "",
+        default_tools: Optional[list[str]] = None,
     ) -> AgentConfig:
         override_raw = settings.agents.get(name, {})
         override = override_raw if isinstance(override_raw, dict) else {}
 
         model_name = str(override.get("model") or settings.default_model)
-        tools = override.get("tools", all_tools)
+        baseline_tools = default_tools if default_tools is not None else all_tools
+        tools = override.get("tools", baseline_tools)
         if not isinstance(tools, list):
-            tools = all_tools
+            tools = baseline_tools
 
         return AgentConfig(
             name=name,
@@ -488,6 +532,7 @@ def create_app(
         )
 
     all_tools = tool_registry.get_all_names()
+    web_enabled_tools = [*all_tools, "web_search"]
     agent_registry = AgentRegistry()
 
     builtins = [
@@ -496,6 +541,7 @@ def create_app(
             _resolve_agent_config(
                 name="default",
                 description="General-purpose assistant",
+                default_tools=web_enabled_tools,
             ),
         ),
         (
@@ -503,6 +549,7 @@ def create_app(
             _resolve_agent_config(
                 name="coder",
                 description="Implementation and refactoring specialist",
+                default_tools=all_tools,
             ),
         ),
         (
@@ -510,6 +557,7 @@ def create_app(
             _resolve_agent_config(
                 name="researcher",
                 description="Analysis and research specialist",
+                default_tools=web_enabled_tools,
             ),
         ),
     ]
@@ -584,6 +632,7 @@ def create_app(
         session_manager=context.session_manager,
         agent_registry=agent_registry,
         session_agents=session_agents,
+        capability_probe=context.capability_probe,
     )
 
     logger.info(
@@ -630,6 +679,7 @@ def register_default_agent(context: AppContext, agent: BaseAgent) -> None:
         default_agent=agent,
         command_parser=context.command_parser,
         session_manager=context.session_manager,
+        capability_probe=context.capability_probe,
     )
     logger.info("Default agent '%s' registered with Orchestrator.", agent.name)
 

@@ -44,7 +44,7 @@ def test_token_budget_should_compact_threshold():
 def test_budget_lookup_examples():
     assert infer_model_max_context("gpt-4o") == 128_000
     assert infer_model_max_context("claude-3-5-sonnet-20241022") == 200_000
-    assert infer_model_max_context("gemini-1.5-pro") == 2_000_000
+    assert infer_model_max_context("gemini-2.5-flash") == 1_000_000
 
 
 def test_budget_for_model_override_wins():
