@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any
 
+from agent_cli.core.infra.config.config_models import normalize_effort
 from agent_cli.core.providers.base.base import BaseLLMProvider
 from agent_cli.core.runtime.session.base import Session
 from agent_cli.core.infra.registry.registry import DataRegistry
@@ -39,12 +40,12 @@ class SessionTitleService:
         final_prompt = prompt_template.replace("{preview}", preview)
 
         try:
+            effort_value = self._resolve_title_effort(provider)
             response = await provider.safe_generate(
                 context=[{"role": "user", "content": final_prompt}],
                 tools=None,
                 max_tokens=max_tokens,
-                # Force minimal effort for simple title generation
-                effort="minimal",
+                effort=effort_value,
             )
             raw_title = str(response.text_content or "").strip()
             title = self.normalize_title(raw_title)
@@ -111,3 +112,29 @@ class SessionTitleService:
             if content:
                 lines.append(f"[{role}]\n{content}\n")
         return "\n".join(lines)
+
+    def _resolve_title_effort(self, provider: BaseLLMProvider) -> str:
+        """Use a model-supported effort for title generation."""
+        model_name = str(getattr(provider, "model_name", "")).strip()
+        if not model_name:
+            return "auto"
+
+        get_caps = getattr(self._data_registry, "get_model_capabilities", None)
+        if not callable(get_caps):
+            return "auto"
+
+        try:
+            capabilities = get_caps(model_name)
+        except Exception:
+            return "auto"
+        if capabilities is None or not getattr(capabilities.effort, "supported", False):
+            return "auto"
+
+        levels = getattr(capabilities.effort, "levels", ()) or ()
+        normalized_levels = {
+            normalize_effort(level).value
+            for level in levels
+        }
+        if "minimal" in normalized_levels:
+            return "minimal"
+        return "auto"

@@ -688,8 +688,8 @@ async def test_react_loop_schema_correction(base_deps):
 
     # Check that memory contains the schema error feedback
     mem = base_deps["memory_manager"].get_working_context()
-    assert any("Schema Error" in m["content"] for m in mem)
-    assert any("Valid prompt JSON examples" in m["content"] for m in mem)
+    assert any("SCHEMA_ERROR|code=missing_field|field=decision" in m["content"] for m in mem)
+    assert any("Valid example:" in m["content"] for m in mem)
 
 
 @pytest.mark.asyncio
@@ -930,19 +930,27 @@ async def test_default_agent_prompt_uses_multi_action_template_when_enabled(base
     assert "Wait for ALL Results" in prompt
 
 
-def test_schema_recovery_message_includes_multi_action_example_when_enabled(base_deps):
+def test_schema_recovery_message_for_unknown_ask_user_is_machine_actionable(base_deps):
     provider = MockLLMProvider([])
     agent = DummyAgent(
         config=AgentConfig(name="dummy", tools=["add"], multi_action_enabled=True),
         provider=provider,
         **base_deps,
     )
-    message = agent._build_schema_recovery_message(SchemaValidationError("bad schema"))
-    assert "execute_actions" in message
-    assert "Multi-action" in message
+    message = agent._build_schema_recovery_message(
+        SchemaValidationError(
+            "Unknown decision.type. Allowed values: reflect, execute_action, execute_actions, notify_user, yield.",
+            raw_response='{"title":"x","thought":"y","decision":{"type":"ask_user","question":"q"}}',
+        )
+    )
+    assert "SCHEMA_ERROR|code=enum_unknown|field=decision.type" in message
+    assert "received=ask_user" in message
+    assert 'decision.tool="ask_user"' in message
+    assert '"tool":"ask_user"' in message
+    assert '"type":"yield"' in message
 
 
-def test_schema_recovery_message_omits_multi_action_example_when_disabled(base_deps):
+def test_schema_recovery_message_for_generic_schema_error_has_safe_fallback(base_deps):
     provider = MockLLMProvider([])
     agent = DummyAgent(
         config=AgentConfig(name="dummy", tools=["add"], multi_action_enabled=False),
@@ -950,7 +958,9 @@ def test_schema_recovery_message_omits_multi_action_example_when_disabled(base_d
         **base_deps,
     )
     message = agent._build_schema_recovery_message(SchemaValidationError("bad schema"))
-    assert "Multi-action" not in message
+    assert "SCHEMA_ERROR|code=schema_invalid|field=response" in message
+    assert "If you are still uncertain, return this fallback JSON exactly:" in message
+    assert '"type":"yield"' in message
 
 
 @pytest.mark.asyncio

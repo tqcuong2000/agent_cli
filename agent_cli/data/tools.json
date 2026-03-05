@@ -25,7 +25,7 @@
   "executor": {
     "approval_timeout_seconds": 300.0,
     "multi_action": {
-      "enabled": false,
+      "enabled": true,
       "max_concurrent_actions": 5
     }
   },

@@ -975,49 +975,189 @@ class BaseAgent(ABC):
         return f"{provider}:{model}"
 
     def _build_schema_recovery_message(self, error: SchemaValidationError) -> str:
-        """Build a concrete, mode-aware schema recovery instruction."""
-        header = (
-            f"Schema Error: {error}\n"
-            "Your NEXT response must be corrected and valid. "
-            "Use exactly one decision, no empty response, and output exactly one JSON object."
+        """Build a short, machine-actionable schema recovery instruction."""
+        code, field, expected, received, fix_instruction, valid_example = (
+            self._classify_schema_error(error)
         )
-        multi_action_enabled = bool(self.config.multi_action_enabled)
-        multi_action_example = (
-            '4) Multi-action: {"title":"Batch reads","thought":"I need multiple independent results.",'
-            '"decision":{"type":"execute_actions","actions":[{"tool":"read_file","args":{"path":"README.md"}},'
-            '{"tool":"search_files","args":{"pattern":"TODO"}}]}}'
+        fallback_payload = {
+            "title": "Blocked",
+            "thought": "Schema correction failed safely.",
+            "decision": {
+                "type": "yield",
+                "message": (
+                    "I could not produce a valid action format after schema correction. "
+                    "Please retry."
+                ),
+            },
+        }
+        fallback_json = json.dumps(
+            fallback_payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        return (
+            f"SCHEMA_ERROR|code={code}|field={field}|expected={expected}|received={received}\n\n"
+            "Return exactly ONE JSON object and no other text.\n\n"
+            "Apply this fix now:\n"
+            f"{fix_instruction}\n\n"
+            "Valid example:\n"
+            f"{valid_example}\n\n"
+            "If you are still uncertain, return this fallback JSON exactly:\n"
+            f"{fallback_json}"
         )
 
-        native_mode = self._supports_native_tools_effective()
-        if native_mode:
-            native_examples = (
-                f"{header}\n"
-                "Valid native-mode JSON examples:\n"
-                "1) Tool call: "
-                '{"title":"Read file","thought":"I need the file contents.","decision":{"type":"execute_action","tool":"read_file","args":{"path":"README.md"}}} '
-                "and call exactly one native tool in this turn.\n"
-                "2) Final answer: "
-                '{"title":"Task complete","thought":"I verified the result.","decision":{"type":"notify_user","message":"..."}}\n'
-                "3) Yield: "
-                '{"title":"Blocked","thought":"I cannot proceed safely.","decision":{"type":"yield","message":"..."}}'
+    def _classify_schema_error(
+        self,
+        error: SchemaValidationError,
+    ) -> tuple[str, str, str, str, str, str]:
+        """Map schema errors to deterministic recovery instructions."""
+        message = str(error).strip()
+        lowered = message.lower()
+
+        allowed_decisions = "reflect,execute_action,execute_actions,notify_user,yield"
+        generic_example = (
+            '{"title":"Read file","thought":"I need file contents.","decision":{"type":"execute_action",'
+            '"tool":"read_file","args":{"path":"README.md"}}}'
+        )
+        generic_fix = (
+            "Use one allowed decision.type value and include all required fields for that type."
+        )
+
+        if "unknown decision.type" in lowered:
+            received = self._extract_decision_type_from_raw_response(error.raw_response)
+            if received == "ask_user":
+                return (
+                    "enum_unknown",
+                    "decision.type",
+                    allowed_decisions,
+                    received,
+                    (
+                        'Use decision.type="execute_action", decision.tool="ask_user", '
+                        "and put question/options inside decision.args."
+                    ),
+                    (
+                        '{"title":"Ask clarification","thought":"Need user choice before proceeding.","decision":'
+                        '{"type":"execute_action","tool":"ask_user","args":{"question":"Which format do you prefer?",'
+                        '"options":["A","B","C"]}}}'
+                    ),
+                )
+            return (
+                "enum_unknown",
+                "decision.type",
+                allowed_decisions,
+                received,
+                (
+                    'Set decision.type to one allowed value. For tool usage, use decision.type="execute_action" '
+                    "with decision.tool and decision.args."
+                ),
+                generic_example,
             )
-            if multi_action_enabled:
-                return f"{native_examples}\n{multi_action_example}"
-            return native_examples
 
-        prompt_examples = (
-            f"{header}\n"
-            "Valid prompt JSON examples:\n"
-            "1) Tool call: "
-            '{"title":"Read file","thought":"I need the file contents.","decision":{"type":"execute_action","tool":"read_file","args":{"path":"README.md"}}}\n'
-            "2) Final answer: "
-            '{"title":"Task complete","thought":"I verified the result.","decision":{"type":"notify_user","message":"..."}}\n'
-            "3) Yield: "
-            '{"title":"Blocked","thought":"I cannot proceed safely.","decision":{"type":"yield","message":"..."}}'
+        if "must contain a 'decision' object" in lowered:
+            return (
+                "missing_field",
+                "decision",
+                "object",
+                "missing",
+                'Add a top-level decision object with a valid decision.type and required fields.',
+                generic_example,
+            )
+
+        if "decision.type is required" in lowered:
+            return (
+                "missing_field",
+                "decision.type",
+                allowed_decisions,
+                "missing",
+                "Add decision.type and choose one allowed value.",
+                generic_example,
+            )
+
+        if "decision.tool is required" in lowered:
+            return (
+                "missing_field",
+                "decision.tool",
+                "registered_tool_name",
+                "missing",
+                'Set decision.tool when decision.type is "execute_action".',
+                generic_example,
+            )
+
+        if "decision.args must be an object" in lowered:
+            return (
+                "type_mismatch",
+                "decision.args",
+                "object",
+                "non_object",
+                "Set decision.args to a JSON object ({} if no arguments).",
+                generic_example,
+            )
+
+        if "decision.actions must be a non-empty list" in lowered:
+            return (
+                "type_mismatch",
+                "decision.actions",
+                "non_empty_list",
+                "invalid",
+                (
+                    'Set decision.actions to a non-empty list of {"tool":"...","args":{...}} '
+                    'items when decision.type is "execute_actions".'
+                ),
+                (
+                    '{"title":"Batch read","thought":"Need independent tool results.","decision":{"type":"execute_actions",'
+                    '"actions":[{"tool":"read_file","args":{"path":"README.md"}},'
+                    '{"tool":"search_files","args":{"pattern":"TODO"}}]}}'
+                ),
+            )
+
+        if "response is not valid json" in lowered:
+            return (
+                "invalid_json",
+                "response",
+                "single_json_object",
+                "malformed",
+                "Return one valid JSON object only (no markdown, no prose, no code fences).",
+                generic_example,
+            )
+
+        if "contains no reasoning, no tool call, and no final answer" in lowered:
+            return (
+                "empty_response",
+                "response",
+                "single_json_object",
+                "empty",
+                "Return a non-empty JSON object with one valid decision.",
+                generic_example,
+            )
+
+        return (
+            "schema_invalid",
+            "response",
+            "valid_schema",
+            "invalid",
+            generic_fix,
+            generic_example,
         )
-        if multi_action_enabled:
-            return f"{prompt_examples}\n{multi_action_example}"
-        return prompt_examples
+
+    @staticmethod
+    def _extract_decision_type_from_raw_response(raw_response: str | None) -> str:
+        """Best-effort extraction of decision.type from raw model output."""
+        if not raw_response:
+            return "unknown"
+        stripped = raw_response.strip()
+        if not stripped:
+            return "unknown"
+        try:
+            payload = json.loads(stripped)
+            if isinstance(payload, dict):
+                decision = payload.get("decision")
+                if isinstance(decision, dict):
+                    value = str(decision.get("type", "")).strip().lower()
+                    if value:
+                        return value
+        except json.JSONDecodeError:
+            pass
+        return "unknown"
 
     def _debug_intercept_response(
         self, task_id: str, iteration: int, raw_content: str
