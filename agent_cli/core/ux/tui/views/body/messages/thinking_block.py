@@ -16,47 +16,7 @@ class ThinkingBlock(Widget):
 
     is_expanded = reactive(True)
 
-    DEFAULT_CSS = """
-    ThinkingBlock {
-        layout: vertical;
-        width: 100%;
-        height: 1;
-        color: $text-muted;
-        margin: 1 0 0 0;
-        background: $panel 20%;
-    }
-
-    ThinkingBlock.-expanded {
-        height: auto;
-    }
-
-    ThinkingBlock .thinking_header {
-        width: 100%;
-        height: 1;
-        margin-left: 1;
-        color: $accent;
-    }
-
-    ThinkingBlock .thinking_content_container {
-        width: 100%;
-        height: auto;
-        min-height: 1;
-        max-height: 12;
-        padding: 1;
-        display: none;
-        overflow-y: auto;
-    }
-
-    ThinkingBlock.-expanded .thinking_content_container {
-        display: block;
-    }
-
-    ThinkingBlock .thinking_content {
-        width: 100%;
-        height: auto;
-        color: $text-muted 30%;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)

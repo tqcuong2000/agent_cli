@@ -10,28 +10,7 @@ from agent_cli.core.ux.tui.views.header.title import TitleComponent
 class HeaderContainer(Container):
     """The main header container holding the title, quick actions, and agent badge."""
 
-    DEFAULT_CSS = """
-    HeaderContainer {
-        dock: top;
-        height: 3;
-        width: 100%;
-    }
-
-    HeaderContainer Horizontal {
-        width: 100%;
-        height: 100%;
-        align: left middle;
-        padding: 0 1;
-    }
-
-    HeaderContainer .spacer-left {
-        width: 1fr;
-    }
-
-    HeaderContainer .spacer-right {
-        width: 1;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self):
         self.title_comp = TitleComponent()

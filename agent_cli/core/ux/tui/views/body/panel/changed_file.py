@@ -34,23 +34,7 @@ class _ChangedFileRowData:
 class ChangedFileRow(Static):
     """Clickable row representing a single changed file."""
 
-    DEFAULT_CSS = """
-    ChangedFileRow {
-        width: 100%;
-        height: auto;
-        padding: 0 1;
-        color: $text;
-    }
-
-    ChangedFileRow:hover {
-        background: $surface 40%;
-    }
-
-    ChangedFileRow.-selected {
-        background: $primary 25%;
-        text-style: bold;
-    }
-    """
+    DEFAULT_CSS = ""
 
     class Selected(Message):
         def __init__(self, sender: "ChangedFileRow", data: _ChangedFileRowData) -> None:

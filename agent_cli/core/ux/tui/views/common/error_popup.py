@@ -10,24 +10,7 @@ from textual.widget import Widget
 class ErrorPopup(Widget):
     """Floating, non-blocking error popup with auto-dismiss."""
 
-    DEFAULT_CSS = """
-    ErrorPopup {
-        layer: overlay;
-        display: none;
-        dock: bottom;
-        align: right bottom;
-        width: 50;
-        height: auto;
-        max-height: 8;
-        background: $panel;
-        padding: 1;
-        border-left: inner $error;
-    }
-
-    ErrorPopup.visible {
-        display: block;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)

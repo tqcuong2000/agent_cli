@@ -32,14 +32,7 @@ class AgentCLIApp(App):
         ("shift+up", "show_error_popup", "Show Error Popup (Temp)"),
     ]
 
-    CSS = """
-    #content {
-        height: 1fr;
-        padding: 1 2;
-        content-align: center middle;
-        text-align: center;
-    }
-    """
+    CSS_PATH = "../../../assets/app.tcss"
 
     def __init__(
         self,

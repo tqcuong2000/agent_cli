@@ -16,14 +16,7 @@ if TYPE_CHECKING:
 class BodyContainer(Container):
     """The main body container holding the content area."""
 
-    DEFAULT_CSS = """
-    BodyContainer {
-        dock: none;
-        width: 100%;
-        height: 100%;
-        border: solid #2a2f35;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, app_context: Optional["AppContext"] = None):
         super().__init__(id="body")

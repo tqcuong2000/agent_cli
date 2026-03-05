@@ -52,24 +52,7 @@ class BasePopupListView(Widget):
     - filter_items() → optional custom filtering (default: fuzzy on label)
     """
 
-    DEFAULT_CSS = """
-    BasePopupListView {
-        layer: overlay;
-        display: none;
-        dock: bottom;
-        width: 60;
-        height: auto;
-        max-height: 14;
-        background: $surface;
-        border: solid $primary;
-        padding: 0;
-        margin-left: 1;
-    }
-
-    BasePopupListView.visible {
-        display: block;
-    }
-    """
+    DEFAULT_CSS = ""
 
     selected_index: reactive[int] = reactive(0, always_update=True)
     filter_text: reactive[str] = reactive("", always_update=True)

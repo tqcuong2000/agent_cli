@@ -1,946 +1,137 @@
 ============================= test session starts =============================
-platform win32 -- Python 3.13.7, pytest-9.0.2, pluggy-1.6.0 -- C:\Python313\python.exe
-cachedir: .pytest_cache
-rootdir: x:\agent_cli
+platform win32 -- Python 3.13.7, pytest-9.0.2, pluggy-1.6.0
+rootdir: X:\agent_cli
 configfile: pyproject.toml
 plugins: beet-0.112.2, asyncio-1.3.0, anyio-4.12.1
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collecting ... collected 79 items
+collected 4 items
 
-dev/tests/data/test_registry.py::test_context_window_lookup_uses_model_specs_and_default PASSED [  1%]
-dev/tests/data/test_registry.py::test_pricing_lookup_and_copy_semantics PASSED [  2%]
-dev/tests/data/test_registry.py::test_builtin_providers PASSED           [  3%]
-dev/tests/data/test_registry.py::test_typed_provider_specs PASSED        [  5%]
-dev/tests/data/test_registry.py::test_typed_model_specs_resolution_and_capabilities PASSED [  6%]
-dev/tests/data/test_registry.py::test_tokenizer_encoding_lookup FAILED   [  7%]
-dev/tests/data/test_registry.py::test_accessors_map_through_typed_model_entries FAILED [  8%]
-dev/tests/data/test_registry.py::test_internal_models PASSED             [ 10%]
-dev/tests/data/test_registry.py::test_safe_command_patterns_and_tool_defaults PASSED [ 11%]
-dev/tests/data/test_registry.py::test_web_search_defaults_are_data_driven PASSED [ 12%]
-dev/tests/data/test_registry.py::test_memory_defaults PASSED             [ 13%]
-dev/tests/data/test_registry.py::test_schema_defaults PASSED             [ 15%]
-dev/tests/data/test_registry.py::test_prompt_template_loading_and_missing_file PASSED [ 16%]
-dev/tests/data/test_registry.py::test_constructor_raises_runtime_error_for_missing_json PASSED [ 17%]
-dev/tests/data/test_registry.py::test_constructor_raises_runtime_error_for_malformed_json PASSED [ 18%]
-dev/tests/data/test_registry.py::test_typed_model_validation_rejects_duplicate_alias PASSED [ 20%]
-dev/tests/data/test_registry.py::test_typed_model_validation_rejects_missing_capability_block PASSED [ 21%]
-dev/tests/data/test_registry.py::test_typed_model_validation_rejects_invalid_web_search_mode PASSED [ 22%]
-dev/tests/data/test_registry.py::test_typed_model_validation_supports_grouped_offerings_in_one_file PASSED [ 24%]
-dev/tests/data/test_registry.py::test_capability_snapshot_defaults_to_declared_when_no_observed PASSED [ 25%]
-dev/tests/data/test_registry.py::test_capability_snapshot_prefers_fresh_observed_values PASSED [ 26%]
-dev/tests/data/test_registry.py::test_capability_snapshot_stale_observed_falls_back_to_declared PASSED [ 27%]
-dev/tests/data/test_registry.py::test_capability_snapshot_unknown_model_is_unknown_effective PASSED [ 29%]
-dev/tests/data/test_registry.py::test_capability_observation_invalidation_and_cache_version PASSED [ 30%]
-dev/tests/data/test_data_integrity.py::test_models_json_structure PASSED [ 31%]
-dev/tests/data/test_data_integrity.py::test_providers_json_structure PASSED [ 32%]
-dev/tests/data/test_data_integrity.py::test_tools_json_structure PASSED  [ 34%]
-dev/tests/data/test_data_integrity.py::test_memory_json_structure PASSED [ 35%]
-dev/tests/data/test_data_integrity.py::test_schema_json_structure PASSED [ 36%]
-dev/tests/data/test_data_integrity.py::test_prompt_templates_exist_and_are_non_empty PASSED [ 37%]
-dev/tests/tools/test_registry.py::test_tool_registry_register_and_get PASSED [ 39%]
-dev/tests/tools/test_registry.py::test_tool_registry_duplicate_registration_fails PASSED [ 40%]
-dev/tests/tools/test_registry.py::test_tool_registry_get_by_category PASSED [ 41%]
-dev/tests/tools/test_registry.py::test_tool_registry_get_for_agent PASSED [ 43%]
-dev/tests/tools/test_registry.py::test_tool_registry_get_definitions_for_llm PASSED [ 44%]
-dev/tests/tools/test_registry.py::test_tool_output_formatter PASSED      [ 45%]
-dev/tests/core/test_bootstrap.py::test_create_app_returns_app_context FAILED [ 46%]
-dev/tests/core/test_bootstrap.py::test_create_app_accepts_custom_settings FAILED [ 48%]
-dev/tests/core/test_bootstrap.py::test_create_app_wires_protocol_mode_into_schema_validator FAILED [ 49%]
-dev/tests/core/test_bootstrap.py::test_create_app_applies_built_in_agent_overrides_from_settings FAILED [ 50%]
-dev/tests/core/test_bootstrap.py::test_create_app_registers_ask_user_tool FAILED [ 51%]
-dev/tests/core/test_bootstrap.py::test_builtin_agent_capabilities_include_web_search_for_default_and_researcher FAILED [ 53%]
-dev/tests/core/test_bootstrap.py::test_create_app_wires_configurable_workspace_policy FAILED [ 54%]
-dev/tests/core/test_bootstrap.py::test_startup_and_shutdown FAILED       [ 55%]
-dev/tests/core/test_bootstrap.py::test_startup_does_not_create_session FAILED [ 56%]
-dev/tests/core/test_bootstrap.py::test_startup_is_idempotent FAILED      [ 58%]
-dev/tests/core/test_bootstrap.py::test_shutdown_is_idempotent FAILED     [ 59%]
-dev/tests/core/test_bootstrap.py::test_end_to_end_task_lifecycle FAILED  [ 60%]
-dev/tests/core/test_bootstrap.py::test_end_to_end_with_parent_child_tasks FAILED [ 62%]
-dev/tests/core/test_bootstrap.py::test_event_bus_drains_on_shutdown FAILED [ 63%]
-dev/tests/providers/test_manager.py::test_manager_rejects_unknown_models_without_inference PASSED [ 64%]
-dev/tests/providers/test_manager.py::test_manager_creates_from_config PASSED [ 65%]
-dev/tests/providers/test_manager.py::test_manager_caching_behavior FAILED [ 67%]
-dev/tests/providers/test_manager.py::test_manager_returns_token_counters_by_provider FAILED [ 68%]
-dev/tests/providers/test_manager.py::test_manager_token_budget_uses_provider_override PASSED [ 69%]
-dev/tests/providers/test_manager.py::test_manager_rejects_azure_prefixed_unknown_deployment PASSED [ 70%]
-dev/tests/providers/test_manager.py::test_manager_token_counter_uses_model_registry_provider PASSED [ 72%]
-dev/tests/providers/test_manager.py::test_manager_api_key_env_falls_back_to_settings_alias_values PASSED [ 73%]
-dev/tests/providers/test_manager.py::test_manager_api_key_env_normalizes_wrapped_quotes PASSED [ 74%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_routes_to_agent PASSED [ 75%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_task_lifecycle PASSED [ 77%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_emits_delegation_event PASSED [ 78%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_command_interception PASSED [ 79%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_unknown_command PASSED [ 81%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_event_bus_integration PASSED [ 82%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_parse_mention_tag PASSED [ 83%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_switches_agent_from_mention PASSED [ 84%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_rejects_unknown_session_mention PASSED [ 86%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_rejects_concurrent_request_while_busy PASSED [ 87%]
-dev/tests/core/test_orchestrator.py::test_orchestrator_interrupts_active_task PASSED [ 88%]
-dev/tests/tools/test_executor.py::test_executor_safe_tool_success PASSED [ 89%]
-dev/tests/tools/test_executor.py::test_executor_validation_failure PASSED [ 91%]
-dev/tests/tools/test_executor.py::test_executor_unknown_tool PASSED      [ 92%]
-dev/tests/tools/test_executor.py::test_executor_tool_execution_error PASSED [ 93%]
-dev/tests/tools/test_executor.py::test_executor_unexpected_exception PASSED [ 94%]
-dev/tests/tools/test_executor.py::test_executor_unsafe_tool_auto_approve PASSED [ 96%]
-dev/tests/tools/test_executor.py::test_executor_unsafe_tool_requires_approval PASSED [ 97%]
-dev/tests/tools/test_executor.py::test_executor_unsafe_tool_denied PASSED [ 98%]
-dev/tests/tools/test_executor.py::test_executor_routes_ask_user_to_interaction_handler PASSED [100%]
+dev\tests\tui\test_app_command_wiring.py .F.F                            [100%]
 
 ================================== FAILURES ===================================
-_______________________ test_tokenizer_encoding_lookup ________________________
+__________ test_app_mount_binds_interaction_handler_to_tool_executor __________
 
-registry = <agent_cli.core.registry.DataRegistry object at 0x00000163785B4C10>
-
-    def test_tokenizer_encoding_lookup(registry: DataRegistry) -> None:
-        assert registry.get_tokenizer_encoding("gpt-4o") == "o200k_base"
->       assert registry.get_tokenizer_encoding("openai:gpt-4o-mini") == "o200k_base"
-E       AssertionError: assert 'cl100k_base' == 'o200k_base'
-E         
-E         - o200k_base
-E         ? ^^
-E         + cl100k_base
-E         ? ^^^
-
-dev\tests\data\test_registry.py:99: AssertionError
-_______________ test_accessors_map_through_typed_model_entries ________________
-
-registry = <agent_cli.core.registry.DataRegistry object at 0x0000016378609900>
-
-    def test_accessors_map_through_typed_model_entries(
-        registry: DataRegistry,
-    ) -> None:
-        assert registry.get_context_window("openai/gpt-4o") == 128_000
->       assert registry.get_pricing("openai:gpt-4o-mini") == {
-            "input": 0.15,
-            "output": 0.6,
-        }
-E       AssertionError: assert {'input': 0.0, 'output': 0.0} == {'input': 0.15, 'output': 0.6}
-E         
-E         Differing items:
-E         {'input': 0.0} != {'input': 0.15}
-E         {'output': 0.0} != {'output': 0.6}
-E         
-E         Full diff:
-E           {...
-E         
-E         ...Full output truncated (9 lines hidden), use '-vv' to show
-
-dev\tests\data\test_registry.py:107: AssertionError
-_____________________ test_create_app_returns_app_context _____________________
-
-    def test_create_app_returns_app_context():
-        """create_app() should return a fully wired AppContext."""
->       ctx = create_app()
-              ^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:37: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860A200>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-___________________ test_create_app_accepts_custom_settings ___________________
-
-    def test_create_app_accepts_custom_settings():
-        """Custom settings passed to create_app() should be used."""
-        custom = AgentSettings(default_model="gpt-4o", log_level="DEBUG")
->       ctx = create_app(settings=custom)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:58: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860B520>
-model_name = 'gpt-4o'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-DEBUG    agent_cli.tools.registry:registry.py:54 Registered tool: read_file (category=FILE)
-DEBUG    agent_cli.tools.registry:registry.py:54 Registered tool: write_file (category=FILE)
-DEBUG    agent_cli.tools.registry:registry.py:54 Registered tool: list_directory (category=FILE)
-DEBUG    agent_cli.tools.registry:registry.py:54 Registered tool: search_files (category=SEARCH)
-DEBUG    agent_cli.tools.registry:registry.py:54 Registered tool: str_replace (category=FILE)
-DEBUG    agent_cli.tools.registry:registry.py:54 Registered tool: insert_lines (category=FILE)
-DEBUG    agent_cli.tools.registry:registry.py:54 Registered tool: run_command (category=EXECUTION)
-DEBUG    agent_cli.tools.registry:registry.py:54 Registered tool: ask_user (category=UTILITY)
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-DEBUG    agent_cli.core.events.event_bus:event_bus.py:188 Subscribed 59eeab42-9bc8-4e28-bd7e-d0d895700f5c to UserApprovalResponseEvent (priority=0)
-__________ test_create_app_wires_protocol_mode_into_schema_validator __________
-
-    def test_create_app_wires_protocol_mode_into_schema_validator():
-        custom = AgentSettings(core={"protocol_mode": "json_only"})
->       ctx = create_app(settings=custom)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:66: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x0000016376DCDFC0>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-_______ test_create_app_applies_built_in_agent_overrides_from_settings ________
-
-    def test_create_app_applies_built_in_agent_overrides_from_settings():
-        custom = AgentSettings(
-            default_model="gpt-4o-mini",
-            agents={
-                "coder": {
-                    "model": "o1-mini",
-                    "max_iterations": 220,
-                }
-            },
-        )
->       ctx = create_app(settings=custom)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:80: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:426: in create_app
-    cmd_registry = _build_command_registry()
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\core\bootstrap.py:742: in _build_command_registry
-    import agent_cli.commands.handlers.agent as agent_handlers
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-    """Agent management command handlers."""
-    
-    from __future__ import annotations
-    
-    from typing import List
-    
-    from agent_cli.agent.session_registry import AgentStatus
->   from agent_cli.commands.base import CommandContext, CommandResult, command
-E   ImportError: cannot import name 'command' from 'agent_cli.commands.base' (x:\agent_cli\agent_cli\commands\base.py). Did you mean: 'commands'?
-
-agent_cli\commands\handlers\agent.py:8: ImportError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-___________________ test_create_app_registers_ask_user_tool ___________________
-
-    def test_create_app_registers_ask_user_tool():
-        """Default tool registry should include ask_user for clarification flow."""
->       ctx = create_app()
-              ^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:91: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860AB00>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-_ test_builtin_agent_capabilities_include_web_search_for_default_and_researcher _
-
-    def test_builtin_agent_capabilities_include_web_search_for_default_and_researcher():
->       ctx = create_app()
-              ^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:96: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860B880>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-_____________ test_create_app_wires_configurable_workspace_policy _____________
-
-tmp_path = WindowsPath('C:/Users/cuong/AppData/Local/Temp/pytest-of-cuong/pytest-242/test_create_app_wires_configur0')
-
-    def test_create_app_wires_configurable_workspace_policy(tmp_path):
-        settings = AgentSettings(
-            workspace_deny_patterns=["*.key"],
-            workspace_allow_overrides=["allowed.key"],
-        )
->       ctx = create_app(settings=settings, root_folder=tmp_path)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:117: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860BB50>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: C:\Users\cuong\AppData\Local\Temp\pytest-of-cuong\pytest-242\test_create_app_wires_configur0
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-__________________________ test_startup_and_shutdown __________________________
+tmp_path = WindowsPath('C:/Users/cuong/AppData/Local/Temp/pytest-of-cuong/pytest-283/test_app_mount_binds_interacti0')
 
     @pytest.mark.asyncio
-    async def test_startup_and_shutdown():
-        """Full lifecycle: create \u2192 startup \u2192 shutdown."""
->       ctx = create_app()
-              ^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:137: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637869C310>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
+    async def test_app_mount_binds_interaction_handler_to_tool_executor(tmp_path):
+        app = AgentCLIApp(root_folder=str(tmp_path))
     
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
+>       async with app.run_test() as pilot:
+                   ^^^^^^^^^^^^^^
 
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-____________________ test_startup_does_not_create_session _____________________
-
-    @pytest.mark.asyncio
-    async def test_startup_does_not_create_session():
-        """Startup should not create sessions until first routed user request."""
->       ctx = create_app()
-              ^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:155: 
+dev\tests\tui\test_app_command_wiring.py:32: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Python313\Lib\contextlib.py:235: in __aexit__
+    await self.gen.athrow(value)
+C:\Python313\Lib\site-packages\textual\app.py:2145: in run_test
+    raise self._exception
+C:\Python313\Lib\site-packages\textual\app.py:3319: in app_prelude
+    self.stylesheet.read_all(self.css_path)
+C:\Python313\Lib\site-packages\textual\css\stylesheet.py:319: in read_all
+    self.read(path)
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637869C280>
-model_name = 'gemini-3-flash-preview'
+self = <Stylesheet []>
+filename = 'X:\\agent_cli\\agent_cli\\core\\assets\\app.tcss'
 
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
+    def read(self, filename: str | PurePath) -> None:
+        """Read Textual CSS file.
     
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
+        Args:
+            filename: Filename of CSS.
     
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-_________________________ test_startup_is_idempotent __________________________
-
-    @pytest.mark.asyncio
-    async def test_startup_is_idempotent():
-        """Calling startup() twice should not raise or re-initialize."""
->       ctx = create_app()
-              ^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:165: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860BB50>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-_________________________ test_shutdown_is_idempotent _________________________
-
-    @pytest.mark.asyncio
-    async def test_shutdown_is_idempotent():
-        """Calling shutdown() without startup should be safe."""
->       ctx = create_app()
-              ^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:178: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860BE20>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-_______________________ test_end_to_end_task_lifecycle ________________________
-
-    @pytest.mark.asyncio
-    async def test_end_to_end_task_lifecycle():
-        """Integration: create a task, transition through the FSM, and verify
-        events are published on the bus.
+        Raises:
+            StylesheetError: If the CSS could not be read.
+            StylesheetParseError: If the CSS is invalid.
         """
->       ctx = create_app()
-              ^^^^^^^^^^^^
+        filename = os.path.expanduser(filename)
+        try:
+            with open(filename, "rt", encoding="utf-8") as css_file:
+                css = css_file.read()
+            path = os.path.abspath(filename)
+        except Exception:
+>           raise StylesheetError(f"unable to read CSS file {filename!r}") from None
+E           textual.css.errors.StylesheetError: unable to read CSS file 'X:\\agent_cli\\agent_cli\\core\\assets\\app.tcss'
 
-dev\tests\core\test_bootstrap.py:191: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637869C040>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
+C:\Python313\Lib\site-packages\textual\css\stylesheet.py:304: StylesheetError
+---------------------------- Captured stderr call -----------------------------
+\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Traceback (most recent call last) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u2502 C:\\Python313\\Lib\\site-packages\\textual\\app.py:3319 in app_prelude            \n\u2502                                                                              \n\u2502   3316 \u2502   \u2502   \u2502                                                             \n\u2502   3317 \u2502   \u2502   \u2502   try:                                                      \n\u2502   3318 \u2502   \u2502   \u2502   \u2502   if self.css_path:                                     \n\u2502 \u2771 3319 \u2502   \u2502   \u2502   \u2502   \u2502   self.stylesheet.read_all(self.css_path)           \n\u2502   3320 \u2502   \u2502   \u2502   \u2502   for read_from, css, tie_breaker, scope in self._get_d \n\u2502   3321 \u2502   \u2502   \u2502   \u2502   \u2502   self.stylesheet.add_source(                       \n\u2502   3322 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   css,                                          \n\u2502                                                                              \n\u2502 \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 locals \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e \n\u2502 \u2502 error = StylesheetError("unable to read CSS file                         \u2502 \n\u2502 \u2502         'X:\\\\\\\\agent_cli\\\\\\\\agent_cli\\\\\\\\core\\\\\\\\assets\\\\\\\\app.tcss'")   \u2502 \n\u2502 \u2502  self = AgentCLIApp(                                                     \u2502 \n\u2502 \u2502         \u2502   title='AgentCLIApp',                                         \u2502 \n\u2502 \u2502         \u2502   classes={'-dark-mode'},                                      \u2502 \n\u2502 \u2502         \u2502   pseudo_classes={'dark', 'focus'}                             \u2502 \n\u2502 \u2502         )                                                                \u2502 \n\u2502 \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f \n\u2502                                                                              \n\u2502 C:\\Python313\\Lib\\site-packages\\textual\\css\\stylesheet.py:319 in read_all     \n\u2502                                                                              \n\u2502   316 \u2502   \u2502   \u2502   StylesheetParseError: If the CSS is invalid.               \n\u2502   317 \u2502   \u2502   """                                                            \n\u2502   318 \u2502   \u2502   for path in paths:                                             \n\u2502 \u2771 319 \u2502   \u2502   \u2502   self.read(path)                                            \n\u2502   320 \u2502                                                                      \n\u2502   321 \u2502   def has_source(self, path: str, class_var: str = "") -> bool:      \n\u2502   322 \u2502   \u2502   """Check if the stylesheet has this CSS source already.        \n\u2502                                                                              \n\u2502 \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 locals \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e     \n\u2502 \u2502  path = WindowsPath('X:/agent_cli/agent_cli/core/assets/app.tcss')   \u2502     \n\u2502 \u2502 paths = [WindowsPath('X:/agent_cli/agent_cli/core/assets/app.tcss')] \u2502     \n\u2502 \u2502  self = <Stylesheet []>                                              \u2502     \n\u2502 \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f     \n\u2502                                                                              \n\u2502 C:\\Python313\\Lib\\site-packages\\textual\\css\\stylesheet.py:304 in read         \n\u2502                                                                              \n\u2502   301 \u2502   \u2502   \u2502   \u2502   css = css_file.read()                                  \n\u2502   302 \u2502   \u2502   \u2502   path = os.path.abspath(filename)                           \n\u2502   303 \u2502   \u2502   except Exception:                                              \n\u2502 \u2771 304 \u2502   \u2502   \u2502   raise StylesheetError(f"unable to read CSS file {filename! \n\u2502   305 \u2502   \u2502   self.source[(str(path), "")] = CssSource(css, False, 0)        \n\u2502   306 \u2502   \u2502   self._require_parse = True                                     \n\u2502   307                                                                        \n\u2502                                                                              \n\u2502 \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 locals \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e            \n\u2502 \u2502 filename = 'X:\\\\agent_cli\\\\agent_cli\\\\core\\\\assets\\\\app.tcss' \u2502            \n\u2502 \u2502     self = <Stylesheet []>                                    \u2502            \n\u2502 \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f            \n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nStylesheetError: unable to read CSS file \n'X:\\\\agent_cli\\\\agent_cli\\\\core\\\\assets\\\\app.tcss'
 ------------------------------ Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
+INFO     agent_cli.core.infra.registry.registry:registry.py:74 DataRegistry loaded
 INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-___________________ test_end_to_end_with_parent_child_tasks ___________________
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:783 Adapter registry built with 6 types: anthropic, azure, google, ollama, openai, openai_compatible
+INFO     agent_cli.core.runtime.orchestrator.file_tracker:file_tracker.py:39 File tracking started at workspace: C:\Users\cuong\AppData\Local\Temp\pytest-of-cuong\pytest-283\test_app_mount_binds_interacti0
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:819 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:972 Command registry built with 13 commands: agent, config, clear, context, cost, debug, effort, model, generate_title, sessions, exit, help, sandbox
+INFO     agent_cli.core.infra.registry.registry_base:registry_base.py:28 Registry 'adapter_types' frozen (6 adapter types: anthropic, azure, google, ollama, openai, openai_compatible).
+INFO     agent_cli.core.infra.registry.registry_base:registry_base.py:28 Registry 'tools' frozen (8 tools).
+INFO     agent_cli.core.infra.registry.registry_base:registry_base.py:28 Registry 'agents' frozen (4 agents: coder, default, researcher, reviewer).
+INFO     agent_cli.core.infra.registry.registry_base:registry_base.py:28 Registry 'commands' frozen (13 commands).
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:670 AppContext created with multi-agent registry (default=default, total=4).
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:675 All registries frozen; bootstrap complete.
+____________ test_session_title_event_updates_header_and_app_title ____________
+
+tmp_path = WindowsPath('C:/Users/cuong/AppData/Local/Temp/pytest-of-cuong/pytest-283/test_session_title_event_updat0')
 
     @pytest.mark.asyncio
-    async def test_end_to_end_with_parent_child_tasks():
-        """Integration: parent task with children demonstrates the full
-        hierarchy and cascade cancellation.
+    async def test_session_title_event_updates_header_and_app_title(tmp_path):
+        app = AgentCLIApp(root_folder=str(tmp_path))
+    
+>       async with app.run_test() as pilot:
+                   ^^^^^^^^^^^^^^
+
+dev\tests\tui\test_app_command_wiring.py:64: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Python313\Lib\contextlib.py:235: in __aexit__
+    await self.gen.athrow(value)
+C:\Python313\Lib\site-packages\textual\app.py:2145: in run_test
+    raise self._exception
+C:\Python313\Lib\site-packages\textual\app.py:3319: in app_prelude
+    self.stylesheet.read_all(self.css_path)
+C:\Python313\Lib\site-packages\textual\css\stylesheet.py:319: in read_all
+    self.read(path)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <Stylesheet []>
+filename = 'X:\\agent_cli\\agent_cli\\core\\assets\\app.tcss'
+
+    def read(self, filename: str | PurePath) -> None:
+        """Read Textual CSS file.
+    
+        Args:
+            filename: Filename of CSS.
+    
+        Raises:
+            StylesheetError: If the CSS could not be read.
+            StylesheetParseError: If the CSS is invalid.
         """
->       ctx = create_app()
-              ^^^^^^^^^^^^
+        filename = os.path.expanduser(filename)
+        try:
+            with open(filename, "rt", encoding="utf-8") as css_file:
+                css = css_file.read()
+            path = os.path.abspath(filename)
+        except Exception:
+>           raise StylesheetError(f"unable to read CSS file {filename!r}") from None
+E           textual.css.errors.StylesheetError: unable to read CSS file 'X:\\agent_cli\\agent_cli\\core\\assets\\app.tcss'
 
-dev\tests\core\test_bootstrap.py:240: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860B6D0>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
+C:\Python313\Lib\site-packages\textual\css\stylesheet.py:304: StylesheetError
+---------------------------- Captured stderr call -----------------------------
+\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Traceback (most recent call last) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u2502 C:\\Python313\\Lib\\site-packages\\textual\\app.py:3319 in app_prelude            \n\u2502                                                                              \n\u2502   3316 \u2502   \u2502   \u2502                                                             \n\u2502   3317 \u2502   \u2502   \u2502   try:                                                      \n\u2502   3318 \u2502   \u2502   \u2502   \u2502   if self.css_path:                                     \n\u2502 \u2771 3319 \u2502   \u2502   \u2502   \u2502   \u2502   self.stylesheet.read_all(self.css_path)           \n\u2502   3320 \u2502   \u2502   \u2502   \u2502   for read_from, css, tie_breaker, scope in self._get_d \n\u2502   3321 \u2502   \u2502   \u2502   \u2502   \u2502   self.stylesheet.add_source(                       \n\u2502   3322 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   css,                                          \n\u2502                                                                              \n\u2502 \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 locals \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e \n\u2502 \u2502 error = StylesheetError("unable to read CSS file                         \u2502 \n\u2502 \u2502         'X:\\\\\\\\agent_cli\\\\\\\\agent_cli\\\\\\\\core\\\\\\\\assets\\\\\\\\app.tcss'")   \u2502 \n\u2502 \u2502  self = AgentCLIApp(                                                     \u2502 \n\u2502 \u2502         \u2502   title='AgentCLIApp',                                         \u2502 \n\u2502 \u2502         \u2502   classes={'-dark-mode'},                                      \u2502 \n\u2502 \u2502         \u2502   pseudo_classes={'dark', 'focus'}                             \u2502 \n\u2502 \u2502         )                                                                \u2502 \n\u2502 \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f \n\u2502                                                                              \n\u2502 C:\\Python313\\Lib\\site-packages\\textual\\css\\stylesheet.py:319 in read_all     \n\u2502                                                                              \n\u2502   316 \u2502   \u2502   \u2502   StylesheetParseError: If the CSS is invalid.               \n\u2502   317 \u2502   \u2502   """                                                            \n\u2502   318 \u2502   \u2502   for path in paths:                                             \n\u2502 \u2771 319 \u2502   \u2502   \u2502   self.read(path)                                            \n\u2502   320 \u2502                                                                      \n\u2502   321 \u2502   def has_source(self, path: str, class_var: str = "") -> bool:      \n\u2502   322 \u2502   \u2502   """Check if the stylesheet has this CSS source already.        \n\u2502                                                                              \n\u2502 \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 locals \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e     \n\u2502 \u2502  path = WindowsPath('X:/agent_cli/agent_cli/core/assets/app.tcss')   \u2502     \n\u2502 \u2502 paths = [WindowsPath('X:/agent_cli/agent_cli/core/assets/app.tcss')] \u2502     \n\u2502 \u2502  self = <Stylesheet []>                                              \u2502     \n\u2502 \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f     \n\u2502                                                                              \n\u2502 C:\\Python313\\Lib\\site-packages\\textual\\css\\stylesheet.py:304 in read         \n\u2502                                                                              \n\u2502   301 \u2502   \u2502   \u2502   \u2502   css = css_file.read()                                  \n\u2502   302 \u2502   \u2502   \u2502   path = os.path.abspath(filename)                           \n\u2502   303 \u2502   \u2502   except Exception:                                              \n\u2502 \u2771 304 \u2502   \u2502   \u2502   raise StylesheetError(f"unable to read CSS file {filename! \n\u2502   305 \u2502   \u2502   self.source[(str(path), "")] = CssSource(css, False, 0)        \n\u2502   306 \u2502   \u2502   self._require_parse = True                                     \n\u2502   307                                                                        \n\u2502                                                                              \n\u2502 \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 locals \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e            \n\u2502 \u2502 filename = 'X:\\\\agent_cli\\\\agent_cli\\\\core\\\\assets\\\\app.tcss' \u2502            \n\u2502 \u2502     self = <Stylesheet []>                                    \u2502            \n\u2502 \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f            \n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nStylesheetError: unable to read CSS file \n'X:\\\\agent_cli\\\\agent_cli\\\\core\\\\assets\\\\app.tcss'
 ------------------------------ Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
+INFO     agent_cli.core.infra.registry.registry:registry.py:74 DataRegistry loaded
 INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-______________________ test_event_bus_drains_on_shutdown ______________________
-
-    @pytest.mark.asyncio
-    async def test_event_bus_drains_on_shutdown():
-        """Shutdown should wait for in-flight background tasks to complete."""
->       ctx = create_app()
-              ^^^^^^^^^^^^
-
-dev\tests\core\test_bootstrap.py:267: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\core\bootstrap.py:403: in create_app
-    token_counter=providers.get_token_counter(default_model),
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:137: in get_token_counter
-    spec = self._data_registry.resolve_model_spec(model_name)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.core.registry.DataRegistry object at 0x000001637860B640>
-model_name = 'gemini-3-flash-preview'
-
-    def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
-        raw_name = str(model_name or "").strip()
-        if not raw_name:
-            return None
-    
-        specs = self._get_model_specs_cached()
-        lookup = self._get_model_lookup_cached()
-        resolved_id = lookup.get(raw_name.lower())
-        if resolved_id is None:
-            return None
-        spec = specs.get(resolved_id)
-        if spec is None:
-            return None
-    
-        if self._observability is not None:
->           self._observability.log_diagnostic(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                "model_resolved",
-                data={"requested": model_name, "resolved": resolved_id},
-            )
-E           AttributeError: 'ObservabilityManager' object has no attribute 'log_diagnostic'
-
-agent_cli\core\registry.py:166: AttributeError
------------------------------- Captured log call ------------------------------
-INFO     agent_cli.observability:logging.py:375 Observability shutdown
-INFO     agent_cli.observability:logging.py:193 Observability initialized
-INFO     agent_cli.core.file_tracker:file_tracker.py:39 File tracking started at workspace: X:\agent_cli
-INFO     agent_cli.core.bootstrap:bootstrap.py:726 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
-________________________ test_manager_caching_behavior ________________________
-
-    def test_manager_caching_behavior():
-        """Verify that multiple requests for the same model return the same instance."""
-        settings = AgentSettings(openai_api_key="sk-test")
-        manager = ProviderManager(settings)
-    
->       p1 = manager.get_provider("gpt-4o")
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-dev\tests\providers\test_manager.py:48: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-agent_cli\providers\manager.py:96: in get_provider
-    provider = self._resolve_provider(model_name, observability=observability)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:133: in _resolve_provider
-    return self._resolve_provider_v2(model_name, observability=observability)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-agent_cli\providers\manager.py:199: in _resolve_provider_v2
-    return self._create_provider(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = <agent_cli.providers.manager.ProviderManager object at 0x0000016377EF2A50>
-provider_name = 'openai'
-config = ProviderConfig(adapter_type='openai', base_url=None, api_key_env=None, default_model='gpt-4o', supports_native_tools=True, max_context_tokens=None)
-model_name = 'gpt-4o'
-
-    def _create_provider(
-        self,
-        provider_name: str,
-        config: ProviderConfig,
-        model_name: str,
-        *,
-        observability: Optional[ObservabilityManager] = None,
-    ) -> BaseLLMProvider:
-        """Instantiate the adapter class defined in the config."""
-        adapter_cls = ADAPTER_TYPES.get(config.adapter_type)
-        if not adapter_cls:
-            raise ValueError(
-                f"Unknown adapter type '{config.adapter_type}' for model '{model_name}'"
-            )
-    
-        api_key = self._resolve_api_key(provider_name, config)
-        logger.debug(
-            "Resolved API key for provider '%s': %s",
-            provider_name,
-            self._mask_key_fingerprint(api_key),
-        )
-    
-        # OpenAICompatibleProvider accepts native_tools flag, others don't
-        kwargs: Dict[str, Any] = {
-            "model_name": model_name,
-            "api_key": api_key,
-            "base_url": config.base_url,
-            "data_registry": self._data_registry,
-            "observability": observability or self._observability,
-        }
-        if config.adapter_type in ["openai_compatible", "ollama"]:
-            kwargs["native_tools"] = config.supports_native_tools
-    
->       provider = adapter_cls(**kwargs)
-                   ^^^^^^^^^^^^^^^^^^^^^
-E       TypeError: OpenAIProvider.__init__() got an unexpected keyword argument 'observability'
-
-agent_cli\providers\manager.py:236: TypeError
-_______________ test_manager_returns_token_counters_by_provider _______________
-
-    def test_manager_returns_token_counters_by_provider():
-        settings = AgentSettings(
-            openai_api_key="sk-test",
-            anthropic_api_key="sk-ant",
-            google_api_key="AIzaSy",
-        )
-        settings.providers = {
-            "local_vllm": {
-                "adapter_type": "openai_compatible",
-                "base_url": "http://localhost:8000/v1",
-                "supports_native_tools": True,
-            }
-        }
-        manager = ProviderManager(settings)
-    
-        assert isinstance(manager.get_token_counter("gpt-4o"), TiktokenCounter)
-        assert isinstance(
-            manager.get_token_counter("azure/gpt-4o-deployment"), HeuristicTokenCounter
-        )
->       assert isinstance(
-            manager.get_token_counter("claude-3-5-sonnet-20241022"),
-            AnthropicTokenCounter,
-        )
-E       AssertionError: assert False
-E        +  where False = isinstance(<agent_cli.memory.token_counter.HeuristicTokenCounter object at 0x00000163786EF540>, AnthropicTokenCounter)
-E        +    where <agent_cli.memory.token_counter.HeuristicTokenCounter object at 0x00000163786EF540> = get_token_counter('claude-3-5-sonnet-20241022')
-E        +      where get_token_counter = <agent_cli.providers.manager.ProviderManager object at 0x00000163786EF3E0>.get_token_counter
-
-dev\tests\providers\test_manager.py:74: AssertionError
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:783 Adapter registry built with 6 types: anthropic, azure, google, ollama, openai, openai_compatible
+INFO     agent_cli.core.runtime.orchestrator.file_tracker:file_tracker.py:39 File tracking started at workspace: C:\Users\cuong\AppData\Local\Temp\pytest-of-cuong\pytest-283\test_session_title_event_updat0
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:819 Tool registry built with 8 tools: read_file, write_file, list_directory, search_files, str_replace, insert_lines, run_command, ask_user
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:972 Command registry built with 13 commands: agent, config, clear, context, cost, debug, effort, model, generate_title, sessions, exit, help, sandbox
+INFO     agent_cli.core.infra.registry.registry_base:registry_base.py:28 Registry 'adapter_types' frozen (6 adapter types: anthropic, azure, google, ollama, openai, openai_compatible).
+INFO     agent_cli.core.infra.registry.registry_base:registry_base.py:28 Registry 'tools' frozen (8 tools).
+INFO     agent_cli.core.infra.registry.registry_base:registry_base.py:28 Registry 'agents' frozen (4 agents: coder, default, researcher, reviewer).
+INFO     agent_cli.core.infra.registry.registry_base:registry_base.py:28 Registry 'commands' frozen (13 commands).
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:670 AppContext created with multi-agent registry (default=default, total=4).
+INFO     agent_cli.core.infra.registry.bootstrap:bootstrap.py:675 All registries frozen; bootstrap complete.
 =========================== short test summary info ===========================
-FAILED dev/tests/data/test_registry.py::test_tokenizer_encoding_lookup - Asse...
-FAILED dev/tests/data/test_registry.py::test_accessors_map_through_typed_model_entries
-FAILED dev/tests/core/test_bootstrap.py::test_create_app_returns_app_context
-FAILED dev/tests/core/test_bootstrap.py::test_create_app_accepts_custom_settings
-FAILED dev/tests/core/test_bootstrap.py::test_create_app_wires_protocol_mode_into_schema_validator
-FAILED dev/tests/core/test_bootstrap.py::test_create_app_applies_built_in_agent_overrides_from_settings
-FAILED dev/tests/core/test_bootstrap.py::test_create_app_registers_ask_user_tool
-FAILED dev/tests/core/test_bootstrap.py::test_builtin_agent_capabilities_include_web_search_for_default_and_researcher
-FAILED dev/tests/core/test_bootstrap.py::test_create_app_wires_configurable_workspace_policy
-FAILED dev/tests/core/test_bootstrap.py::test_startup_and_shutdown - Attribut...
-FAILED dev/tests/core/test_bootstrap.py::test_startup_does_not_create_session
-FAILED dev/tests/core/test_bootstrap.py::test_startup_is_idempotent - Attribu...
-FAILED dev/tests/core/test_bootstrap.py::test_shutdown_is_idempotent - Attrib...
-FAILED dev/tests/core/test_bootstrap.py::test_end_to_end_task_lifecycle - Att...
-FAILED dev/tests/core/test_bootstrap.py::test_end_to_end_with_parent_child_tasks
-FAILED dev/tests/core/test_bootstrap.py::test_event_bus_drains_on_shutdown - ...
-FAILED dev/tests/providers/test_manager.py::test_manager_caching_behavior - T...
-FAILED dev/tests/providers/test_manager.py::test_manager_returns_token_counters_by_provider
-======================== 18 failed, 61 passed in 2.96s ========================
+FAILED dev/tests/tui/test_app_command_wiring.py::test_app_mount_binds_interaction_handler_to_tool_executor
+FAILED dev/tests/tui/test_app_command_wiring.py::test_session_title_event_updates_header_and_app_title
+========================= 2 failed, 2 passed in 9.25s =========================

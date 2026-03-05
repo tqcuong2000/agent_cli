@@ -17,15 +17,7 @@ from agent_cli.core.ux.tui.views.body.messages.tool_step import ToolStepWidget
 class AgentResponseContainer(Container):
     """Container for a single agent turn (thinking, tools, final answer)."""
 
-    DEFAULT_CSS = """
-    AgentResponseContainer {
-        layout: vertical;
-        width: 100%;
-        height: auto;
-        padding: 0 2;
-        margin: 0;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)

@@ -8,31 +8,7 @@ from textual.widgets import Static
 class SystemMessageContainer(Container):
     """Container for command/system feedback shown in the conversation stream."""
 
-    DEFAULT_CSS = """
-    SystemMessageContainer {
-        layout: vertical;
-        width: 100%;
-        height: auto;
-        padding: 0 2;
-        margin: 1 0;
-    }
-
-    SystemMessageContainer .system_bubble {
-        width: 100%;
-        height: auto;
-        background: $panel 60%;
-        border-left: inner fuchsia;
-        padding: 1;
-    }
-
-    SystemMessageContainer .system_title {
-        width: 100%;
-        height: auto;
-        color: $warning;
-        text-style: bold;
-    }
-
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, message_text: str, **kwargs) -> None:
         super().__init__(**kwargs)

@@ -8,40 +8,7 @@ from agent_cli.core.ux.tui.views.common.kv_line import KVLine
 class ContextContainer(Container):
     """A container for the context window."""
 
-    DEFAULT_CSS = """
-    ContextContainer {
-        width: 1fr;
-        height: auto;
-        background: $panel 50%;
-        padding: 1;
-    }
-
-    ContextContainer #context_header {
-        height: auto;
-    }
-
-    ContextContainer .session_status {
-        color: $success;
-        text-style: bold;
-        width: auto;
-    }
-
-    ContextContainer .title {
-        color: $text;
-        text-style: bold;
-        width: auto;
-    }
-
-    ContextContainer .session_name {
-        color: $text-muted;
-        text-style: bold;
-        width: auto;
-    }
-
-    ContextContainer #context_content {
-        height: auto;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, **kwargs):
         if "id" not in kwargs:

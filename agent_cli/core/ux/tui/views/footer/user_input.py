@@ -21,26 +21,7 @@ class UserInputComponent(TextArea):
     - The popup intercepts ↑/↓/Tab/Enter/Esc while visible
     """
 
-    DEFAULT_CSS = """
-    UserInputComponent {
-        width: 1fr;
-        background: transparent;
-        min-height: 1;
-        color: $text;
-        border: none;
-        padding: 0 1;
-        overflow-y: hidden;
-    }
-
-    UserInputComponent:focus {
-        outline: none;
-        border: none;
-    }
-
-    UserInputComponent:disabled {
-        opacity: 0.5;
-    }
-    """
+    DEFAULT_CSS = ""
 
     class Submitted(Message):
         """Emitted when the user presses Enter."""

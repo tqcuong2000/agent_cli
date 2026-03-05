@@ -14,14 +14,7 @@ if TYPE_CHECKING:
 class PanelWindowContainer(Container):
     """Right-side panel container (context + changed files)."""
 
-    DEFAULT_CSS = """
-    PanelWindowContainer {
-        width: 1fr;
-        min-width: 30;
-        height: 100%;
-        border-left: solid $panel 50%;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, app_context: Optional["AppContext"] = None, **kwargs):
         if "id" not in kwargs:

@@ -59,12 +59,7 @@ class CommandPopup(BasePopupListView):
     Appears when the user types '/' in the input bar.
     """
 
-    DEFAULT_CSS = """
-    CommandPopup {
-        width: 56;
-        border: solid $primary-darken-2;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(
         self,

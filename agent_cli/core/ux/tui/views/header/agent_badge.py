@@ -4,18 +4,7 @@ from textual.widgets import Static
 class AgentBadgeComponent(Static):
     """Component to display the currently active agent."""
 
-    DEFAULT_CSS = """
-    AgentBadgeComponent {
-        height: 1;
-        content-align: center middle;
-        background: $primary;
-        color: $text;
-        text-style: bold;
-        width: auto;
-        padding: 0 1;
-        min-width: 12;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, label: str = "Main Agent", **kwargs):
         # Default to 'agent_badge' ID if not provided

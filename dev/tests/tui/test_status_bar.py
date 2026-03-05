@@ -9,7 +9,7 @@ from textual.widgets import Static
 
 from agent_cli.core.infra.events.event_bus import AsyncEventBus
 from agent_cli.core.infra.events.events import StateChangeEvent
-from agent_cli.core.ux.tui.views.header.status import StatusContainer
+from agent_cli.core.ux.tui.views.footer.status import StatusContainer
 
 
 class _StatusHostApp(App):

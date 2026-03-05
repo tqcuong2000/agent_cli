@@ -20,58 +20,7 @@ class DiffLine:
 class ChangedFileDetailBlock(Widget):
     """Changed-file detail preview rendered as plain Static rows (no Markdown)."""
 
-    DEFAULT_CSS = """
-    ChangedFileDetailBlock {
-        width: 100%;
-        height: auto;
-        margin: 1 0;
-        border: solid $panel;
-        background: $panel 20%;
-        padding: 1;
-        layout: vertical;
-    }
-
-    ChangedFileDetailBlock .changed_file_detail_title {
-        width: 100%;
-        height: auto;
-        text-style: bold;
-        color: $text;
-        margin-bottom: 1;
-    }
-
-    ChangedFileDetailBlock .changed_file_detail_summary {
-        width: 100%;
-        height: auto;
-        color: $text-muted;
-        margin-bottom: 1;
-    }
-
-    ChangedFileDetailBlock .changed_file_diff_container {
-        width: 100%;
-        height: auto;
-        layout: vertical;
-    }
-
-    ChangedFileDetailBlock .changed_file_diff_line {
-        width: 100%;
-        height: auto;
-        color: $text;
-        padding: 0 1;
-    }
-
-    ChangedFileDetailBlock .changed_file_diff_line.-added {
-        background: $success 18%;
-    }
-
-    ChangedFileDetailBlock .changed_file_diff_line.-removed {
-        background: $error 18%;
-    }
-
-    ChangedFileDetailBlock .changed_file_diff_line.-context {
-        background: transparent;
-        color: $text-muted;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(
         self,

@@ -13,20 +13,7 @@ class ToolStepWidget(Widget):
 
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-    DEFAULT_CSS = """
-    ToolStepWidget {
-        width: 100%;
-        height: auto;
-        padding: 1 0;
-        border: wide $panel;
-    }
-
-    ToolStepWidget .tool_step_label {
-        width: 100%;
-        height: auto;
-        color: $text-muted;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, tool_name: str, args: dict, **kwargs) -> None:
         super().__init__(**kwargs)

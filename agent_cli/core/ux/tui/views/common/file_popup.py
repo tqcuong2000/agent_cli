@@ -70,12 +70,7 @@ class FileDiscoveryPopup(BasePopupListView):
     Appears when the user types '@' in the input bar.
     """
 
-    DEFAULT_CSS = """
-    FileDiscoveryPopup {
-        width: 64;
-        border: solid $accent-darken-2;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(
         self,

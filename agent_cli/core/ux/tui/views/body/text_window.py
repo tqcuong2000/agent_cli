@@ -40,19 +40,7 @@ if TYPE_CHECKING:
 class TextWindowContainer(Container):
     """Event-driven container for chat message rendering."""
 
-    DEFAULT_CSS = """
-    TextWindowContainer {
-        width: 3fr;
-        height: 100%;
-        background: transparent;
-    }
-
-    TextWindowContainer #messages {
-        width: 100%;
-        height: 100%;
-        scrollbar-size: 0 0;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, app_context: Optional["AppContext"] = None, **kwargs):
         if "id" not in kwargs:

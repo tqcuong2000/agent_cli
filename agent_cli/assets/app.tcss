@@ -1,0 +1,795 @@
+/* --- app.py --- */
+#content {
+        height: 1fr;
+        padding: 1 2;
+        content-align: center middle;
+        text-align: center;
+    }
+
+
+/* --- title.py --- */
+TitleComponent {
+        height: auto;
+        content-align: left middle;
+        text-style: bold;
+        color: $text;
+        width: auto;
+        min-width: 15;
+    }
+
+
+/* --- terminal.py --- */
+TerminalComponent {
+        height: 1;
+        content-align: center middle;
+        background: $panel;
+        color: $text;
+        padding: 0 1;
+        width: auto;
+    }
+
+    TerminalComponent:hover {
+        background: $panel-lighten-1;
+        color: $text;
+    }
+
+
+/* --- agent_badge.py --- */
+AgentBadgeComponent {
+        height: 1;
+        content-align: center middle;
+        background: $primary;
+        color: $text;
+        text-style: bold;
+        width: auto;
+        padding: 0 1;
+        min-width: 12;
+    }
+
+
+/* --- header.py --- */
+HeaderContainer {
+        dock: top;
+        height: 3;
+        width: 100%;
+    }
+
+    HeaderContainer Horizontal {
+        width: 100%;
+        height: 100%;
+        align: left middle;
+        padding: 0 1;
+    }
+
+    HeaderContainer .spacer-left {
+        width: 1fr;
+    }
+
+    HeaderContainer .spacer-right {
+        width: 1;
+    }
+
+
+/* --- status.py --- */
+StatusContainer {
+        height: 1;
+        width: 100%;
+        background: $background;
+        color: $text;
+    }
+
+    StatusContainer Horizontal {
+        padding: 0 1;
+        width: 100%;
+        height: 100%;
+        align: left middle;
+    }
+
+    StatusContainer .spacer {
+        width: 1fr;
+    }
+
+    StatusContainer #shortcuts {
+        width: auto;
+        color: $panel-lighten-1;
+    }
+
+    StatusContainer .shortcut_key {
+        color: $text;
+        width: auto;
+    }
+
+    StatusContainer .shortcut_action {
+        color: $panel-lighten-2;
+        width: auto;
+    }
+
+    StatusContainer .shortcut_separator {
+        color: $panel-lighten-1;
+        width: auto;
+    }
+
+    StatusContainer .model {
+        color: $text;
+        width: auto;
+    }
+
+    StatusContainer .active_agent {
+        color: $accent;
+        width: auto;
+    }
+
+    StatusContainer .agent_indicator {
+        color: $accent;
+        width: auto;
+    }
+
+    StatusContainer .agent_state {
+        color: $text;
+        width: auto;
+    }
+
+    StatusContainer .-hidden {
+        display: none;
+    }
+
+
+/* --- footer.py --- */
+FooterContainer {
+        dock: bottom;
+        width: 100%;
+        height: auto;
+        background: transparent;
+        align: left bottom;
+    }
+
+    FooterContainer .input_container {
+        width: 100%;
+        height: auto;
+        border: solid #2a2f35;
+        min-height: 1;
+        align: left bottom;
+    }
+
+    FooterContainer #question_input_hint {
+        width: 100%;
+        height: 1;
+        color: $text-muted;
+        padding: 0 1;
+        margin: 0;
+    }
+
+    FooterContainer #question_input_hint.-hidden {
+        display: none;
+    }
+
+
+/* --- user_input.py --- */
+UserInputComponent {
+        width: 1fr;
+        background: transparent;
+        min-height: 1;
+        color: $text;
+        border: none;
+        padding: 0 1;
+        overflow-y: hidden;
+    }
+
+    UserInputComponent:focus {
+        outline: none;
+        border: none;
+    }
+
+    UserInputComponent:disabled {
+        opacity: 0.5;
+    }
+
+
+/* --- submit_btn.py --- */
+SubmitButtonComponent {
+        width: auto;
+        min-width: 12;
+        height: 1;
+        background: $primary;
+        color: $text;
+        border: none;
+        text-style: bold;
+        content-align: center middle;
+    }
+
+    SubmitButtonComponent:hover {
+        background: $accent;
+    }
+
+    SubmitButtonComponent.-active {
+        background: $accent-darken-1;
+    }
+
+    SubmitButtonComponent:disabled {
+        opacity: 0.5;
+        background: $surface;
+        color: $text-muted;
+    }
+
+
+/* --- user_interaction.py --- */
+UserInteraction {
+        width: 100%;
+        height: auto;
+        border: round $surface 0%;
+        padding: 0 1 0 1;
+        margin: 0;
+    }
+
+    UserInteraction.-hidden {
+        display: none;
+    }
+
+    UserInteraction .-hidden {
+        display: none;
+    }
+
+    /* Approval row (single-line compact) */
+    UserInteraction #ui_approval_row {
+        width: 100%;
+        height: 1;
+        align: left middle;
+    }
+
+    UserInteraction #ui_approval_title {
+        color: $warning;
+        width: auto;
+        height: 1;
+    }
+
+    UserInteraction #ui_approval_message {
+        width: 1fr;
+        height: 1;
+        color: $text;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    UserInteraction #ui_approval_actions {
+        width: auto;
+        align: right middle;
+        margin-left: 1;
+    }
+
+    UserInteraction .ui_action_approve {
+        width: auto;
+        height: 1;
+        color: $text;
+        text-style: bold;
+        background: $success;
+        padding: 0 1;
+    }
+
+    UserInteraction .ui_action_approve:hover {
+        background: $success-lighten-2;
+    }
+
+    UserInteraction .ui_action_deny {
+        width: auto;
+        height: 1;
+        color: $text;
+        text-style: bold;
+        margin-right: 1;
+        background: $error;
+        padding: 0 1;
+    }
+
+    UserInteraction .ui_action_deny:hover {
+        background: $error-lighten-2;
+    }
+
+    /* AgentQuestion panel (multi-line) */
+    UserInteraction #ui_question_panel {
+        width: 100%;
+        height: auto;
+    }
+
+    UserInteraction #ui_question_header {
+        width: 100%;
+        height: auto;
+
+    }
+
+    UserInteraction #ui_question_title {
+        width: auto;
+        height: auto;
+        color: $warning;
+        text-style: bold;
+    }
+
+    UserInteraction #ui_question_text {
+        width: auto;
+        height: auto;
+        color: $text;
+        margin: 0 0 1 0;
+    }
+
+    UserInteraction #ui_question_options {
+        width: 100%;
+        height: auto;
+    }
+
+    UserInteraction .ui_question_option {
+        width: 100%;
+        height: auto;
+        color: $text;
+        padding: 0 1;
+        border: round $panel-lighten-1;
+    }
+
+    UserInteraction .ui_question_option:hover {
+        border: round $success;
+    }
+
+    /* Changed-file review row (single-line compact) */
+    UserInteraction #ui_review_row {
+        width: 100%;
+        height: 1;
+        align: left middle;
+    }
+
+    UserInteraction #ui_review_title {
+        color: $warning;
+        width: auto;
+        height: 1;
+    }
+
+    UserInteraction #ui_review_message {
+        width: 1fr;
+        height: 1;
+        color: $text;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    UserInteraction #ui_review_actions {
+        width: auto;
+        align: right middle;
+        margin-left: 1;
+    }
+
+
+/* --- body.py --- */
+BodyContainer {
+        dock: none;
+        width: 100%;
+        height: 100%;
+        border: solid #2a2f35;
+    }
+
+
+/* --- text_window.py --- */
+TextWindowContainer {
+        width: 3fr;
+        height: 100%;
+        background: transparent;
+    }
+
+    TextWindowContainer #messages {
+        width: 100%;
+        height: 100%;
+        scrollbar-size: 0 0;
+    }
+
+
+/* --- panel_window.py --- */
+PanelWindowContainer {
+        width: 1fr;
+        min-width: 30;
+        height: 100%;
+        border-left: solid $panel 50%;
+    }
+
+
+/* --- user_message.py --- */
+UserMessageContainer {
+        layout: vertical;
+        width: 100%;
+        height: auto;
+        padding: 0 2;
+        margin: 2 0;
+    }
+
+    UserMessageContainer .message_bubble {
+        width: auto;
+        max-width: 90%;
+        background: $panel 80%;
+        border-left: inner $primary;
+        color: $text;
+        padding: 1 1;
+    }
+
+
+/* --- system_message.py --- */
+SystemMessageContainer {
+        layout: vertical;
+        width: 100%;
+        height: auto;
+        padding: 0 2;
+        margin: 1 0;
+    }
+
+    SystemMessageContainer .system_bubble {
+        width: 100%;
+        height: auto;
+        background: $panel 60%;
+        border-left: inner fuchsia;
+        padding: 1;
+    }
+
+    SystemMessageContainer .system_title {
+        width: 100%;
+        height: auto;
+        color: $warning;
+        text-style: bold;
+    }
+
+
+/* --- agent_response.py --- */
+AgentResponseContainer {
+        layout: vertical;
+        width: 100%;
+        height: auto;
+        padding: 0 2;
+        margin: 0;
+    }
+
+
+/* --- answer_block.py --- */
+AnswerBlock {
+        width: 100%;
+        height: auto;
+        margin: 1 0;
+        border-left: inner $accent;
+        background: $panel 40%;
+        padding: 1;
+    }
+
+    AnswerBlock Markdown {
+        width: 100%;
+        height: auto;
+    }
+
+
+/* --- thinking_block.py --- */
+ThinkingBlock {
+        layout: vertical;
+        width: 100%;
+        height: 1;
+        color: $text-muted;
+        margin: 1 0 0 0;
+        background: $panel 20%;
+    }
+
+    ThinkingBlock.-expanded {
+        height: auto;
+    }
+
+    ThinkingBlock .thinking_header {
+        width: 100%;
+        height: 1;
+        margin-left: 1;
+        color: $accent;
+    }
+
+    ThinkingBlock .thinking_content_container {
+        width: 100%;
+        height: auto;
+        min-height: 1;
+        max-height: 12;
+        padding: 1;
+        display: none;
+        overflow-y: auto;
+    }
+
+    ThinkingBlock.-expanded .thinking_content_container {
+        display: block;
+    }
+
+    ThinkingBlock .thinking_content {
+        width: 100%;
+        height: auto;
+        color: $text-muted 30%;
+    }
+
+
+/* --- tool_step.py --- */
+ToolStepWidget {
+        width: 100%;
+        height: auto;
+        padding: 1 0;
+        border: wide $panel;
+    }
+
+    ToolStepWidget .tool_step_label {
+        width: 100%;
+        height: auto;
+        color: $text-muted;
+    }
+
+
+/* --- changed_file_detail_block.py --- */
+ChangedFileDetailBlock {
+        width: 100%;
+        height: auto;
+        margin: 1 0;
+        border: solid $panel;
+        background: $panel 20%;
+        padding: 1;
+        layout: vertical;
+    }
+
+    ChangedFileDetailBlock .changed_file_detail_title {
+        width: 100%;
+        height: auto;
+        text-style: bold;
+        color: $text;
+        margin-bottom: 1;
+    }
+
+    ChangedFileDetailBlock .changed_file_detail_summary {
+        width: 100%;
+        height: auto;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    ChangedFileDetailBlock .changed_file_diff_container {
+        width: 100%;
+        height: auto;
+        layout: vertical;
+    }
+
+    ChangedFileDetailBlock .changed_file_diff_line {
+        width: 100%;
+        height: auto;
+        color: $text;
+        padding: 0 1;
+    }
+
+    ChangedFileDetailBlock .changed_file_diff_line.-added {
+        background: $success 18%;
+    }
+
+    ChangedFileDetailBlock .changed_file_diff_line.-removed {
+        background: $error 18%;
+    }
+
+    ChangedFileDetailBlock .changed_file_diff_line.-context {
+        background: transparent;
+        color: $text-muted;
+    }
+
+
+/* --- context_container.py --- */
+ContextContainer {
+        width: 1fr;
+        height: auto;
+        background: $panel 50%;
+        padding: 1;
+    }
+
+    ContextContainer #context_header {
+        height: auto;
+    }
+
+    ContextContainer .session_status {
+        color: $success;
+        text-style: bold;
+        width: auto;
+    }
+
+    ContextContainer .title {
+        color: $text;
+        text-style: bold;
+        width: auto;
+    }
+
+    ContextContainer .session_name {
+        color: $text-muted;
+        text-style: bold;
+        width: auto;
+    }
+
+    ContextContainer #context_content {
+        height: auto;
+    }
+
+
+/* --- changed_file.py --- */
+ChangedFileRow {
+        width: 100%;
+        height: auto;
+        padding: 0 1;
+        color: $text;
+    }
+
+    ChangedFileRow:hover {
+        background: $surface 40%;
+    }
+
+    ChangedFileRow.-selected {
+        background: $primary 25%;
+        text-style: bold;
+    }
+
+
+/* --- kv_line.py --- */
+KVLine {
+        height: auto;
+    }
+
+    KVLine .kv_key {
+        color: $text-muted;
+        width: auto;
+    }
+
+    KVLine .kv_seperator {
+        color: $text-muted;
+        width: auto;
+    }
+
+    KVLine .kv_value {
+        color: $text-muted;
+        width: auto;
+    }
+
+
+/* --- popup_list.py --- */
+BasePopupListView {
+        layer: overlay;
+        display: none;
+        dock: bottom;
+        width: 60;
+        height: auto;
+        max-height: 14;
+        background: $surface;
+        border: solid $primary;
+        padding: 0;
+        margin-left: 1;
+    }
+
+    BasePopupListView.visible {
+        display: block;
+    }
+
+
+/* --- command_popup.py --- */
+CommandPopup {
+        width: 56;
+        border: solid $primary-darken-2;
+    }
+
+
+/* --- file_popup.py --- */
+FileDiscoveryPopup {
+        width: 64;
+        border: solid $accent-darken-2;
+    }
+
+
+/* --- error_popup.py --- */
+ErrorPopup {
+        layer: overlay;
+        display: none;
+        dock: bottom;
+        align: right bottom;
+        width: 50;
+        height: auto;
+        max-height: 8;
+        background: $panel;
+        padding: 1;
+        border-left: inner $error;
+    }
+
+    ErrorPopup.visible {
+        display: block;
+    }
+
+
+/* --- session_overlay.py --- */
+SessionOverlay {
+        width: 100%;
+        height: 100%;
+        dock: bottom;
+        background: transparent;
+        align: center middle;
+        layer: overlay;
+        display: none;
+    }
+
+    SessionOverlay.visible {
+        display: block;
+    }
+
+    SessionOverlay .session-popup {
+        width: 70;
+        min-width: 40;
+        height: 24;
+        background: $panel 40%;
+        border: solid $panel;
+        padding: 1 2;
+    }
+
+    SessionOverlay .title-row {
+        layout: grid;
+        grid-size: 2 1;
+        grid-columns: 1fr auto;
+        height: 1;
+    }
+
+    SessionOverlay .session-area {
+        margin-top: 1;
+        height: 1fr;
+        overflow-y: auto;
+        scrollbar-size: 0 0;
+    }
+
+    SessionOverlay .session-row {
+        layout: grid;
+        grid-size: 2 1;
+        grid-columns: 1fr auto;
+        height: 3;
+        border: solid $panel;
+        padding: 0 1;
+    }
+
+    SessionOverlay .session-row:hover {
+        border: solid $primary;
+    }
+
+    SessionOverlay .session-row.selected {
+        border: solid $primary;
+        background: $boost;
+    }
+
+    SessionOverlay .title-left {
+        text-style: bold;
+        color: $primary;
+    }
+
+    SessionOverlay .title-right {
+        text-align: right;
+        color: $text-muted;
+    }
+
+    SessionOverlay .title-right:hover {
+        color: $warning;
+        text-style: bold;
+    }
+
+    SessionOverlay .session-time {
+        color: $text-muted;
+        text-align: right;
+    }
+
+    SessionOverlay .session-date {
+        color: $accent-lighten-1;
+    }
+
+    SessionOverlay .session-name {
+        color: $text;
+    }
+
+    SessionOverlay #session-rename-input {
+        margin-top: 1;
+        display: none;
+    }
+
+    SessionOverlay #session-rename-input.visible {
+        display: block;
+    }
+
+    SessionOverlay .footer-hint {
+        margin-top: 1;
+        color: $text-muted;
+    }
+
+    SessionOverlay .empty-state {
+        color: $text-muted;
+    }

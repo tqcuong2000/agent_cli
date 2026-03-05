@@ -8,21 +8,7 @@ from textual.widgets import Markdown
 class AnswerBlock(Widget):
     """Final assistant response rendered as Markdown."""
 
-    DEFAULT_CSS = """
-    AnswerBlock {
-        width: 100%;
-        height: auto;
-        margin: 1 0;
-        border-left: inner $accent;
-        background: $panel 40%;
-        padding: 1;
-    }
-
-    AnswerBlock Markdown {
-        width: 100%;
-        height: auto;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, content: str = "", **kwargs) -> None:
         super().__init__(**kwargs)

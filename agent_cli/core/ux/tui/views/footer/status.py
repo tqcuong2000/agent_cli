@@ -22,69 +22,7 @@ class StatusContainer(Container):
     automatically updates the corresponding ``Static`` widget.
     """
 
-    DEFAULT_CSS = """
-    StatusContainer {
-        height: 1;
-        width: 100%;
-        background: $background;
-        color: $text;
-    }
-
-    StatusContainer Horizontal {
-        padding: 0 1;
-        width: 100%;
-        height: 100%;
-        align: left middle;
-    }
-
-    StatusContainer .spacer {
-        width: 1fr;
-    }
-
-    StatusContainer #shortcuts {
-        width: auto;
-        color: $panel-lighten-1;
-    }
-
-    StatusContainer .shortcut_key {
-        color: $text;
-        width: auto;
-    }
-
-    StatusContainer .shortcut_action {
-        color: $panel-lighten-2;
-        width: auto;
-    }
-
-    StatusContainer .shortcut_separator {
-        color: $panel-lighten-1;
-        width: auto;
-    }
-
-    StatusContainer .model {
-        color: $text;
-        width: auto;
-    }
-
-    StatusContainer .active_agent {
-        color: $accent;
-        width: auto;
-    }
-
-    StatusContainer .agent_indicator {
-        color: $accent;
-        width: auto;
-    }
-
-    StatusContainer .agent_state {
-        color: $text;
-        width: auto;
-    }
-
-    StatusContainer .-hidden {
-        display: none;
-    }
-    """
+    DEFAULT_CSS = ""
 
     # ── Reactive state ───────────────────────────────────────────
 
@@ -92,6 +30,7 @@ class StatusContainer(Container):
     model: reactive[str] = reactive("gemini-3.1-pro-preview")
     agent_state: reactive[str] = reactive("Idle")
     agent_indicator: reactive[str] = reactive(".")
+    
 
     SPINNER_FRAMES = ["|", "/", "-", "\\"]
 
@@ -110,12 +49,14 @@ class StatusContainer(Container):
             yield Static(
                 self.agent_indicator, id="agent_indicator", classes="agent_indicator"
             )
-            yield Static(" ", id="agent_sep_1", classes="shortcut_separator")
+            yield Static(" ", classes="shortcut_separator")
             yield Static(self.active_agent, id="active_agent", classes="active_agent")
             yield Static(" ● ", classes="shortcut_separator")
             yield Static(self.model, id="model", classes="model")
-            yield Static(" ● ", id="agent_sep_2", classes="shortcut_separator")
+            yield Static(" ● ", classes="shortcut_separator")
             yield Static(self.agent_state, id="agent_state", classes="agent_state")
+            yield Static(" ● ", classes="shortcut_separator")
+            yield Static(id="effort_values", classes="effort_values")
             yield Static(" ", id="spacer", classes="spacer")
             yield Static("tab ", classes="shortcut_key")
             yield Static("agent", classes="shortcut_action")

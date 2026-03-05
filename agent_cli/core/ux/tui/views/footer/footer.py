@@ -17,41 +17,13 @@ from agent_cli.core.infra.events.events import (
 from agent_cli.core.ux.tui.views.footer.submit_btn import SubmitButtonComponent
 from agent_cli.core.ux.tui.views.footer.user_input import UserInputComponent
 from agent_cli.core.ux.tui.views.footer.user_interaction import UserInteraction
-from agent_cli.core.ux.tui.views.header.status import StatusContainer
+from agent_cli.core.ux.tui.views.footer.status import StatusContainer
 
 
 class FooterContainer(Container):
     """The footer container holding the terminal input area and status bar."""
 
-    DEFAULT_CSS = """
-    FooterContainer {
-        dock: bottom;
-        width: 100%;
-        height: auto;
-        background: transparent;
-        align: left bottom;
-    }
-
-    FooterContainer .input_container {
-        width: 100%;
-        height: auto;
-        border: solid #2a2f35;
-        min-height: 1;
-        align: left bottom;
-    }
-
-    FooterContainer #question_input_hint {
-        width: 100%;
-        height: 1;
-        color: $text-muted;
-        padding: 0 1;
-        margin: 0;
-    }
-
-    FooterContainer #question_input_hint.-hidden {
-        display: none;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, **kwargs):
         if "id" not in kwargs:
