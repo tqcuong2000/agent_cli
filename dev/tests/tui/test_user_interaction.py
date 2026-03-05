@@ -7,16 +7,16 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.events.events import (
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.events.events import (
     AgentQuestionRequestEvent,
     AgentQuestionResponseEvent,
     UserApprovalRequestEvent,
     UserApprovalResponseEvent,
 )
-from agent_cli.ux.tui.views.footer.footer import FooterContainer
-from agent_cli.ux.tui.views.footer.user_input import UserInputComponent
-from agent_cli.ux.tui.views.footer.user_interaction import UserInteraction
+from agent_cli.core.ux.tui.views.footer.footer import FooterContainer
+from agent_cli.core.ux.tui.views.footer.user_input import UserInputComponent
+from agent_cli.core.ux.tui.views.footer.user_interaction import UserInteraction
 
 
 class _FooterHostApp(App):

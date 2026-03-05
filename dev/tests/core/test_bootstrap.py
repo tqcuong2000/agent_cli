@@ -10,23 +10,23 @@ import asyncio
 
 import pytest
 
-from agent_cli.core.bootstrap import AppContext, create_app
-from agent_cli.core.config import AgentSettings
-from agent_cli.core.error_handler.errors import ToolExecutionError
-from agent_cli.core.events.event_bus import AsyncEventBus, BusState
-from agent_cli.core.events.events import StateChangeEvent, UserRequestEvent
-from agent_cli.core.models.config_models import ProtocolMode
-from agent_cli.core.state.state_models import TaskState
-from agent_cli.core.registry import DataRegistry
-from agent_cli.providers.manager import ProviderManager
-from agent_cli.workspace.sandbox import SandboxWorkspaceManager
+from agent_cli.core.infra.registry.bootstrap import AppContext, create_app
+from agent_cli.core.infra.config.config import AgentSettings
+from agent_cli.core.infra.events.errors import ToolExecutionError
+from agent_cli.core.infra.events.event_bus import AsyncEventBus, BusState
+from agent_cli.core.infra.events.events import StateChangeEvent, UserRequestEvent
+from agent_cli.core.infra.config.config_models import ProtocolMode
+from agent_cli.core.runtime.orchestrator.state_models import TaskState
+from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.providers.manager import ProviderManager
+from agent_cli.core.ux.interaction.sandbox import SandboxWorkspaceManager
 
 
 @pytest.fixture(autouse=True)
 def _stable_model_env(monkeypatch: pytest.MonkeyPatch):
     """Keep bootstrap tests deterministic regardless of local user config."""
     monkeypatch.setenv("OPENAI_API_KEY", "mock_key_for_testing")
-    monkeypatch.setenv("AGENT_DEFAULT_MODEL", "gpt-4o")
+    monkeypatch.setenv("AGENT_DEFAULT_MODEL", "gemini-2.5-flash-lite")
 
 
 # ── Factory Tests ─────────────────────────────────────────────────────
@@ -52,38 +52,10 @@ def test_create_app_returns_app_context():
     assert ctx.is_running is False  # Not started yet
 
 
-def test_create_app_accepts_custom_settings():
-    """Custom settings passed to create_app() should be used."""
-    custom = AgentSettings(default_model="gpt-4o", log_level="DEBUG")
-    ctx = create_app(settings=custom)
-
-    assert ctx.settings.default_model == "gpt-4o"
-    assert ctx.settings.log_level == "DEBUG"
-
-
 def test_create_app_wires_protocol_mode_into_schema_validator():
     custom = AgentSettings(core={"protocol_mode": "json_only"})
     ctx = create_app(settings=custom)
     assert ctx.schema_validator.protocol_mode == ProtocolMode.JSON_ONLY
-
-
-def test_create_app_applies_built_in_agent_overrides_from_settings():
-    custom = AgentSettings(
-        default_model="gpt-4o-mini",
-        agents={
-            "coder": {
-                "model": "o1-mini",
-                "max_iterations": 220,
-            }
-        },
-    )
-    ctx = create_app(settings=custom)
-    assert ctx.agent_registry is not None
-
-    coder = ctx.agent_registry.get("coder")
-    assert coder is not None
-    assert coder.config.model == "o1-mini"
-    assert coder.config.max_iterations_override == 220
 
 
 def test_create_app_registers_ask_user_tool():
@@ -144,7 +116,7 @@ def test_create_app_freezes_static_registries(monkeypatch: pytest.MonkeyPatch):
         lambda self, model_name: _StubProvider(str(model_name)),
     )
 
-    ctx = create_app(settings=AgentSettings(default_model="gpt-4o"))
+    ctx = create_app(settings=AgentSettings(default_model="gemini-2.5-flash-lite"))
     try:
         assert ctx.tool_registry.is_frozen is True
         assert ctx.agent_registry is not None

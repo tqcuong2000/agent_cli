@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_cli.core.error_handler.errors import ToolExecutionError
-from agent_cli.tools.file_tools import (
+from agent_cli.core.infra.events.errors import ToolExecutionError
+from agent_cli.core.runtime.tools.file_tools import (
     InsertLinesTool,
     ListDirectoryTool,
     ReadFileTool,
@@ -11,7 +11,7 @@ from agent_cli.tools.file_tools import (
     StrReplaceTool,
     WriteFileTool,
 )
-from agent_cli.tools.workspace import WorkspaceContext
+from agent_cli.core.runtime.tools.workspace import WorkspaceContext
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@
 import pytest
 from pydantic import BaseModel, Field, ValidationError
 
-from agent_cli.tools.base import BaseTool, ToolCategory, ToolResult
+from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory, ToolResult
 
 
 class DummyArgs(BaseModel):

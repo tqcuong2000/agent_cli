@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_cli.core.registry import DataRegistry
-from agent_cli.providers.models import ProviderRequestOptions, ToolCallMode
-from agent_cli.providers.provider.anthropic_provider import AnthropicProvider
+from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.providers.base.models import ProviderRequestOptions, ToolCallMode
+from agent_cli.core.providers.adapters.anthropic_provider import AnthropicProvider
 
 
 def get_mocked_anthropic():

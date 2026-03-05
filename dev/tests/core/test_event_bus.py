@@ -19,8 +19,8 @@ import asyncio
 
 import pytest
 
-from agent_cli.core.events.event_bus import AsyncEventBus, BusState
-from agent_cli.core.events.events import (
+from agent_cli.core.infra.events.event_bus import AsyncEventBus, BusState
+from agent_cli.core.infra.events.events import (
     AgentMessageEvent,
     BaseEvent,
     StateChangeEvent,
@@ -175,7 +175,7 @@ async def test_system_error_event_does_not_recurse():
     bus.subscribe("SystemErrorEvent", failing_error_handler)
 
     # Manually invoke _safe_invoke with a SystemErrorEvent
-    from agent_cli.core.events.event_bus import _Subscription
+    from agent_cli.core.infra.events.event_bus import _Subscription
 
     sub = _Subscription(
         id="test-sub",

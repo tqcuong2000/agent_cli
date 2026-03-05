@@ -7,13 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_cli.commands.base import CommandContext
-from agent_cli.commands.parser import CommandParser
-from agent_cli.core.bootstrap import _build_command_registry
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.state.state_manager import TaskStateManager
-from agent_cli.workspace.sandbox import SandboxWorkspaceManager
-from agent_cli.workspace.strict import StrictWorkspaceManager
+from agent_cli.core.ux.commands.base import CommandContext
+from agent_cli.core.ux.commands.parser import CommandParser
+from agent_cli.core.infra.registry.bootstrap import _build_command_registry
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.runtime.orchestrator.state_manager import TaskStateManager
+from agent_cli.core.ux.interaction.sandbox import SandboxWorkspaceManager
+from agent_cli.core.ux.interaction.strict import StrictWorkspaceManager
 
 
 class _MockSettings:

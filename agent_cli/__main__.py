@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 
-from agent_cli.ux.tui.app import AgentCLIApp
+from agent_cli.core.ux.tui.app import AgentCLIApp
 
 logger = logging.getLogger(__name__)
 

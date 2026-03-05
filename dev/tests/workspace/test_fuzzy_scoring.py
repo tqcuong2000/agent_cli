@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from agent_cli.ux.tui.views.common.file_popup import FileDiscoveryPopup
-from agent_cli.ux.tui.views.common.popup_list import PopupItem
+from agent_cli.core.ux.tui.views.common.file_popup import FileDiscoveryPopup
+from agent_cli.core.ux.tui.views.common.popup_list import PopupItem
 
 
 class _StubIndexer:

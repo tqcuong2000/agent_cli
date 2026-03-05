@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.events.events import FileChangedEvent
-from agent_cli.workspace.file_index import FileIndexer
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.events.events import FileChangedEvent
+from agent_cli.core.ux.interaction.file_index import FileIndexer
 
 
 def test_file_indexer_respects_gitignore_and_writes_cache(tmp_path: Path):

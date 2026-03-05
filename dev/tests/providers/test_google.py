@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_cli.providers.models import ProviderRequestOptions, ToolCallMode
-from agent_cli.providers.provider.google_provider import GoogleProvider
+from agent_cli.core.providers.base.models import ProviderRequestOptions, ToolCallMode
+from agent_cli.core.providers.adapters.google_provider import GoogleProvider
 
 
 def get_mocked_google():

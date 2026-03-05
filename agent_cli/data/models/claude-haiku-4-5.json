@@ -13,11 +13,9 @@
       "supported": true
     },
     "effort": {
-      "supported": true,
+      "supported": false,
       "levels": [
-        "low",
-        "medium",
-        "high"
+        "auto"
       ]
     },
     "web_search": {

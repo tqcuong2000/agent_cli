@@ -6,27 +6,27 @@ from typing import Any, Dict, List, Optional
 import pytest
 from pydantic import BaseModel
 
-from agent_cli.agent.base import AgentConfig, BaseAgent
-from agent_cli.agent.default import DefaultAgent
-from agent_cli.agent.memory import WorkingMemoryManager
-from agent_cli.agent.react_loop import PromptBuilder
-from agent_cli.agent.schema import SchemaValidator
-from agent_cli.core.error_handler.errors import MaxIterationsExceededError
-from agent_cli.core.events.event_bus import AbstractEventBus, AsyncEventBus
-from agent_cli.core.state.state_manager import TaskState, TaskStateManager
-from agent_cli.core.registry import DataRegistry
-from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
-from agent_cli.providers.models import (
+from agent_cli.core.runtime.agents.base import AgentConfig, BaseAgent
+from agent_cli.core.runtime.agents.default import DefaultAgent
+from agent_cli.core.runtime.agents.memory import WorkingMemoryManager
+from agent_cli.core.runtime.agents.react_loop import PromptBuilder
+from agent_cli.core.runtime.agents.schema import SchemaValidator
+from agent_cli.core.infra.events.errors import MaxIterationsExceededError
+from agent_cli.core.infra.events.event_bus import AbstractEventBus, AsyncEventBus
+from agent_cli.core.runtime.orchestrator.state_manager import TaskState, TaskStateManager
+from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.providers.base.base import BaseLLMProvider, BaseToolFormatter
+from agent_cli.core.providers.base.models import (
     LLMResponse,
     ProviderRequestOptions,
     ToolCall,
     ToolCallMode,
 )
-from agent_cli.tools.ask_user_tool import AskUserTool
-from agent_cli.tools.base import BaseTool, ToolCategory
-from agent_cli.tools.executor import ToolExecutor
-from agent_cli.tools.output_formatter import ToolOutputFormatter
-from agent_cli.tools.registry import ToolRegistry
+from agent_cli.core.runtime.tools.ask_user_tool import AskUserTool
+from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
+from agent_cli.core.runtime.tools.executor import ToolExecutor
+from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
+from agent_cli.core.runtime.tools.registry import ToolRegistry
 
 # ── Mocks ────────────────────────────────────────────────────────────
 
@@ -218,7 +218,7 @@ def base_deps():
     memory_manager = WorkingMemoryManager()
     prompt_builder = PromptBuilder(registry)
 
-    from agent_cli.core.config import AgentSettings
+    from agent_cli.core.infra.config.config import AgentSettings
 
     settings = AgentSettings()
     settings.max_iterations = 100

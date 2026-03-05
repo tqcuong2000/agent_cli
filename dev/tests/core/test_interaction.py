@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_cli.core.interaction import (
+from agent_cli.core.ux.interaction.interaction import (
     BaseInteractionHandler,
     InteractionType,
     UserInteractionRequest,

@@ -7,9 +7,9 @@ from typing import Any, Dict, List, Sequence
 
 import pytest
 
-from agent_cli.memory.budget import TokenBudget
-from agent_cli.memory.summarizer import SummarizingMemoryManager
-from agent_cli.memory.token_counter import BaseTokenCounter
+from agent_cli.core.providers.cost.budget import TokenBudget
+from agent_cli.core.providers.cost.summarizer import SummarizingMemoryManager
+from agent_cli.core.providers.cost.token_counter import BaseTokenCounter
 
 
 class SimpleCounter(BaseTokenCounter):

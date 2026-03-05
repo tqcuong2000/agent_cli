@@ -3,14 +3,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agent_cli.core.error_handler.errors import ToolExecutionError
-from agent_cli.core.interaction import (
+from agent_cli.core.infra.events.errors import ToolExecutionError
+from agent_cli.core.ux.interaction.interaction import (
     BaseInteractionHandler,
     InteractionType,
     UserInteractionRequest,
     UserInteractionResponse,
 )
-from agent_cli.tools.ask_user_tool import AskUserTool
+from agent_cli.core.runtime.tools.ask_user_tool import AskUserTool
 
 
 class _MockInteractionHandler(BaseInteractionHandler):

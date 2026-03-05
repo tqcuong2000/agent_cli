@@ -1,6 +1,6 @@
 """Tests for JSON protocol models introduced in Phase 1."""
 
-from agent_cli.agent.protocol import (
+from agent_cli.core.runtime.agents.protocol import (
     AgentPromptResponse,
     CompletionPayload,
     DecisionPayload,

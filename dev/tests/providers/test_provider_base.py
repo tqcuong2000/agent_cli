@@ -12,16 +12,16 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import pytest
 
-from agent_cli.core.error_handler.errors import (
+from agent_cli.core.infra.events.errors import (
     AuthenticationError,
     ContextLengthExceededError,
     LLMOverloadError,
     LLMRateLimitError,
     LLMTransientError,
 )
-from agent_cli.core.models.config_models import EffortLevel
-from agent_cli.providers.base import BaseLLMProvider, BaseToolFormatter
-from agent_cli.providers.models import (
+from agent_cli.core.infra.config.config_models import EffortLevel
+from agent_cli.core.providers.base.base import BaseLLMProvider, BaseToolFormatter
+from agent_cli.core.providers.base.models import (
     LLMRequest,
     LLMResponse,
     Message,

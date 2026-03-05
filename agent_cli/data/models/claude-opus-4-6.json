@@ -17,7 +17,8 @@
             "levels": [
                 "low",
                 "medium",
-                "high"
+                "high",
+                "max"
             ]
         },
         "web_search": {

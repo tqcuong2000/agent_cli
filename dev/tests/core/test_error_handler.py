@@ -13,7 +13,7 @@ Tests cover:
 import asyncio
 import pytest
 
-from agent_cli.core.error_handler.errors import (
+from agent_cli.core.infra.events.errors import (
     ErrorTier,
     LLMTransientError,
     LLMRateLimitError,
@@ -21,9 +21,9 @@ from agent_cli.core.error_handler.errors import (
     SchemaValidationError,
     ToolExecutionError,
 )
-from agent_cli.core.error_handler.retry import retry_with_backoff, ErrorRecoveryStrategy
-from agent_cli.core.events.events import RetryAttemptEvent, TaskErrorEvent
-from agent_cli.core.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.events.retry import retry_with_backoff, ErrorRecoveryStrategy
+from agent_cli.core.infra.events.events import RetryAttemptEvent, TaskErrorEvent
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
 
 
 # ── Error Taxonomy Tests ──────────────────────────────────────────────

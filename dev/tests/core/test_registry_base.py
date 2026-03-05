@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from agent_cli.core.registry_base import RegistryLifecycleMixin
+from agent_cli.core.infra.registry.registry_base import RegistryLifecycleMixin
 
 
 class _TestRegistry(RegistryLifecycleMixin):
     def __init__(self) -> None:
-        self._registry_name = "test"
+        super().__init__(registry_name="test")
         self.items: list[str] = []
 
     def add(self, value: str) -> None:
@@ -17,7 +17,7 @@ class _TestRegistry(RegistryLifecycleMixin):
 
 class _ValidatedRegistry(RegistryLifecycleMixin):
     def __init__(self, *, should_fail: bool = False) -> None:
-        self._registry_name = "validated"
+        super().__init__(registry_name="validated")
         self.should_fail = should_fail
         self.validate_calls = 0
 
@@ -63,3 +63,14 @@ def test_validate_failure_prevents_freeze() -> None:
 
     assert registry.validate_calls == 1
     assert registry.is_frozen is False
+
+
+def test_freeze_state_is_isolated_per_instance() -> None:
+    first = _TestRegistry()
+    second = _TestRegistry()
+
+    first.freeze()
+
+    assert first.is_frozen is True
+    assert second.is_frozen is False
+    second.add("still mutable")

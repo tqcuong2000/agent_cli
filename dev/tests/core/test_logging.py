@@ -1,8 +1,8 @@
 import json
 import logging
 
-from agent_cli.core.config import AgentSettings
-from agent_cli.core.logging import (
+from agent_cli.core.infra.config.config import AgentSettings
+from agent_cli.core.infra.logging.logging import (
     JSONLineFormatter,
     configure_observability,
     sanitize_log_line,

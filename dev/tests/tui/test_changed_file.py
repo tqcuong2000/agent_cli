@@ -8,26 +8,26 @@ from textual.app import App, ComposeResult
 from textual.widgets import Static
 
 if TYPE_CHECKING:
-    from agent_cli.core.bootstrap import AppContext
+    from agent_cli.core.infra.registry.bootstrap import AppContext
 
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.events.events import (
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.events.events import (
     ChangedFileDetailEvent,
     ChangedFileReviewActionEvent,
     ChangedFileSelectedEvent,
     FileChangedEvent,
 )
-from agent_cli.core.file_tracker import ChangeType, FileChangeTracker
-from agent_cli.ux.tui.views.body.messages.changed_file_detail_block import (
+from agent_cli.core.runtime.orchestrator.file_tracker import ChangeType, FileChangeTracker
+from agent_cli.core.ux.tui.views.body.messages.changed_file_detail_block import (
     ChangedFileDetailBlock,
 )
-from agent_cli.ux.tui.views.body.panel.changed_file import (
+from agent_cli.core.ux.tui.views.body.panel.changed_file import (
     ChangedFileRow,
     ChangedFilesPanel,
 )
-from agent_cli.ux.tui.views.body.text_window import TextWindowContainer
-from agent_cli.ux.tui.views.common.error_popup import ErrorPopup
-from agent_cli.ux.tui.views.footer.footer import FooterContainer
+from agent_cli.core.ux.tui.views.body.text_window import TextWindowContainer
+from agent_cli.core.ux.tui.views.common.error_popup import ErrorPopup
+from agent_cli.core.ux.tui.views.footer.footer import FooterContainer
 
 
 class _PanelHostApp(App):

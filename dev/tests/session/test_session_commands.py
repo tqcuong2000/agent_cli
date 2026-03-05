@@ -8,16 +8,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_cli.agent.memory import WorkingMemoryManager
-from agent_cli.commands.base import CommandContext
-from agent_cli.commands.parser import CommandParser
-from agent_cli.core.bootstrap import AppContext, _build_command_registry
-from agent_cli.core.config import AgentSettings
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.events.events import SettingsChangedEvent, TaskResultEvent
-from agent_cli.core.state.state_manager import TaskStateManager
-from agent_cli.core.registry import DataRegistry
-from agent_cli.session.file_store import FileSessionManager
+from agent_cli.core.runtime.agents.memory import WorkingMemoryManager
+from agent_cli.core.ux.commands.base import CommandContext
+from agent_cli.core.ux.commands.parser import CommandParser
+from agent_cli.core.infra.registry.bootstrap import AppContext, _build_command_registry
+from agent_cli.core.infra.config.config import AgentSettings
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.events.events import SettingsChangedEvent, TaskResultEvent
+from agent_cli.core.runtime.orchestrator.state_manager import TaskStateManager
+from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.runtime.session.file_store import FileSessionManager
 
 
 class _DummyToolRegistry:

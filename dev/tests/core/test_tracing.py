@@ -1,4 +1,4 @@
-from agent_cli.core.tracing import bind_trace, get_trace_fields, start_span
+from agent_cli.core.infra.logging.tracing import bind_trace, get_trace_fields, start_span
 
 
 def test_bind_trace_and_span_lifecycle():

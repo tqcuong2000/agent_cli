@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_cli.core.config import AgentSettings
-from agent_cli.core.error_handler.errors import ToolExecutionError
-from agent_cli.workspace.strict import StrictWorkspaceManager
+from agent_cli.core.infra.config.config import AgentSettings
+from agent_cli.core.infra.events.errors import ToolExecutionError
+from agent_cli.core.ux.interaction.strict import StrictWorkspaceManager
 
 
 def test_strict_workspace_blocks_path_traversal(tmp_path: Path):

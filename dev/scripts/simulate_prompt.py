@@ -15,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agent_cli.core.bootstrap import create_app
+from agent_cli.core.infra.registry.bootstrap import create_app
 
 
 def _parse_args() -> argparse.Namespace:

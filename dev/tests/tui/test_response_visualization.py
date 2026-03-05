@@ -6,21 +6,21 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Markdown, Static
 
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.events.events import (
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.events.events import (
     AgentMessageEvent,
     TaskResultEvent,
     ToolExecutionResultEvent,
     ToolExecutionStartEvent,
     UserRequestEvent,
 )
-from agent_cli.ux.tui.views.body.messages.agent_response import AgentResponseContainer
-from agent_cli.ux.tui.views.body.messages.answer_block import AnswerBlock
-from agent_cli.ux.tui.views.body.messages.system_message import SystemMessageContainer
-from agent_cli.ux.tui.views.body.messages.thinking_block import ThinkingBlock
-from agent_cli.ux.tui.views.body.messages.tool_step import ToolStepWidget
-from agent_cli.ux.tui.views.body.text_window import TextWindowContainer
-from agent_cli.ux.tui.views.common.error_popup import ErrorPopup
+from agent_cli.core.ux.tui.views.body.messages.agent_response import AgentResponseContainer
+from agent_cli.core.ux.tui.views.body.messages.answer_block import AnswerBlock
+from agent_cli.core.ux.tui.views.body.messages.system_message import SystemMessageContainer
+from agent_cli.core.ux.tui.views.body.messages.thinking_block import ThinkingBlock
+from agent_cli.core.ux.tui.views.body.messages.tool_step import ToolStepWidget
+from agent_cli.core.ux.tui.views.body.text_window import TextWindowContainer
+from agent_cli.core.ux.tui.views.common.error_popup import ErrorPopup
 
 
 class _HostApp(App):

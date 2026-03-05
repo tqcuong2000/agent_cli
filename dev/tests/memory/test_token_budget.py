@@ -6,13 +6,13 @@ from typing import Any, Dict, Sequence
 
 import pytest
 
-from agent_cli.agent.memory import WorkingMemoryManager
-from agent_cli.memory.budget import (
+from agent_cli.core.runtime.agents.memory import WorkingMemoryManager
+from agent_cli.core.providers.cost.budget import (
     TokenBudget,
     budget_for_model,
     infer_model_max_context,
 )
-from agent_cli.memory.token_counter import BaseTokenCounter
+from agent_cli.core.providers.cost.token_counter import BaseTokenCounter
 
 
 class SimpleCounter(BaseTokenCounter):

@@ -4,15 +4,15 @@ from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
-from agent_cli.core.config import AgentSettings
-from agent_cli.memory.token_counter import (
+from agent_cli.core.infra.config.config import AgentSettings
+from agent_cli.core.providers.cost.token_counter import (
     AnthropicTokenCounter,
     GeminiTokenCounter,
     HeuristicTokenCounter,
     TiktokenCounter,
 )
-import agent_cli.providers.manager as manager_module
-from agent_cli.providers.manager import ADAPTER_TYPES, ProviderManager
+import agent_cli.core.providers.manager as manager_module
+from agent_cli.core.providers.manager import ADAPTER_TYPES, ProviderManager
 
 
 def test_manager_rejects_unknown_models_without_inference() -> None:

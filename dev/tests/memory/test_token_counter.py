@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
-from agent_cli.memory.token_counter import (
+from agent_cli.core.providers.cost.token_counter import (
     AnthropicTokenCounter,
     BaseTokenCounter,
     GeminiTokenCounter,

@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_cli.core.events.events import SettingsChangedEvent
-from agent_cli.ux.tui.app import AgentCLIApp
-from agent_cli.ux.tui.views.header.title import TitleComponent
+from agent_cli.core.infra.events.events import SettingsChangedEvent
+from agent_cli.core.ux.tui.app import AgentCLIApp
+from agent_cli.core.ux.tui.views.header.title import TitleComponent
 
 
 @pytest.fixture(autouse=True)

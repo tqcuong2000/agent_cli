@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_cli.providers.models import ToolCallMode
-from agent_cli.providers.provider.openai_compat import OpenAICompatibleProvider
+from agent_cli.core.providers.base.models import ToolCallMode
+from agent_cli.core.providers.adapters.openai_compat import OpenAICompatibleProvider
 
 
 def get_mocked_compat(native_tools=False):

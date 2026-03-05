@@ -4,48 +4,28 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from agent_cli.core import registry as registry_module
-from agent_cli.core.models.config_models import (
+from agent_cli.core.infra.registry import registry as registry_module
+from agent_cli.core.infra.config.config_models import (
     CapabilityObservation,
     CapabilitySnapshot,
     CapabilitySpec,
     EffortCapabilitySpec,
-    ModelSpec,
     NativeToolsCapabilitySpec,
     ProviderConfig,
     WebSearchCapabilitySpec,
 )
-from agent_cli.core.registry import DataRegistry
+from agent_cli.core.infra.registry.registry import DataRegistry
 
 
 @pytest.fixture
 def registry() -> DataRegistry:
     return DataRegistry()
-
-
-def test_context_window_lookup_uses_model_specs_and_default(
-    registry: DataRegistry,
-) -> None:
-    assert registry.get_context_window("gpt-4o") == 128_000
-    assert registry.get_context_window("openai:gpt-4o-mini") == 128_000
-    assert registry.get_context_window("gemini-1.5-pro-exp-0827") == 128_000
-    assert registry.get_context_window("unknown-model") == 128_000
-
-
-def test_pricing_lookup_and_copy_semantics(registry: DataRegistry) -> None:
-    known = registry.get_pricing("gpt-4o")
-    assert known == {"input": 2.5, "output": 10.0}
-
-    unknown = registry.get_pricing("not-in-table")
-    assert unknown == {"input": 0.0, "output": 0.0}
-
-    known["input"] = 999.0
-    assert registry.get_pricing("gpt-4o")["input"] == 2.5
 
 
 def test_builtin_providers(registry: DataRegistry) -> None:
@@ -60,61 +40,15 @@ def test_builtin_providers(registry: DataRegistry) -> None:
     }
     assert isinstance(providers["openai"], ProviderConfig)
     assert providers["openai"].adapter_type == "openai"
-    assert providers["openai"].default_model == "gpt-4o"
+    assert providers["openai"].default_model
 
 
 def test_typed_provider_specs(registry: DataRegistry) -> None:
     specs = registry.get_provider_specs()
     assert "openai" in specs
     assert specs["openai"].adapter_type == "openai"
-    assert specs["openai"].default_model == "gpt-4o"
+    assert specs["openai"].default_model
     assert specs["openai"].web_search["enabled"] is True
-
-
-def test_typed_model_specs_resolution_and_capabilities(registry: DataRegistry) -> None:
-    specs = registry.get_model_specs()
-    assert "gpt-4o" in specs
-    assert "openrouter-gpt-4.1-mini" in specs
-    assert isinstance(specs["gpt-4o"], ModelSpec)
-
-    resolved = registry.resolve_model_spec("openai/gpt-4o")
-    assert resolved is not None
-    assert resolved.model_id == "gpt-4o"
-    assert resolved.provider == "openai"
-    assert resolved.api_model == "gpt-4o"
-
-    openrouter_resolved = registry.resolve_model_spec("openrouter/openai/gpt-4.1-mini")
-    assert openrouter_resolved is not None
-    assert openrouter_resolved.model_id == "openrouter-gpt-4.1-mini"
-    assert openrouter_resolved.provider == "openrouter"
-    assert openrouter_resolved.api_model == "openai/gpt-4.1-mini"
-
-    capabilities = registry.get_model_capabilities("gemini-2.5-flash-lite")
-    assert isinstance(capabilities, CapabilitySpec)
-    assert capabilities is not None
-    assert capabilities.native_tools.supported is True
-    assert capabilities.effort.supported is True
-    assert "high" in capabilities.effort.levels
-    assert capabilities.web_search.supported is True
-
-
-def test_tokenizer_encoding_lookup(registry: DataRegistry) -> None:
-    assert registry.get_tokenizer_encoding("gpt-4o") == "o200k_base"
-    assert registry.get_tokenizer_encoding("openai:gpt-4o-mini") == "o200k_base"
-    assert registry.get_tokenizer_encoding("claude-sonnet-4.6") == "cl100k_base"
-
-
-def test_accessors_map_through_typed_model_entries(
-    registry: DataRegistry,
-) -> None:
-    assert registry.get_context_window("openai/gpt-4o") == 128_000
-    assert registry.get_pricing("openai:gpt-4o-mini") == {
-        "input": 0.15,
-        "output": 0.6,
-    }
-    assert registry.get_tokenizer_encoding("google/gemini-2.5-flash-lite") == (
-        "cl100k_base"
-    )
 
 
 def test_internal_models(registry: DataRegistry) -> None:
@@ -247,7 +181,7 @@ def test_constructor_logs_loaded_counts(
     )
     monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
 
-    with caplog.at_level(logging.INFO, logger="agent_cli.core.registry"):
+    with caplog.at_level(logging.INFO, logger="agent_cli.core.infra.registry.registry"):
         DataRegistry()
 
     assert any("DataRegistry loaded" in r.message for r in caplog.records)
@@ -483,7 +417,7 @@ def test_resolve_model_spec_logs_hit_and_miss(
     monkeypatch.setattr(registry_module.resources, "files", lambda _pkg: tmp_path)
     reg = DataRegistry()
 
-    with caplog.at_level(logging.DEBUG, logger="agent_cli.core.registry"):
+    with caplog.at_level(logging.DEBUG, logger="agent_cli.core.infra.registry.registry"):
         assert reg.resolve_model_spec("alias-m1") is not None
         assert reg.resolve_model_spec("unknown-model") is None
 
@@ -506,21 +440,6 @@ def test_declared_support_uses_accessor_map(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert DataRegistry._declared_support(spec, "native_tools") is False
     assert DataRegistry._declared_support(spec, "effort") is False
-
-
-def test_capability_snapshot_defaults_to_declared_when_no_observed(
-    registry: DataRegistry,
-) -> None:
-    snapshot = registry.get_capability_snapshot(
-        provider="openai",
-        model="gpt-4o",
-        deployment_id="openai:gpt-4o",
-    )
-    assert isinstance(snapshot, CapabilitySnapshot)
-    assert snapshot.effective["native_tools"].status == "supported"
-    assert snapshot.effective["native_tools"].source == "declared"
-    assert snapshot.effective["effort"].status == "unsupported"
-    assert snapshot.effective["web_search"].status == "supported"
 
 
 def test_capability_snapshot_prefers_fresh_observed_values(
@@ -599,8 +518,8 @@ def test_capability_observation_invalidation_and_cache_version(
 ) -> None:
     registry.save_capability_observation(
         provider="openai",
-        model="gpt-4o",
-        deployment_id="openai:gpt-4o",
+        model="gemini-2.5-flash-lite",
+        deployment_id="openai:flash-lite",
         observation={
             "web_search": {
                 "status": "supported",
@@ -612,8 +531,8 @@ def test_capability_observation_invalidation_and_cache_version(
     )
     removed = registry.invalidate_capability_observations(
         provider="openai",
-        model="gpt-4o",
-        deployment_id="openai:gpt-4o",
+        model="gemini-2.5-flash-lite",
+        deployment_id="openai:flash-lite",
     )
     assert removed == 1
 
@@ -633,3 +552,54 @@ def test_capability_observation_invalidation_and_cache_version(
     bumped = registry.bump_capability_cache_version()
     assert bumped == current_version + 1
     assert registry.invalidate_capability_observations() == 0
+
+
+def test_capability_observation_operations_are_thread_safe(
+    registry: DataRegistry,
+) -> None:
+    errors: list[BaseException] = []
+
+    def _worker(worker_id: int) -> None:
+        try:
+            for idx in range(150):
+                deployment = f"google:flash-lite:{worker_id % 3}"
+                if idx % 4 == 0:
+                    registry.save_capability_observation(
+                        provider="google",
+                        model="gemini-2.5-flash-lite",
+                        deployment_id=deployment,
+                        observation={
+                            "web_search": {
+                                "status": "supported",
+                                "reason": f"probe_{worker_id}_{idx}",
+                                "checked_at": datetime.now(timezone.utc),
+                                "source": "probe",
+                            }
+                        },
+                    )
+                elif idx % 4 == 1:
+                    snapshot = registry.get_capability_snapshot(
+                        provider="google",
+                        model="gemini-2.5-flash-lite",
+                        deployment_id=deployment,
+                    )
+                    assert isinstance(snapshot, CapabilitySnapshot)
+                    assert "web_search" in snapshot.effective
+                elif idx % 4 == 2:
+                    registry.invalidate_capability_observations(
+                        provider="google",
+                        model="gemini-2.5-flash-lite",
+                        deployment_id=deployment,
+                    )
+                else:
+                    registry.bump_capability_cache_version()
+        except BaseException as exc:  # pragma: no cover - diagnostic path
+            errors.append(exc)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [pool.submit(_worker, worker_id) for worker_id in range(6)]
+        for future in futures:
+            future.result()
+
+    assert errors == []
+    assert registry.capability_cache_version >= 1

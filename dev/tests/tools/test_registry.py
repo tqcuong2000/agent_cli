@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from agent_cli.tools.base import BaseTool, ToolCategory
-from agent_cli.tools.output_formatter import ToolOutputFormatter
-from agent_cli.tools.registry import ToolRegistry
+from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
+from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
+from agent_cli.core.runtime.tools.registry import ToolRegistry
 
 
 class EmptyArgs(BaseModel):
@@ -115,9 +115,16 @@ def test_tool_registry_freeze_blocks_register():
 
 def test_tool_registry_freeze_idempotent():
     registry = ToolRegistry()
+    registry.register(DummyFileTool())
     registry.freeze()
     registry.freeze()
     assert registry.is_frozen is True
+
+
+def test_tool_registry_freeze_rejects_empty_registry() -> None:
+    registry = ToolRegistry()
+    with pytest.raises(RuntimeError, match="at least one tool"):
+        registry.freeze()
 
 
 def test_tool_registry_rejects_missing_name():

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_cli.session.file_store import FileSessionManager
+from agent_cli.core.runtime.session.file_store import FileSessionManager
 
 
 def test_file_session_manager_round_trip(tmp_path: Path):

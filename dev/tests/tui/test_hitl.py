@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.events.events import (
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.events.events import (
     AgentMessageEvent,
     AgentQuestionRequestEvent,
     AgentQuestionResponseEvent,
@@ -16,17 +16,17 @@ from agent_cli.core.events.events import (
     UserApprovalRequestEvent,
     UserApprovalResponseEvent,
 )
-from agent_cli.core.interaction import (
+from agent_cli.core.ux.interaction.interaction import (
     BaseInteractionHandler,
     InteractionType,
     UserInteractionRequest,
     UserInteractionResponse,
 )
-from agent_cli.core.tui_interaction_handler import TUIInteractionHandler
-from agent_cli.tools.base import BaseTool, ToolCategory
-from agent_cli.tools.executor import ToolExecutor
-from agent_cli.tools.output_formatter import ToolOutputFormatter
-from agent_cli.tools.registry import ToolRegistry
+from agent_cli.core.ux.interaction.tui_interaction_handler import TUIInteractionHandler
+from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
+from agent_cli.core.runtime.tools.executor import ToolExecutor
+from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
+from agent_cli.core.runtime.tools.registry import ToolRegistry
 
 
 class _MockStateManager:

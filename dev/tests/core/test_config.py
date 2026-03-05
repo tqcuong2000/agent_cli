@@ -16,13 +16,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agent_cli.core.config import (
+from agent_cli.core.infra.config.config import (
     AgentSettings,
     TomlConfigSettingsSource,
     _deep_merge,
     load_providers,
 )
-from agent_cli.core.models.config_models import (
+from agent_cli.core.infra.config.config_models import (
     EffortLevel,
     ProtocolMode,
     effort_values,

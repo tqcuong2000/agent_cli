@@ -17,17 +17,17 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from agent_cli.agent.registry import AgentRegistry
-from agent_cli.agent.session_registry import SessionAgentRegistry
-from agent_cli.commands.base import (
+from agent_cli.core.runtime.agents.registry import AgentRegistry
+from agent_cli.core.runtime.agents.session_registry import SessionAgentRegistry
+from agent_cli.core.ux.commands.base import (
     CommandContext,
     CommandDef,
     CommandRegistry,
     CommandResult,
 )
-from agent_cli.commands.parser import CommandParser
-from agent_cli.core.bootstrap import _build_command_registry
-from agent_cli.core.registry import DataRegistry
+from agent_cli.core.ux.commands.parser import CommandParser
+from agent_cli.core.infra.registry.bootstrap import _build_command_registry
+from agent_cli.core.infra.registry.registry import DataRegistry
 
 # ── Mock dependencies ────────────────────────────────────────────────
 
@@ -188,6 +188,36 @@ def test_command_registry_override_replaces_definition() -> None:
     assert resolved.description == "v2"
 
 
+def test_command_registry_rejects_missing_handler() -> None:
+    reg = CommandRegistry()
+    with pytest.raises(ValueError, match="callable handler"):
+        reg.register(
+            CommandDef(
+                name="help",
+                description="missing handler",
+                usage="/help",
+                handler=None,  # type: ignore[arg-type]
+            )
+        )
+
+
+def test_command_registry_supports_len_and_contains() -> None:
+    reg = CommandRegistry()
+    reg.register(
+        CommandDef(
+            name="help",
+            description="v1",
+            usage="/help",
+            handler=_noop_handler,
+        )
+    )
+
+    assert len(reg) == 1
+    assert "help" in reg
+    assert "HELP" in reg
+    assert "model" not in reg
+
+
 def test_command_registry_freeze_blocks_register() -> None:
     reg = CommandRegistry()
     reg.register(
@@ -209,6 +239,12 @@ def test_command_registry_freeze_blocks_register() -> None:
                 handler=_noop_handler,
             )
         )
+
+
+def test_command_registry_freeze_rejects_empty_registry() -> None:
+    reg = CommandRegistry()
+    with pytest.raises(RuntimeError, match="at least one command"):
+        reg.freeze()
 
 
 def test_parser_is_command_true_false():

@@ -4,11 +4,11 @@ import json
 
 import pytest
 
-from agent_cli.agent.parsers import AgentDecision
-from agent_cli.agent.schema import SchemaValidator
-from agent_cli.core.error_handler.errors import SchemaValidationError
-from agent_cli.core.models.config_models import ProtocolMode
-from agent_cli.providers.models import LLMResponse, ToolCall, ToolCallMode
+from agent_cli.core.runtime.agents.parsers import AgentDecision
+from agent_cli.core.runtime.agents.schema import SchemaValidator
+from agent_cli.core.infra.events.errors import SchemaValidationError
+from agent_cli.core.infra.config.config_models import ProtocolMode
+from agent_cli.core.providers.base.models import LLMResponse, ToolCall, ToolCallMode
 
 
 @pytest.fixture

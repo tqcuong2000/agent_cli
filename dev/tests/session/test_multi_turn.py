@@ -9,21 +9,21 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from agent_cli.agent.base import AgentConfig, BaseAgent
-from agent_cli.agent.memory import WorkingMemoryManager
-from agent_cli.agent.react_loop import PromptBuilder
-from agent_cli.agent.registry import AgentRegistry
-from agent_cli.agent.schema import SchemaValidator
-from agent_cli.agent.session_registry import SessionAgentRegistry
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.orchestrator import Orchestrator
-from agent_cli.core.state.state_manager import TaskStateManager
-from agent_cli.providers.base import BaseLLMProvider
-from agent_cli.providers.models import LLMResponse, ToolCallMode
-from agent_cli.session.file_store import FileSessionManager
-from agent_cli.tools.executor import ToolExecutor
-from agent_cli.tools.output_formatter import ToolOutputFormatter
-from agent_cli.tools.registry import ToolRegistry
+from agent_cli.core.runtime.agents.base import AgentConfig, BaseAgent
+from agent_cli.core.runtime.agents.memory import WorkingMemoryManager
+from agent_cli.core.runtime.agents.react_loop import PromptBuilder
+from agent_cli.core.runtime.agents.registry import AgentRegistry
+from agent_cli.core.runtime.agents.schema import SchemaValidator
+from agent_cli.core.runtime.agents.session_registry import SessionAgentRegistry
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.runtime.orchestrator.orchestrator import Orchestrator
+from agent_cli.core.runtime.orchestrator.state_manager import TaskStateManager
+from agent_cli.core.providers.base.base import BaseLLMProvider
+from agent_cli.core.providers.base.models import LLMResponse, ToolCallMode
+from agent_cli.core.runtime.session.file_store import FileSessionManager
+from agent_cli.core.runtime.tools.executor import ToolExecutor
+from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
+from agent_cli.core.runtime.tools.registry import ToolRegistry
 
 
 class ContextCaptureProvider(BaseLLMProvider):

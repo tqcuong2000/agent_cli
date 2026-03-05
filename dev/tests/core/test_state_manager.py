@@ -14,10 +14,10 @@ import asyncio
 
 import pytest
 
-from agent_cli.core.events.event_bus import AsyncEventBus
-from agent_cli.core.events.events import StateChangeEvent
-from agent_cli.core.state.state_manager import TaskStateManager
-from agent_cli.core.state.state_models import InvalidTransitionError, TaskRecord, TaskState
+from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.events.events import StateChangeEvent
+from agent_cli.core.runtime.orchestrator.state_manager import TaskStateManager
+from agent_cli.core.runtime.orchestrator.state_models import InvalidTransitionError, TaskRecord, TaskState
 
 
 @pytest.mark.asyncio
