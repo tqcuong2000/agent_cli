@@ -247,19 +247,7 @@ class BaseAgent(ABC):
                 {"role": "system", "content": system_prompt}, track_for_session=False
             )
 
-        # First persisted turn: ask the agent to produce a concise session title.
-        if session_messages is not None and not session_messages:
-            _append_message(
-                {
-                    "role": "system",
-                    "content": (
-                        "This is the first user request in a new session. "
-                        "Set a concise session title in the top-level `title` field "
-                        "(2-8 words, plain text)."
-                    ),
-                },
-                track_for_session=False,
-            )
+
 
         # Inject prior context from previous agents (ExecutionPlan)
         if prior_context:

@@ -45,6 +45,7 @@ from agent_cli.core.providers.base.capability_probe import CapabilityProbeServic
 from agent_cli.core.providers.manager import ProviderManager
 from agent_cli.core.runtime.session.base import AbstractSessionManager
 from agent_cli.core.runtime.session.file_store import FileSessionManager
+from agent_cli.core.runtime.session.title_service import SessionTitleService
 from agent_cli.core.runtime.tools.executor import ToolExecutor
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
@@ -97,6 +98,7 @@ class AppContext:
     file_indexer: Optional[FileIndexer] = None
     orchestrator: Optional[Orchestrator] = None  # None until an agent is registered
     session_manager: Optional[AbstractSessionManager] = None
+    title_service: Optional[SessionTitleService] = None
     observability: Optional["ObservabilityManager"] = None
     capability_probe: Optional[CapabilityProbeService] = None
 
@@ -453,6 +455,7 @@ def create_app(
         file_indexer=file_indexer,
         orchestrator=None,
         session_manager=session_manager,
+        title_service=SessionTitleService(data_registry),
         capability_probe=capability_probe,
         command_registry=cmd_registry,
         command_parser=cmd_parser,
@@ -639,6 +642,7 @@ def create_app(
         default_agent=default_agent,
         command_parser=context.command_parser,
         session_manager=context.session_manager,
+        title_service=context.title_service,
         agent_registry=agent_registry,
         session_agents=session_agents,
         capability_probe=context.capability_probe,

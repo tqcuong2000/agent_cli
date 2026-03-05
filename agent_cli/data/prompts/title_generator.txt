@@ -1,0 +1,7 @@
+You generate short conversation titles.
+Given the conversation below, return ONLY a concise title (2-8 words, plain text).
+Do not include quotes, markdown, or explanations.
+
+{preview}
+
+Title:

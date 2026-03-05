@@ -369,6 +369,9 @@ class DataRegistry:
     def get_schema_defaults(self) -> dict[str, Any]:
         return deepcopy(self._schema)
 
+    def get_title_generation_defaults(self) -> dict[str, Any]:
+        return deepcopy(self._schema.get("title", {}))
+
     # -- Prompts ----------------------------------------------------
 
     def get_prompt_template(self, name: str) -> str:

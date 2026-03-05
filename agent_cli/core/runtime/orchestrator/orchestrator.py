@@ -39,7 +39,9 @@ from agent_cli.core.infra.events.events import (
 from agent_cli.core.runtime.orchestrator.state_manager import AbstractStateManager
 from agent_cli.core.runtime.orchestrator.state_models import TaskState
 from agent_cli.core.infra.logging.tracing import bind_trace, new_trace_id
+from agent_cli.core.infra.logging.tracing import bind_trace, new_trace_id
 from agent_cli.core.runtime.session.base import AbstractSessionManager, Session
+from agent_cli.core.runtime.session.title_service import SessionTitleService
 
 if TYPE_CHECKING:
     from agent_cli.core.ux.commands.parser import CommandParser
@@ -76,6 +78,7 @@ class Orchestrator:
         default_agent: BaseAgent,
         command_parser: Optional[CommandParser] = None,
         session_manager: Optional[AbstractSessionManager] = None,
+        title_service: Optional[SessionTitleService] = None,
         agent_registry: Optional[AgentRegistry] = None,
         session_agents: Optional[SessionAgentRegistry] = None,
         capability_probe: Optional[CapabilityProbeService] = None,
@@ -86,6 +89,7 @@ class Orchestrator:
         self._default_agent = default_agent
         self._command_parser = command_parser
         self._session_manager = session_manager
+        self._title_service = title_service
         self._agent_registry = agent_registry
         self._session_agents = session_agents
         self._capability_probe = capability_probe
@@ -551,11 +555,16 @@ class Orchestrator:
             session.total_cost = round(session.total_cost + task_cost, 6)
 
         session_title_changed = False
-        current_name = str(session.name or "").strip()
-        if not current_name:
-            candidate = agent.get_last_task_title().strip()
-            session.name = candidate or "Untitled session"
-            session_title_changed = True
+        
+        if self._title_service and self._title_service.should_generate(session):
+            candidate = await self._title_service.generate_title(agent.provider, session.messages)
+            if candidate:
+                session.name = candidate
+                session_title_changed = True
+        
+        # Ensure a default so it's not totally blank before the turn threshold
+        if not str(session.name or "").strip():
+             session.name = "Untitled session"
 
         self._session_manager.save(session)
         if session_title_changed:

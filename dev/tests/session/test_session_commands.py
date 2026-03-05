@@ -227,6 +227,10 @@ async def test_generate_title_updates_active_session_name(tmp_path: Path):
 
     app_context.event_bus.subscribe("SettingsChangedEvent", _on_settings)
 
+    class MockTitleService:
+        async def generate_title(self, p, messages, max_tokens=32):
+            return "Sprint Release Checklist"
+
     ctx = CommandContext(
         settings=app_context.settings,
         event_bus=app_context.event_bus,
@@ -234,6 +238,7 @@ async def test_generate_title_updates_active_session_name(tmp_path: Path):
         memory_manager=app_context.memory_manager,
         app_context=SimpleNamespace(
             session_manager=app_context.session_manager,
+            title_service=MockTitleService(),
             providers=SimpleNamespace(),
             orchestrator=SimpleNamespace(
                 active_agent=SimpleNamespace(provider=_Provider())
@@ -268,6 +273,10 @@ async def test_generate_title_falls_back_when_model_output_empty(tmp_path: Path)
         async def safe_generate(self, **kwargs):
             return SimpleNamespace(text_content="")
 
+    class MockEmptyTitleService:
+        async def generate_title(self, p, messages, max_tokens=32):
+            return ""
+
     ctx = CommandContext(
         settings=app_context.settings,
         event_bus=app_context.event_bus,
@@ -275,6 +284,7 @@ async def test_generate_title_falls_back_when_model_output_empty(tmp_path: Path)
         memory_manager=app_context.memory_manager,
         app_context=SimpleNamespace(
             session_manager=app_context.session_manager,
+            title_service=MockEmptyTitleService(),
             providers=SimpleNamespace(),
             orchestrator=SimpleNamespace(
                 active_agent=SimpleNamespace(provider=_Provider())
