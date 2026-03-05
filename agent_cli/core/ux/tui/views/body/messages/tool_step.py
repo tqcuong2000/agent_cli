@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Optional
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.timer import Timer
 from textual.widget import Widget
@@ -11,7 +12,18 @@ from textual.widgets import Static
 class ToolStepWidget(Widget):
     """Animated status row for a single tool execution."""
 
-    SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    SPINNER_FRAMES = [
+        "\u280b",
+        "\u2819",
+        "\u2839",
+        "\u2838",
+        "\u283c",
+        "\u2834",
+        "\u2826",
+        "\u2827",
+        "\u2807",
+        "\u280f",
+    ]
 
     DEFAULT_CSS = ""
 
@@ -59,14 +71,25 @@ class ToolStepWidget(Widget):
     def _render_row(self) -> str:
         args_text = self._format_args(self.args)
         tool_call = f"{self.tool_name}({args_text})"
+        safe_tool_call = escape(tool_call)
+
         if self._status == "success":
             duration = self._duration_ms if self._duration_ms is not None else 0
-            return f"[green]✓[/green] [b]{tool_call}[/b] [dim]({duration} ms)[/dim]"
+            return (
+                f"[green]\u2713[/green] [b]{safe_tool_call}[/b] "
+                f"[dim]({duration} ms)[/dim]"
+            )
+
         if self._status == "failed":
             error = self._error or "Tool execution failed."
-            return f"[red]✗[/red] [b]{tool_call}[/b] [dim]- {error}[/dim]"
+            safe_error = escape(error)
+            return (
+                f"[red]\u2717[/red] [b]{safe_tool_call}[/b] "
+                f"[dim]- {safe_error}[/dim]"
+            )
+
         spinner = self.SPINNER_FRAMES[self._frame_index]
-        return f"[cyan]{spinner}[/cyan] [b]{tool_call}[/b]"
+        return f"[cyan]{spinner}[/cyan] [b]{safe_tool_call}[/b]"
 
     def _format_args(self, args: dict) -> str:
         if not args:

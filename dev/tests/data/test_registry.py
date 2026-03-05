@@ -66,6 +66,7 @@ def test_safe_command_patterns_and_tool_defaults(registry: DataRegistry) -> None
     assert defaults["shell"]["default_timeout"] == 30
     assert defaults["shell"]["max_timeout"] == 120
     assert defaults["output_formatter"]["error_truncation_chars"] == 2000
+    assert defaults["output_formatter"]["lean_envelope"] is True
     assert defaults["file_tools"]["diff_context_lines"] == 2
     assert defaults["executor"]["approval_timeout_seconds"] == 300.0
     assert defaults["executor"]["multi_action"]["enabled"] is False
@@ -113,8 +114,9 @@ def test_memory_defaults(registry: DataRegistry) -> None:
 
 def test_schema_defaults(registry: DataRegistry) -> None:
     schema = registry.get_schema_defaults()
-    assert schema["title"]["min_words"] == 2
+    assert schema["title"]["min_words"] == 0
     assert schema["title"]["max_words"] == 15
+    assert schema["title"]["required"] is False
     assert schema["validation"]["max_consecutive_schema_errors"] == 3
 
 
@@ -226,7 +228,7 @@ def _write_required_registry_files(root: Path) -> None:
     (root / "schema.json").write_text(
         json.dumps(
             {
-                "title": {"min_words": 2, "max_words": 15},
+                "title": {"min_words": 0, "max_words": 15, "required": False},
                 "validation": {"max_consecutive_schema_errors": 3},
             }
         ),

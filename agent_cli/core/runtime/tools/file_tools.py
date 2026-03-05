@@ -105,39 +105,45 @@ class ReadFileTool(BaseTool):
             )
 
         raw = resolved.read_bytes()
+        file_size_bytes = len(raw)
         if _is_probably_binary(raw):
             raise ToolExecutionError(
                 f"Cannot read '{path}': file appears to be binary or unsupported text.",
                 tool_name=self.name,
             )
-        was_truncated = len(raw) > _READ_FILE_MAX_BYTES
+        was_truncated = file_size_bytes > _READ_FILE_MAX_BYTES
         clipped = raw[:_READ_FILE_MAX_BYTES]
         content, had_decode_replacement = _decode_text_bytes(clipped)
         content = content.replace("\r\n", "\n").replace("\r", "\n")
+        all_lines = content.splitlines()
+        total_lines = len(all_lines)
+        display_content = content
+        showing_clause = ""
 
         # Optional line slicing
         if start_line is not None or end_line is not None:
-            lines = content.splitlines()
-            total = len(lines)
-
             start = max((start_line or 1) - 1, 0)
-            end = min(end_line or total, total)
-
-            content = "\n".join(lines[start:end])
-            content = (
-                f"Showing lines {start + 1}-{end} of {total} total lines:\n{content}"
-            )
+            end = min(end_line or total_lines, total_lines)
+            display_content = "\n".join(all_lines[start:end])
+            showing_clause = f" | Showing: {start + 1}-{end} of {total_lines}"
 
         notices: list[str] = []
         if was_truncated:
             notices.append(
-                f"File is large ({len(raw):,} bytes). Showing first {_READ_FILE_MAX_BYTES:,} bytes."
+                f"File is large ({file_size_bytes:,} bytes). Showing first {_READ_FILE_MAX_BYTES:,} bytes."
             )
         if had_decode_replacement:
             notices.append("Non-UTF-8 bytes were decoded with replacement characters.")
-        if notices:
-            return "\n".join(notices) + "\n\n" + content
-        return content
+
+        encoding = "utf-8 (replacement)" if had_decode_replacement else "utf-8"
+        header = (
+            f"File: {path} | Lines: {total_lines} | "
+            f"Size: {file_size_bytes} bytes | Encoding: {encoding}{showing_clause}"
+        )
+        parts = [header]
+        parts.extend(notices)
+        parts.append(display_content)
+        return "\n".join(part for part in parts if part != "")
 
 
 # ══════════════════════════════════════════════════════════════════════

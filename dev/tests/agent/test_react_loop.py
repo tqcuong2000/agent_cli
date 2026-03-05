@@ -238,6 +238,20 @@ class MockWebSearchProvider(MockLLMProvider):
         return True
 
 
+class MockUsageLLMProvider(MockLLMProvider):
+    async def generate(
+        self,
+        context: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        base = await super().generate(context, tools, max_tokens)
+        base.input_tokens = 120
+        base.output_tokens = 30
+        base.cost_usd = 0.0125
+        return base
+
+
 def _json_response(
     decision_type: str,
     *,
@@ -262,6 +276,35 @@ def _json_response(
     if message:
         payload["decision"]["message"] = message
     return json.dumps(payload)
+
+
+def _parse_tool_envelope(content: str) -> Dict[str, Any]:
+    if content.startswith("[tool_result "):
+        header, body = content.split("\n", 1)
+        body = body.rsplit("\n[/tool_result]", 1)[0]
+        attrs: Dict[str, str] = {}
+        for part in header[len("[tool_result ") : -1].split():
+            key, value = part.split("=", 1)
+            attrs[key] = value
+        metadata = {
+            "task_id": attrs.get("task_id", ""),
+            "native_call_id": attrs.get("native_call_id", ""),
+            "action_id": attrs.get("action_id", ""),
+        }
+        metadata = {k: v for k, v in metadata.items() if v}
+        return {
+            "type": "tool_result",
+            "payload": {
+                "tool": attrs.get("tool", ""),
+                "status": attrs.get("status", ""),
+                "truncated": attrs.get("truncated", "false") == "true",
+                "truncated_chars": int(attrs.get("truncated_chars", "0")),
+                "output": body,
+            },
+            "metadata": metadata,
+        }
+
+    return json.loads(content)
 
 
 # â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -437,7 +480,7 @@ async def test_react_loop_successful_task(base_deps):
     memory = base_deps["memory_manager"].get_working_context()
     assert len(memory) > 3  # sys prompt, task desc, iteration 1 turn, etc.
     tool_payloads = [
-        json.loads(m["content"]) for m in memory if m.get("role") == "tool"
+        _parse_tool_envelope(m["content"]) for m in memory if m.get("role") == "tool"
     ]
     assert any(p.get("type") == "tool_result" for p in tool_payloads)
     assert any(p.get("payload", {}).get("tool") == "add" for p in tool_payloads)
@@ -489,7 +532,7 @@ async def test_react_loop_execute_actions_dispatches_batch(base_deps):
         m for m in deps["memory_manager"].get_working_context() if m.get("role") == "tool"
     ]
     assert len(tool_messages) == 2
-    envelopes = [json.loads(m["content"]) for m in tool_messages]
+    envelopes = [_parse_tool_envelope(m["content"]) for m in tool_messages]
     assert [e["metadata"]["action_id"] for e in envelopes] == ["act_0", "act_1"]
 
 
@@ -646,7 +689,7 @@ async def test_react_loop_multi_action_enforces_ask_user_singleton_e2e(
         m for m in deps["memory_manager"].get_working_context() if m.get("role") == "tool"
     ]
     assert len(tool_messages) == 1
-    payload = json.loads(tool_messages[0]["content"])["payload"]
+    payload = _parse_tool_envelope(tool_messages[0]["content"])["payload"]
     assert payload["tool"] == "ask_user"
     assert "stripping batch to ask_user only" in caplog.text
 
@@ -772,6 +815,49 @@ async def test_react_loop_stuck_detection(base_deps):
     assert any("repeating the same action" in m["content"] for m in mem)
 
 
+@pytest.mark.asyncio
+async def test_react_loop_reflect_messages_include_counts_and_budget_summary(base_deps):
+    mock_responses = [
+        _json_response("reflect", title="Think", thought="Plan first"),
+        _json_response("reflect", title="Think more", thought="Still planning"),
+        _json_response(
+            "notify_user",
+            message="Done.",
+            title="Complete",
+            thought="Finished planning.",
+        ),
+    ]
+    provider = MockUsageLLMProvider(mock_responses)
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add"]),
+        provider=provider,
+        **base_deps,
+    )
+
+    task = await base_deps["state_manager"].create_task("Need reflection")
+    await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
+    await base_deps["state_manager"].transition(task.task_id, TaskState.WORKING)
+
+    result = await agent.handle_task(
+        task_id=task.task_id,
+        task_description="Need reflection",
+    )
+    assert result == "FINAL: Done."
+
+    system_messages = [
+        m["content"]
+        for m in base_deps["memory_manager"].get_working_context()
+        if m.get("role") == "system"
+    ]
+    assert any("Reasoning noted (1/3 reflects used)." in msg for msg in system_messages)
+    assert any("context ~" in msg for msg in system_messages)
+    assert any(
+        "Reasoning noted (2/3 reflects used)." in msg
+        and "You must act or respond on your next turn." in msg
+        for msg in system_messages
+    )
+
+
 def test_stuck_detector_detects_repeated_batch_order_independently():
     detector = StuckDetector(threshold=2, history_cap=5)
 
@@ -789,6 +875,27 @@ def test_stuck_detector_batch_reset_clears_batch_history():
     assert detector.is_stuck_batch(batch) is False
     detector.reset()
     assert detector.is_stuck_batch(batch) is False
+
+
+def test_stuck_detector_normalizes_lean_and_json_tool_result_equally() -> None:
+    legacy = json.dumps(
+        {
+            "type": "tool_result",
+            "payload": {
+                "tool": "read_file",
+                "status": "success",
+                "truncated": False,
+                "truncated_chars": 0,
+                "output": "hello",
+            },
+        }
+    )
+    lean = "[tool_result tool=read_file status=success truncated=false truncated_chars=0]\nhello\n[/tool_result]"
+
+    assert (
+        StuckDetector._normalize_result_for_stuck_check(legacy)
+        == StuckDetector._normalize_result_for_stuck_check(lean)
+    )
 
 
 def test_prompt_builder_adds_ask_user_policy_when_tool_available():

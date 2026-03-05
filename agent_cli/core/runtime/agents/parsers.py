@@ -85,3 +85,4 @@ class AgentResponse:
     action: Optional[ParsedAction] = None
     actions: Optional[List[ParsedAction]] = None
     final_answer: Optional[str] = None
+    intent: str = ""

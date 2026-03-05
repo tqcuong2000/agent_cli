@@ -79,6 +79,7 @@ def test_tools_json_structure() -> None:
 
     output_formatter = data["output_formatter"]
     assert output_formatter["error_truncation_chars"] == 2000
+    assert output_formatter["lean_envelope"] is True
 
     file_tools = data["file_tools"]
     assert set(file_tools.keys()) == {
@@ -152,9 +153,10 @@ def test_memory_json_structure() -> None:
 
 def test_schema_json_structure() -> None:
     data = _load_json("schema.json")
-    assert set(data["title"].keys()) == {"min_words", "max_words"}
-    assert data["title"]["min_words"] == 2
+    assert set(data["title"].keys()) == {"min_words", "max_words", "required"}
+    assert data["title"]["min_words"] == 0
     assert data["title"]["max_words"] == 15
+    assert data["title"]["required"] is False
     assert data["validation"]["max_consecutive_schema_errors"] == 3
 
 

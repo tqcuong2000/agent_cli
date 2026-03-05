@@ -117,8 +117,34 @@ def _action(tool_name: str, idx: int, *, delay: float = 0.0) -> ParsedAction:
 
 
 def _payload_output(result_output: str) -> str:
-    payload = json.loads(result_output)["payload"]
+    if result_output.startswith("[tool_result "):
+        _header, body = result_output.split("\n", 1)
+        payload = {"output": body.rsplit("\n[/tool_result]", 1)[0]}
+    else:
+        payload = json.loads(result_output)["payload"]
     return str(payload.get("output", ""))
+
+
+def _metadata_from_output(result_output: str) -> dict[str, str]:
+    if result_output.startswith("[tool_result "):
+        header = result_output.split("\n", 1)[0]
+        attrs: dict[str, str] = {}
+        for part in header[len("[tool_result ") : -1].split():
+            key, value = part.split("=", 1)
+            attrs[key] = value
+        return {
+            "task_id": attrs.get("task_id", ""),
+            "action_id": attrs.get("action_id", ""),
+            "batch_id": attrs.get("batch_id", ""),
+        }
+
+    parsed = json.loads(result_output)
+    metadata = parsed.get("metadata", {})
+    return {
+        "task_id": str(metadata.get("task_id", "")),
+        "action_id": str(metadata.get("action_id", "")),
+        "batch_id": str(metadata.get("batch_id", "")),
+    }
 
 
 @pytest.mark.asyncio
@@ -206,3 +232,17 @@ async def test_execute_batch_failure_does_not_abort_other_actions() -> None:
     assert results[0].success is True
     assert results[1].success is False
     assert "boom" in _payload_output(results[1].output)
+
+
+@pytest.mark.asyncio
+async def test_execute_batch_assigns_shared_batch_id() -> None:
+    batch = _build_batch_executor(_ParallelTool())
+    actions = [_action("parallel_tool", 0), _action("parallel_tool", 1)]
+
+    results = await batch.execute_batch(actions, task_id="task_batch_id")
+    batch_ids = [_metadata_from_output(result.output)["batch_id"] for result in results]
+
+    assert len(results) == 2
+    assert all(batch_ids)
+    assert len(set(batch_ids)) == 1
+    assert batch_ids[0].startswith("batch_")

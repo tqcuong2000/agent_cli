@@ -57,14 +57,19 @@ class SchemaValidator(BaseSchemaValidator):
 
     def parse_and_validate(self, response: LLMResponse) -> AgentResponse:
         """Parse and validate an LLM response."""
+        parsed: AgentResponse | None = None
         if response.tool_mode == ToolCallMode.NATIVE:
             native_response = self._parse_native_fc(response)
             if native_response is not None:
-                return native_response
+                parsed = native_response
 
-        parsed = self._parse_json_response(response.text_content, strict=True)
+        if parsed is None:
+            parsed = self._parse_json_response(response.text_content, strict=True)
         if parsed is None:
             raise self._empty_response_error(response.text_content)
+
+        parsed = self._normalize_action_response(parsed)
+        parsed = self._reconstruct_native_fc_audit_trail(response, parsed)
         return parsed
 
     def extract_thinking(self, text: str) -> str:
@@ -146,6 +151,74 @@ class SchemaValidator(BaseSchemaValidator):
             final_answer=None,
         )
 
+    def _normalize_action_response(self, response: AgentResponse) -> AgentResponse:
+        """Normalize execute_action vs execute_actions representation."""
+        if (
+            response.decision == AgentDecision.EXECUTE_ACTIONS
+            and response.actions is not None
+            and len(response.actions) == 1
+        ):
+            return AgentResponse(
+                decision=AgentDecision.EXECUTE_ACTION,
+                title=response.title,
+                thought=response.thought,
+                action=response.actions[0],
+                actions=None,
+                final_answer=response.final_answer,
+                intent=response.intent,
+            )
+        return response
+
+    def _reconstruct_native_fc_audit_trail(
+        self,
+        raw_response: LLMResponse,
+        parsed: AgentResponse,
+    ) -> AgentResponse:
+        """Backfill missing JSON audit fields when native FC slips occur."""
+        if self._protocol_mode != ProtocolMode.JSON_ONLY:
+            return parsed
+        if raw_response.tool_mode != ToolCallMode.NATIVE:
+            return parsed
+        if parsed.decision not in {
+            AgentDecision.EXECUTE_ACTION,
+            AgentDecision.EXECUTE_ACTIONS,
+        }:
+            return parsed
+
+        if parsed.title and parsed.thought:
+            return parsed
+
+        tool_names: List[str] = []
+        if parsed.action is not None:
+            tool_names.append(parsed.action.tool_name)
+        elif parsed.actions is not None:
+            tool_names.extend(action.tool_name for action in parsed.actions)
+
+        generated_title = parsed.title.strip() or f"Call {', '.join(tool_names)}"
+        if not generated_title.strip():
+            generated_title = "Call tool"
+
+        generated_thought = parsed.thought.strip()
+        if not generated_thought:
+            generated_thought = self._format_reasoning(
+                title=generated_title,
+                thoughts="[Auto-reconstructed from native function call]",
+            )
+
+        logger.warning(
+            "Native FC format slip detected; reconstructed audit trail fields: %s",
+            generated_title,
+        )
+        return AgentResponse(
+            decision=parsed.decision,
+            title=generated_title,
+            thought=generated_thought,
+            action=parsed.action,
+            actions=parsed.actions,
+            final_answer=parsed.final_answer,
+            intent=parsed.intent,
+        )
+
     def _parse_json_response(
         self,
         text: str,
@@ -180,6 +253,7 @@ class SchemaValidator(BaseSchemaValidator):
 
         title = str(data.get("title", "")).strip()
         thought_text = str(data.get("thought", "")).strip()
+        title = self._normalize_title(title=title, thought=thought_text)
         thought = self._format_reasoning(title=title, thoughts=thought_text)
 
         if decision_type == AgentDecision.REFLECT.value:
@@ -189,6 +263,7 @@ class SchemaValidator(BaseSchemaValidator):
                 thought=thought,
                 action=None,
                 final_answer=None,
+                intent="",
             )
 
         if decision_type == AgentDecision.EXECUTE_ACTION.value:
@@ -221,6 +296,7 @@ class SchemaValidator(BaseSchemaValidator):
                 thought=thought,
                 action=ParsedAction(tool_name=tool_name, arguments=arguments),
                 final_answer=None,
+                intent="",
             )
 
         if decision_type == AgentDecision.EXECUTE_ACTIONS.value:
@@ -295,12 +371,17 @@ class SchemaValidator(BaseSchemaValidator):
                 thought=thought,
                 actions=parsed_actions,
                 final_answer=None,
+                intent="",
             )
 
         if decision_type in {
             AgentDecision.NOTIFY_USER.value,
             AgentDecision.YIELD.value,
         }:
+            intent = ""
+            if decision_type == AgentDecision.NOTIFY_USER.value:
+                intent = str(decision.get("intent", "")).strip()
+
             message = decision.get("message")
             if not isinstance(message, str) or not message.strip():
                 if decision_type == AgentDecision.NOTIFY_USER.value:
@@ -324,6 +405,7 @@ class SchemaValidator(BaseSchemaValidator):
                 thought=thought,
                 action=None,
                 final_answer=message.strip(),
+                intent=intent,
             )
 
         raise SchemaValidationError(
@@ -469,6 +551,23 @@ class SchemaValidator(BaseSchemaValidator):
             final_title = "Untitled Action"
 
         return f"Title: {final_title}\n{normalized_thoughts}"
+
+    def _normalize_title(self, *, title: str, thought: str) -> str:
+        """Normalize title, auto-generating one when missing."""
+        words = [word for word in title.split() if word]
+        if words:
+            return " ".join(words[: self._title_max_words]).strip()
+
+        thought_words = [word for word in thought.split() if word]
+        if thought_words:
+            generated = " ".join(thought_words[:5])
+            if len(thought_words) > 5:
+                generated = f"{generated}..."
+            logger.debug("Title auto-generated: %s", generated)
+            return generated
+
+        logger.debug("Title auto-generated: Untitled")
+        return "Untitled"
 
     @staticmethod
     def _empty_response_error(raw_response: str) -> SchemaValidationError:

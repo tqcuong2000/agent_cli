@@ -40,6 +40,7 @@ class ToolOutputFormatter:
             if error_truncation_chars is not None
             else defaults.get("error_truncation_chars", 2000)
         )
+        self.lean_envelope = self._coerce_bool(defaults.get("lean_envelope", False))
 
     def format(
         self,
@@ -50,6 +51,12 @@ class ToolOutputFormatter:
         task_id: str = "",
         native_call_id: str = "",
         action_id: str = "",
+        error_code: str = "",
+        retryable: bool | None = None,
+        total_chars: int = 0,
+        total_lines: int = 0,
+        content_ref: str = "",
+        batch_id: str = "",
     ) -> str:
         """Format a tool's raw output for the Agent's Working Memory.
 
@@ -59,7 +66,9 @@ class ToolOutputFormatter:
         3. Mark errors via ``payload.status = "error"``.
         """
         if not success:
-            return self._to_json_envelope(
+            full_chars = total_chars if total_chars > 0 else len(raw_output)
+            full_lines = total_lines if total_lines > 0 else self._count_lines(raw_output)
+            return self._to_envelope(
                 tool_name=tool_name,
                 status="error",
                 output=raw_output[: self.error_truncation_chars],
@@ -68,10 +77,16 @@ class ToolOutputFormatter:
                 task_id=task_id,
                 native_call_id=native_call_id,
                 action_id=action_id,
+                error_code=error_code,
+                retryable=retryable,
+                total_chars=full_chars,
+                total_lines=full_lines,
+                content_ref=content_ref,
+                batch_id=batch_id,
             )
 
         if len(raw_output) <= self.max_output_length:
-            return self._to_json_envelope(
+            return self._to_envelope(
                 tool_name=tool_name,
                 status="success",
                 output=raw_output,
@@ -80,6 +95,12 @@ class ToolOutputFormatter:
                 task_id=task_id,
                 native_call_id=native_call_id,
                 action_id=action_id,
+                error_code=error_code,
+                retryable=retryable,
+                total_chars=0,
+                total_lines=0,
+                content_ref=content_ref,
+                batch_id=batch_id,
             )
 
         # Truncate: keep head and tail for context
@@ -87,8 +108,10 @@ class ToolOutputFormatter:
         head = raw_output[:half]
         tail = raw_output[-half:]
         truncated_chars = len(raw_output) - self.max_output_length
+        full_chars = total_chars if total_chars > 0 else len(raw_output)
+        full_lines = total_lines if total_lines > 0 else self._count_lines(raw_output)
 
-        return self._to_json_envelope(
+        return self._to_envelope(
             tool_name=tool_name,
             status="success",
             output=(
@@ -102,7 +125,111 @@ class ToolOutputFormatter:
             task_id=task_id,
             native_call_id=native_call_id,
             action_id=action_id,
+            error_code=error_code,
+            retryable=retryable,
+            total_chars=full_chars,
+            total_lines=full_lines,
+            content_ref=content_ref,
+            batch_id=batch_id,
         )
+
+    def _to_envelope(
+        self,
+        *,
+        tool_name: str,
+        status: str,
+        output: str,
+        truncated: bool,
+        truncated_chars: int,
+        task_id: str,
+        native_call_id: str,
+        action_id: str,
+        error_code: str,
+        retryable: bool | None,
+        total_chars: int,
+        total_lines: int,
+        content_ref: str,
+        batch_id: str,
+    ) -> str:
+        if self.lean_envelope:
+            return self._to_lean_envelope(
+                tool_name=tool_name,
+                status=status,
+                output=output,
+                truncated=truncated,
+                truncated_chars=truncated_chars,
+                task_id=task_id,
+                native_call_id=native_call_id,
+                action_id=action_id,
+                error_code=error_code,
+                retryable=retryable,
+                total_chars=total_chars,
+                total_lines=total_lines,
+                content_ref=content_ref,
+                batch_id=batch_id,
+            )
+        return self._to_json_envelope_legacy(
+            tool_name=tool_name,
+            status=status,
+            output=output,
+            truncated=truncated,
+            truncated_chars=truncated_chars,
+            task_id=task_id,
+            native_call_id=native_call_id,
+            action_id=action_id,
+            error_code=error_code,
+            retryable=retryable,
+            total_chars=total_chars,
+            total_lines=total_lines,
+            content_ref=content_ref,
+            batch_id=batch_id,
+        )
+
+    @staticmethod
+    def _to_lean_envelope(
+        *,
+        tool_name: str,
+        status: str,
+        output: str,
+        truncated: bool,
+        truncated_chars: int,
+        task_id: str,
+        native_call_id: str,
+        action_id: str,
+        error_code: str,
+        retryable: bool | None,
+        total_chars: int,
+        total_lines: int,
+        content_ref: str,
+        batch_id: str,
+    ) -> str:
+        """Render a lean tool envelope that avoids JSON double-escaping."""
+        parts = [
+            f"tool={tool_name}",
+            f"status={status}",
+            f"truncated={'true' if truncated else 'false'}",
+            f"truncated_chars={truncated_chars}",
+        ]
+        if error_code:
+            parts.append(f"error_code={error_code}")
+        if retryable is not None:
+            parts.append(f"retryable={'true' if retryable else 'false'}")
+        if truncated and total_chars > 0:
+            parts.append(f"total_chars={total_chars}")
+        if truncated and total_lines > 0:
+            parts.append(f"total_lines={total_lines}")
+        if content_ref:
+            parts.append(f"content_ref={content_ref}")
+        if task_id:
+            parts.append(f"task_id={task_id}")
+        if native_call_id:
+            parts.append(f"native_call_id={native_call_id}")
+        if action_id:
+            parts.append(f"action_id={action_id}")
+        if batch_id:
+            parts.append(f"batch_id={batch_id}")
+        header = f"[tool_result {' '.join(parts)}]"
+        return f"{header}\n{output}\n[/tool_result]"
 
     @staticmethod
     def _to_json_envelope(
@@ -115,6 +242,48 @@ class ToolOutputFormatter:
         task_id: str,
         native_call_id: str,
         action_id: str,
+        error_code: str,
+        retryable: bool | None,
+        total_chars: int,
+        total_lines: int,
+        content_ref: str,
+        batch_id: str,
+    ) -> str:
+        """Backward-compatible alias for legacy envelope rendering."""
+        return ToolOutputFormatter._to_json_envelope_legacy(
+            tool_name=tool_name,
+            status=status,
+            output=output,
+            truncated=truncated,
+            truncated_chars=truncated_chars,
+            task_id=task_id,
+            native_call_id=native_call_id,
+            action_id=action_id,
+            error_code=error_code,
+            retryable=retryable,
+            total_chars=total_chars,
+            total_lines=total_lines,
+            content_ref=content_ref,
+            batch_id=batch_id,
+        )
+
+    @staticmethod
+    def _to_json_envelope_legacy(
+        *,
+        tool_name: str,
+        status: str,
+        output: str,
+        truncated: bool,
+        truncated_chars: int,
+        task_id: str,
+        native_call_id: str,
+        action_id: str,
+        error_code: str,
+        retryable: bool | None,
+        total_chars: int,
+        total_lines: int,
+        content_ref: str,
+        batch_id: str,
     ) -> str:
         """Render a tool result envelope as compact JSON for working memory."""
         metadata: dict[str, str] = {}
@@ -124,6 +293,10 @@ class ToolOutputFormatter:
             metadata["native_call_id"] = native_call_id
         if action_id:
             metadata["action_id"] = action_id
+        if batch_id:
+            metadata["batch_id"] = batch_id
+        if content_ref:
+            metadata["content_ref"] = content_ref
 
         envelope = {
             "id": f"msg_{uuid4().hex}",
@@ -141,8 +314,30 @@ class ToolOutputFormatter:
             },
             "metadata": metadata,
         }
+        if error_code:
+            envelope["payload"]["error_code"] = str(error_code)
+        if retryable is not None:
+            envelope["payload"]["retryable"] = bool(retryable)
+        if truncated and total_chars > 0:
+            envelope["payload"]["total_chars"] = int(total_chars)
+        if truncated and total_lines > 0:
+            envelope["payload"]["total_lines"] = int(total_lines)
         return json.dumps(
             envelope,
             ensure_ascii=True,
             separators=(",", ":"),
         )
+
+    @staticmethod
+    def _coerce_bool(value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
+    def _count_lines(value: str) -> int:
+        if not value:
+            return 0
+        return value.count("\n") + 1

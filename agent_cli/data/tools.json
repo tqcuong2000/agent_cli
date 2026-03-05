@@ -12,7 +12,8 @@
     ]
   },
   "output_formatter": {
-    "error_truncation_chars": 2000
+    "error_truncation_chars": 2000,
+    "lean_envelope": true
   },
   "file_tools": {
     "list_directory_default_depth": 2,

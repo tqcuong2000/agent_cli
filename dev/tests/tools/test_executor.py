@@ -28,6 +28,36 @@ from agent_cli.core.runtime.tools.registry import ToolRegistry
 
 
 def _parse_tool_result(result: ToolResult) -> dict[str, Any]:
+    if result.output.startswith("[tool_result "):
+        header, body = result.output.split("\n", 1)
+        body = body.rsplit("\n[/tool_result]", 1)[0]
+        attrs: dict[str, str] = {}
+        for part in header[len("[tool_result ") : -1].split():
+            key, value = part.split("=", 1)
+            attrs[key] = value
+
+        return {
+            "type": "tool_result",
+            "payload": {
+                "tool": attrs.get("tool", ""),
+                "status": attrs.get("status", ""),
+                "truncated": attrs.get("truncated", "false") == "true",
+                "truncated_chars": int(attrs.get("truncated_chars", "0")),
+                "output": body,
+                "error_code": attrs.get("error_code", ""),
+                "retryable": attrs.get("retryable", "") == "true"
+                if "retryable" in attrs
+                else None,
+            },
+            "metadata": {
+                "task_id": attrs.get("task_id", ""),
+                "native_call_id": attrs.get("native_call_id", ""),
+                "action_id": attrs.get("action_id", ""),
+                "batch_id": attrs.get("batch_id", ""),
+                "content_ref": attrs.get("content_ref", ""),
+            },
+        }
+
     parsed = json.loads(result.output)
     assert parsed["type"] == "tool_result"
     return parsed
@@ -35,6 +65,11 @@ def _parse_tool_result(result: ToolResult) -> dict[str, Any]:
 
 class DummyArgs(BaseModel):
     arg1: str = Field(description="First argument")
+
+
+class WriteArgs(BaseModel):
+    path: str = Field(description="Path")
+    content: str = Field(description="Content")
 
 
 class SafeDummyTool(BaseTool):
@@ -69,6 +104,20 @@ class UnsafeDummyTool(BaseTool):
         return f"Unsafe {arg1}"
 
 
+class RefWriteTool(BaseTool):
+    name = "ref_write_tool"
+    description = "A tool that echoes content writes."
+    category = ToolCategory.FILE
+    is_safe = True
+
+    @property
+    def args_schema(self) -> type[BaseModel]:
+        return WriteArgs
+
+    async def execute(self, path: str, content: str, **kwargs: Any) -> str:
+        return f"WRITE[{path}]={content}"
+
+
 class _AnswerInteractionHandler(BaseInteractionHandler):
     def __init__(self, answer: str) -> None:
         self.answer = answer
@@ -89,6 +138,7 @@ def registry():
     reg = ToolRegistry()
     reg.register(SafeDummyTool())
     reg.register(UnsafeDummyTool())
+    reg.register(RefWriteTool())
     return reg
 
 
@@ -153,6 +203,7 @@ async def test_executor_validation_failure(registry, event_bus, output_formatter
     parsed = _parse_tool_result(result)
     assert result.success is False
     assert parsed["payload"]["status"] == "error"
+    assert parsed["payload"]["error_code"] == "INVALID_ARGUMENTS"
     assert "Invalid arguments" in parsed["payload"]["output"]
 
 
@@ -169,6 +220,7 @@ async def test_executor_unknown_tool(registry, event_bus, output_formatter):
     parsed = _parse_tool_result(result)
     assert result.success is False
     assert parsed["payload"]["status"] == "error"
+    assert parsed["payload"]["error_code"] == "TOOL_NOT_FOUND"
     assert "Unknown tool" in parsed["payload"]["output"]
 
 
@@ -319,8 +371,75 @@ async def test_executor_unsafe_tool_denied(registry, event_bus, output_formatter
     await task
 
     assert "User denied execution." in parsed["payload"]["output"]
+    assert parsed["payload"]["error_code"] == "APPROVAL_DENIED"
     assert parsed["payload"]["tool"] == "unsafe_tool"
     assert parsed["metadata"]["task_id"] == "task_2"
+
+
+@pytest.mark.asyncio
+async def test_executor_resolves_content_ref_before_validation(
+    registry, event_bus, output_formatter
+):
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        auto_approve=True,
+        data_registry=DataRegistry(),
+    )
+    content_ref = executor.store_content("hello-ref-content")
+
+    result = await executor.execute(
+        "ref_write_tool",
+        {"path": "notes.txt", "content_ref": content_ref},
+    )
+    parsed = _parse_tool_result(result)
+    assert result.success is True
+    assert "WRITE[notes.txt]=hello-ref-content" in parsed["payload"]["output"]
+
+
+@pytest.mark.asyncio
+async def test_executor_content_ref_falls_back_to_literal_when_missing(
+    registry, event_bus, output_formatter
+):
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        auto_approve=True,
+        data_registry=DataRegistry(),
+    )
+    missing_ref = "sha256:doesnotexist"
+
+    result = await executor.execute(
+        "ref_write_tool",
+        {"path": "notes.txt", "content_ref": missing_ref},
+    )
+    parsed = _parse_tool_result(result)
+    assert result.success is True
+    assert f"WRITE[notes.txt]={missing_ref}" in parsed["payload"]["output"]
+
+
+@pytest.mark.asyncio
+async def test_executor_includes_batch_id_when_provided(
+    registry, event_bus, output_formatter
+):
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        auto_approve=True,
+        data_registry=DataRegistry(),
+    )
+
+    result = await executor.execute(
+        "safe_tool",
+        {"arg1": "batched"},
+        batch_id="batch_test01",
+    )
+    parsed = _parse_tool_result(result)
+    assert result.success is True
+    assert parsed["metadata"]["batch_id"] == "batch_test01"
 
 
 @pytest.mark.asyncio

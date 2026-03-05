@@ -32,6 +32,7 @@ from agent_cli.core.runtime.agents.parsers import (
     ParsedAction,
 )
 from agent_cli.core.runtime.agents.react_loop import PromptBuilder, StuckDetector
+from agent_cli.core.runtime.agents.resource_tracker import ResourceTracker
 from agent_cli.core.runtime.agents.schema import BaseSchemaValidator
 from agent_cli.core.infra.events.errors import (
     AgentCLIError,
@@ -148,6 +149,32 @@ class BaseAgent(ABC):
         self._schema_defaults = self._data_registry.get_schema_defaults()
         self._retry_defaults = self._data_registry.get_retry_defaults()
         self._cached_capability_snapshot: Any = None
+        configured_model = str(self.config.model).strip() or str(
+            getattr(self.provider, "model_name", "")
+        ).strip() or str(getattr(self.settings, "default_model", "")).strip()
+        context_limit = (
+            self._data_registry.get_context_window(configured_model)
+            if configured_model
+            else 128_000
+        )
+        core_settings = getattr(self.settings, "core", {})
+        raw_budget = (
+            core_settings.get("cost_budget_usd")
+            if isinstance(core_settings, dict)
+            else None
+        )
+        cost_budget: float | None = None
+        if raw_budget is not None:
+            try:
+                parsed_budget = float(raw_budget)
+            except (TypeError, ValueError):
+                parsed_budget = 0.0
+            if parsed_budget > 0:
+                cost_budget = parsed_budget
+        self._resource_tracker = ResourceTracker(
+            context_limit=context_limit,
+            cost_budget=cost_budget,
+        )
 
         # Task-local message delta captured from the most recent handle_task() call.
         self._last_task_messages: List[Dict[str, Any]] = []
@@ -377,6 +404,7 @@ class BaseAgent(ABC):
                         event_bus=self.event_bus,
                     )
                     llm_response_text = getattr(llm_response, "text_content", "")
+                    self._on_llm_response(llm_response)
 
                     # INTERCEPT: Extract and save raw response for debugging
                     self._debug_intercept_response(
@@ -618,6 +646,17 @@ class BaseAgent(ABC):
                                 track_for_session=True,
                             )
 
+                            store_content = getattr(self.tool_executor, "store_content", None)
+                            if callable(store_content) and final_answer_text:
+                                try:
+                                    store_content(final_answer_text)
+                                except Exception:
+                                    logger.debug(
+                                        "Failed to store notify_user content for task %s",
+                                        task_id,
+                                        exc_info=True,
+                                    )
+
                             final = await self.on_final_answer(final_answer_text)
 
                             # Publish to TUI
@@ -650,29 +689,28 @@ class BaseAgent(ABC):
                                 track_for_session=True,
                             )
                             reflect_count += 1
+                            reflect_message = (
+                                f"Reasoning noted ({reflect_count}/{max_reflects} reflects used)."
+                            )
                             if reflect_count >= max_reflects:
-                                _append_message(
-                                    {
-                                        "role": "system",
-                                        "content": (
-                                            f"You have reflected {reflect_count} consecutive "
-                                            "times. You must now execute an action or "
-                                            "provide a final answer."
-                                        ),
-                                    },
-                                    track_for_session=True,
+                                reflect_message += (
+                                    " You have reached the reflect limit. You must now "
+                                    "execute an action or provide a final answer."
                                 )
-                            else:
-                                _append_message(
-                                    {
-                                        "role": "system",
-                                        "content": (
-                                            "Reasoning noted. Continue planning "
-                                            "or execute an action."
-                                        ),
-                                    },
-                                    track_for_session=True,
+                            elif reflect_count >= max_reflects - 1:
+                                reflect_message += (
+                                    " You must act or respond on your next turn."
                                 )
+
+                            resource_summary = self._resource_tracker.summary()
+                            if resource_summary:
+                                reflect_message += f" {resource_summary}"
+                            reflect_message += " Continue planning or execute an action."
+
+                            _append_message(
+                                {"role": "system", "content": reflect_message},
+                                track_for_session=True,
+                            )
                             continue
 
                         case AgentDecision.YIELD:
@@ -863,6 +901,22 @@ class BaseAgent(ABC):
         if callable(getter):
             return getter()
         return None
+
+    def _on_llm_response(self, response: LLMResponse | None) -> None:
+        """Track token/cost usage for budget-aware reflect hints."""
+        if response is None:
+            return
+
+        input_tokens = max(int(getattr(response, "input_tokens", 0) or 0), 0)
+        output_tokens = max(int(getattr(response, "output_tokens", 0) or 0), 0)
+        cost = max(float(getattr(response, "cost_usd", 0.0) or 0.0), 0.0)
+        if input_tokens == 0 and output_tokens == 0 and cost <= 0:
+            return
+        self._resource_tracker.update(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=cost,
+        )
 
     def get_prompt_tool_names(self) -> List[str]:
         """Return locally executable tool names for prompt construction."""

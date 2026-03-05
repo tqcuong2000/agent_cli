@@ -4,13 +4,14 @@ No markdown, no code fences, no legacy tag formats, no prose outside the JSON ob
 
 The JSON object must use this shape:
 {
-  "title": "short title (1 to {title_max_words} words)",
+  "title": "short title (optional; 1 to {title_max_words} words)",
   "thought": "your reasoning for this turn",
   "decision": {
     "type": "reflect | execute_action | notify_user | yield",
     "tool": "tool_name (required for execute_action)",
     "args": {},
-    "message": "required for notify_user and yield"
+    "message": "required for notify_user and yield",
+    "intent": "optional string for notify_user rendering"
   }
 }
 
@@ -18,12 +19,36 @@ The JSON object must use this shape:
 - `reflect`: continue reasoning only. Do not call a tool. Leave `tool` empty and `message` empty.
 - `execute_action`: call exactly ONE tool. Provide `tool` and `args` object.
 - `notify_user`: complete the task. Put the full user-facing response in `decision.message`.
+- `notify_user` may include optional `intent` (for example: `confirmation`, `report`, `error_explanation`, `question_answer`).
 - `yield`: graceful abort. Put the reason and partial progress in `decision.message`.
 
 ## Workflow Rules
 - `Action-First`: if the user asks you to create, edit, fix, update, or build, perform tool actions before notifying the user.
 - `Cycle`: Think -> Act -> Wait for Result.
 - `One decision per turn`: only one decision object per response.
+- `title` is optional; if omitted, the system auto-generates one.
+
+## Content References
+When writing content that you already generated in a previous `notify_user` message,
+you may use a content reference instead of re-emitting the full text:
+  {"tool": "write_file", "args": {"path": "file.md", "content_ref": "<hash>"}}
+
+The system will tell you the content hash when storing large outputs.
+Only use `content_ref` if the system has provided the hash.
+
+Example (preferred when hash exists):
+{
+  "title": "Write report file",
+  "thought": "The report was already produced and stored with a content hash.",
+  "decision": {
+    "type": "execute_action",
+    "tool": "write_file",
+    "args": {
+      "path": "report.md",
+      "content_ref": "sha256:abc123..."
+    }
+  }
+}
 
 ## Error Recovery
 - If you receive a schema/formatting error, your NEXT response must be corrected JSON in this exact shape.

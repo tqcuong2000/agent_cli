@@ -1,16 +1,16 @@
-"""
-Tool Executor — the safety + observability wrapper around tool calls.
+﻿"""
+Tool Executor â€” the safety + observability wrapper around tool calls.
 
 The Tool Executor sits between the Agent loop and ``BaseTool.execute()``.
 It handles:
 
-1. **Validation** — arguments checked against the Pydantic schema.
-2. **Safety** — unsafe tools trigger approval events via the Event Bus.
-3. **Observability** — emit ``ToolExecutionStartEvent`` / ``ToolExecutionResultEvent``.
-4. **Output formatting** — truncation and JSON envelope normalization.
-5. **Error shielding** — catch exceptions and return formatted error strings.
+1. **Validation** â€” arguments checked against the Pydantic schema.
+2. **Safety** â€” unsafe tools trigger approval events via the Event Bus.
+3. **Observability** â€” emit ``ToolExecutionStartEvent`` / ``ToolExecutionResultEvent``.
+4. **Output formatting** â€” truncation and JSON envelope normalization.
+5. **Error shielding** â€” catch exceptions and return formatted error strings.
 
-The Agent loop calls ``ToolExecutor.execute()`` — never
+The Agent loop calls ``ToolExecutor.execute()`` â€” never
 ``BaseTool.execute()`` directly.
 """
 
@@ -20,6 +20,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from agent_cli.core.runtime.agents.content_store import ContentStore
 from agent_cli.core.infra.events.errors import ToolExecutionError
 from agent_cli.core.infra.events.event_bus import AbstractEventBus
 from agent_cli.core.infra.events.events import (
@@ -37,6 +38,7 @@ from agent_cli.core.ux.interaction.interaction import (
 from agent_cli.core.infra.logging.tracing import start_span
 from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.tools.base import ToolResult
+from agent_cli.core.runtime.tools.error_codes import ToolErrorCode
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
 from agent_cli.core.runtime.tools.shell_tool import (
@@ -52,20 +54,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Tool Executor
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 class ToolExecutor:
     """Execute tool calls with safety checks, observability, and output
     formatting.
 
-    This is what the Agent loop calls — never ``BaseTool.execute()``
+    This is what the Agent loop calls â€” never ``BaseTool.execute()``
     directly.
 
     Args:
-        registry:         Tool catalog for name → tool lookup.
+        registry:         Tool catalog for name â†’ tool lookup.
         event_bus:        For emitting tool events and HITL requests.
         output_formatter: Truncation and consistent formatting.
         auto_approve:     If ``True``, skip user approval for all tools.
@@ -82,6 +84,7 @@ class ToolExecutor:
         interaction_handler: Optional["BaseInteractionHandler"] = None,
         file_tracker: Optional[FileChangeTracker] = None,
         approval_timeout_seconds: float | None = None,
+        content_store: Optional[ContentStore] = None,
         data_registry: DataRegistry,
         observability: Optional["ObservabilityManager"] = None,
     ) -> None:
@@ -92,6 +95,7 @@ class ToolExecutor:
         self._interaction_handler = interaction_handler
         self._file_tracker = file_tracker
         self._observability = observability
+        self._content_store = content_store or ContentStore()
         defaults = data_registry.get_tool_defaults().get("executor", {})
         self._safe_command_patterns = compile_safe_command_patterns(data_registry)
         self._approval_timeout_seconds = float(
@@ -108,7 +112,7 @@ class ToolExecutor:
             cast("EventCallback", self._on_approval_response),
         )
 
-    # ── Public API ───────────────────────────────────────────────
+    # â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     async def execute(
         self,
@@ -118,115 +122,84 @@ class ToolExecutor:
         *,
         native_call_id: str = "",
         action_id: str = "",
+        batch_id: str = "",
     ) -> ToolResult:
-        """Execute a validated tool call.
-
-        Flow:
-        1. Look up tool in registry
-        2. Validate arguments via Pydantic schema
-        3. Check safety (is_safe flag + dynamic regex for commands)
-        4. If unsafe → request user approval (AWAITING_INPUT)
-        5. Emit ToolExecutionStartEvent
-        6. Execute with error shielding
-        7. Format output via ToolOutputFormatter
-        8. Emit ToolExecutionResultEvent
-        9. Return structured ``ToolResult``
-        """
+        """Execute a validated tool call."""
         tool = self.registry.get(tool_name)
         if tool is None:
-            error_message = f"Unknown tool: '{tool_name}'"
-            formatted = self.output_formatter.format(
-                tool_name,
-                error_message,
-                success=False,
+            return self._build_error_result(
+                tool_name=tool_name,
+                error_message=f"Unknown tool: '{tool_name}'",
+                error_code=ToolErrorCode.TOOL_NOT_FOUND,
                 task_id=task_id,
                 native_call_id=native_call_id,
                 action_id=action_id,
-            )
-            return ToolResult(
-                success=False,
-                output=formatted,
-                error=error_message,
-                action_id=action_id,
-                tool_name=tool_name,
+                batch_id=batch_id,
             )
 
-        # ── 1. Validate arguments ────────────────────────────────
+        resolved_arguments = self._resolve_content_refs(arguments, tool_name=tool_name)
+
         try:
-            validated = tool.validate_args(**arguments)
-        except Exception as e:
-            error_message = f"Invalid arguments for '{tool_name}': {e}"
-            formatted = self.output_formatter.format(
-                tool_name,
-                error_message,
-                success=False,
+            validated = tool.validate_args(**resolved_arguments)
+        except Exception as exc:
+            return self._build_error_result(
+                tool_name=tool_name,
+                error_message=f"Invalid arguments for '{tool_name}': {exc}",
+                error_code=ToolErrorCode.INVALID_ARGUMENTS,
                 task_id=task_id,
                 native_call_id=native_call_id,
                 action_id=action_id,
-            )
-            return ToolResult(
-                success=False,
-                output=formatted,
-                error=error_message,
-                action_id=action_id,
-                tool_name=tool_name,
+                batch_id=batch_id,
             )
 
-        # ── 2. Safety check ──────────────────────────────────────
         requires_approval = not tool.is_safe
-        # Dynamic override: safe shell commands skip approval
         if requires_approval and tool.name == "run_command":
-            cmd = arguments.get("command", "")
+            cmd = resolved_arguments.get("command", "")
             if is_safe_command(cmd, self._safe_command_patterns):
                 requires_approval = False
 
         if requires_approval and not self._auto_approve:
+            approval_timed_out = False
             if self._interaction_handler is not None:
                 approved = await self._request_approval_via_handler(
                     tool_name=tool_name,
-                    arguments=arguments,
+                    arguments=resolved_arguments,
                     task_id=task_id,
                 )
             else:
-                # Backward-compatible fallback while migrating older flows.
-                approved = await self._request_approval(
+                approved, approval_timed_out = await self._request_approval(
                     tool_name=tool_name,
-                    arguments=arguments,
+                    arguments=resolved_arguments,
                     task_id=task_id,
                 )
             if not approved:
-                error_message = "User denied execution."
-                formatted = self.output_formatter.format(
-                    tool_name,
-                    error_message,
-                    success=False,
+                return self._build_error_result(
+                    tool_name=tool_name,
+                    error_message="User denied execution.",
+                    error_code=(
+                        ToolErrorCode.APPROVAL_TIMEOUT
+                        if approval_timed_out
+                        else ToolErrorCode.APPROVAL_DENIED
+                    ),
                     task_id=task_id,
                     native_call_id=native_call_id,
                     action_id=action_id,
-                )
-                return ToolResult(
-                    success=False,
-                    output=formatted,
-                    error=error_message,
-                    action_id=action_id,
-                    tool_name=tool_name,
+                    batch_id=batch_id,
                 )
 
-        # Use publish() (synchronous) so the TUI handler mounts the
-        # ToolStepWidget before the tool executes.  emit() (fire-and-forget)
-        # would schedule it as a background task that races with tool output.
         await self.event_bus.publish(
             ToolExecutionStartEvent(
                 source="tool_executor",
                 task_id=task_id,
                 tool_name=tool_name,
-                arguments=arguments,
+                arguments=resolved_arguments,
             )
         )
 
         span = start_span("tool_exec", task_id=task_id)
         success = True
         raw_result = ""
+        captured_exception: Exception | None = None
 
         try:
             execution_args = validated.model_dump()
@@ -234,18 +207,15 @@ class ToolExecutor:
                 execution_args["_interaction_handler"] = self._interaction_handler
                 execution_args["_task_id"] = task_id
 
-            # ── 3.3 Record Changes Before Execution (Phase 4.4) ──────
             if self._file_tracker:
                 if tool_name == "write_file":
-                    path = arguments.get("path")
+                    path = resolved_arguments.get("path")
                     if path:
                         from pathlib import Path
 
                         full_path = path
                         if self._file_tracker.workspace_root:
                             full_path = self._file_tracker.workspace_root / path
-
-                        # Detect if it's a MODIFIED or CREATED change
                         change_type = (
                             ChangeType.MODIFIED
                             if Path(full_path).exists()
@@ -253,51 +223,43 @@ class ToolExecutor:
                         )
                         await self._file_tracker.record_change(path, change_type)
                 elif tool_name in ("str_replace", "insert_lines"):
-                    path = arguments.get("path")
+                    path = resolved_arguments.get("path")
                     if path:
-                        await self._file_tracker.record_change(
-                            path, ChangeType.MODIFIED
-                        )
+                        await self._file_tracker.record_change(path, ChangeType.MODIFIED)
                 elif tool_name == "run_command":
-                    cmd = arguments.get("command", "")
+                    cmd = resolved_arguments.get("command", "")
                     if cmd:
                         import shlex
 
                         try:
-                            # Use shlex to parse the command (posix=False for Windows compatibility might be needed but posix=True is safer for standard parsing)
                             parts = shlex.split(cmd)
                             if parts and parts[0] in ("rm", "del"):
-                                # Extract files after rm/del, skipping flags like -rf
                                 files_to_delete = [
                                     p for p in parts[1:] if not p.startswith("-")
                                 ]
                                 for file_path in files_to_delete:
-                                    # Try to determine if it's actually a file, though it might be a dir
-                                    # File change tracker doesn't recursively track directories right now, but we track the path.
                                     await self._file_tracker.record_change(
                                         file_path, ChangeType.DELETED
                                     )
                         except Exception:
-                            pass  # Safely ignore parsing errors
+                            pass
 
             raw_result = await tool.execute(**execution_args)
-
-        except ToolExecutionError as e:
-            raw_result = str(e)
+        except ToolExecutionError as exc:
+            raw_result = str(exc)
             success = False
-
-        except Exception as e:
-            # Shield: catch unexpected OS errors
-            raw_result = f"{type(e).__name__}: {e}"
+            captured_exception = exc
+        except Exception as exc:
+            raw_result = f"{type(exc).__name__}: {exc}"
             success = False
+            captured_exception = exc
             logger.warning(
-                "Unexpected error in tool '%s': %s", tool_name, e, exc_info=True
+                "Unexpected error in tool '%s': %s", tool_name, exc, exc_info=True
             )
 
         timing = span.finish()
         duration_ms = int(timing["duration_ms"])
 
-        # ── 4. Log ───────────────────────────────────────────────
         if self._observability is not None:
             self._observability.record_tool_call(
                 task_id=task_id,
@@ -327,15 +289,43 @@ class ToolExecutor:
                 },
             )
 
-        # ── 5. Format output ─────────────────────────────────────
-        formatted = self.output_formatter.format(
-            tool_name,
-            raw_result,
-            success,
-            task_id=task_id,
-            native_call_id=native_call_id,
-            action_id=action_id,
-        )
+        content_ref = ""
+        error_code = ToolErrorCode.UNKNOWN
+        if success and tool_name == "read_file" and raw_result:
+            content_ref = self.store_content(raw_result)
+
+        if success:
+            formatted = self.output_formatter.format(
+                tool_name,
+                raw_result,
+                success=True,
+                task_id=task_id,
+                native_call_id=native_call_id,
+                action_id=action_id,
+                total_chars=len(raw_result),
+                total_lines=self._count_lines(raw_result),
+                content_ref=content_ref,
+                batch_id=batch_id,
+            )
+        else:
+            error_code = self._classify_error_code(
+                tool_name=tool_name,
+                message=raw_result,
+                exc=captured_exception,
+            )
+            formatted = self.output_formatter.format(
+                tool_name,
+                raw_result,
+                success=False,
+                task_id=task_id,
+                native_call_id=native_call_id,
+                action_id=action_id,
+                error_code=error_code.value,
+                retryable=error_code.retryable,
+                total_chars=len(raw_result),
+                total_lines=self._count_lines(raw_result),
+                batch_id=batch_id,
+            )
 
         await self.event_bus.publish(
             ToolExecutionResultEvent(
@@ -352,6 +342,13 @@ class ToolExecutor:
             metadata["task_id"] = task_id
         if native_call_id:
             metadata["native_call_id"] = native_call_id
+        if content_ref:
+            metadata["content_ref"] = content_ref
+        if batch_id:
+            metadata["batch_id"] = batch_id
+        if not success:
+            metadata["error_code"] = error_code.value
+            metadata["retryable"] = error_code.retryable
 
         return ToolResult(
             success=success,
@@ -362,7 +359,158 @@ class ToolExecutor:
             tool_name=tool_name,
         )
 
-    # ── Approval Handling ────────────────────────────────────────
+    def store_content(self, content: str) -> str:
+        """Store content and return a session-scoped reference hash."""
+        return self._content_store.store(content)
+
+    def _resolve_content_refs(
+        self,
+        arguments: Dict[str, Any],
+        *,
+        tool_name: str,
+    ) -> Dict[str, Any]:
+        resolved: Dict[str, Any] = {}
+        for key, value in arguments.items():
+            if key == "content_ref":
+                continue
+            resolved[key] = self._resolve_content_value(
+                value,
+                tool_name=tool_name,
+                argument_name=key,
+            )
+
+        content_ref = arguments.get("content_ref")
+        if isinstance(content_ref, str) and "content" not in resolved:
+            content = self._content_store.resolve(content_ref)
+            if content is not None:
+                logger.info(
+                    "Resolved content_ref for tool '%s' (arg=content, ref=%s, chars=%d)",
+                    tool_name,
+                    content_ref,
+                    len(content),
+                )
+                resolved["content"] = content
+            else:
+                resolved["content"] = content_ref
+        return resolved
+
+    def _resolve_content_value(
+        self,
+        value: Any,
+        *,
+        tool_name: str,
+        argument_name: str,
+    ) -> Any:
+        if isinstance(value, str) and value.startswith("sha256:"):
+            content = self._content_store.resolve(value)
+            if content is not None:
+                logger.info(
+                    "Resolved content_ref for tool '%s' (arg=%s, ref=%s, chars=%d)",
+                    tool_name,
+                    argument_name,
+                    value,
+                    len(content),
+                )
+                return content
+            return value
+        if isinstance(value, dict):
+            return {
+                k: self._resolve_content_value(
+                    v,
+                    tool_name=tool_name,
+                    argument_name=f"{argument_name}.{k}",
+                )
+                for k, v in value.items()
+            }
+        if isinstance(value, list):
+            return [
+                self._resolve_content_value(
+                    item,
+                    tool_name=tool_name,
+                    argument_name=f"{argument_name}[{idx}]",
+                )
+                for idx, item in enumerate(value)
+            ]
+        return value
+
+    def _build_error_result(
+        self,
+        *,
+        tool_name: str,
+        error_message: str,
+        error_code: ToolErrorCode,
+        task_id: str,
+        native_call_id: str,
+        action_id: str,
+        batch_id: str,
+    ) -> ToolResult:
+        formatted = self.output_formatter.format(
+            tool_name,
+            error_message,
+            success=False,
+            task_id=task_id,
+            native_call_id=native_call_id,
+            action_id=action_id,
+            error_code=error_code.value,
+            retryable=error_code.retryable,
+            total_chars=len(error_message),
+            total_lines=self._count_lines(error_message),
+            batch_id=batch_id,
+        )
+        metadata: Dict[str, Any] = {
+            "error_code": error_code.value,
+            "retryable": error_code.retryable,
+        }
+        if task_id:
+            metadata["task_id"] = task_id
+        if native_call_id:
+            metadata["native_call_id"] = native_call_id
+        if batch_id:
+            metadata["batch_id"] = batch_id
+        return ToolResult(
+            success=False,
+            output=formatted,
+            error=error_message,
+            metadata=metadata,
+            action_id=action_id,
+            tool_name=tool_name,
+        )
+
+    def _classify_error_code(
+        self,
+        *,
+        tool_name: str,
+        message: str,
+        exc: Exception | None = None,
+    ) -> ToolErrorCode:
+        lowered = message.lower()
+        if isinstance(exc, FileNotFoundError) or "file not found" in lowered:
+            return ToolErrorCode.FILE_NOT_FOUND
+        if isinstance(exc, PermissionError) or "permission denied" in lowered:
+            return ToolErrorCode.PERMISSION_DENIED
+        if "timed out" in lowered or isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+            return ToolErrorCode.COMMAND_TIMEOUT
+        if "invalid arguments" in lowered:
+            return ToolErrorCode.INVALID_ARGUMENTS
+        if "unknown tool" in lowered:
+            return ToolErrorCode.TOOL_NOT_FOUND
+        if "user denied execution" in lowered:
+            return ToolErrorCode.APPROVAL_DENIED
+        if "approval timeout" in lowered:
+            return ToolErrorCode.APPROVAL_TIMEOUT
+        if "encoding" in lowered or "utf-8" in lowered:
+            return ToolErrorCode.ENCODING_ERROR
+        if tool_name == "run_command":
+            return ToolErrorCode.COMMAND_FAILED
+        if isinstance(exc, ToolExecutionError):
+            return ToolErrorCode.UNKNOWN
+        return ToolErrorCode.INTERNAL_ERROR
+
+    @staticmethod
+    def _count_lines(value: str) -> int:
+        if not value:
+            return 0
+        return value.count("\n") + 1
 
     def set_interaction_handler(
         self,
@@ -402,7 +550,7 @@ class ToolExecutor:
         tool_name: str,
         arguments: Dict[str, Any],
         task_id: str,
-    ) -> bool:
+    ) -> tuple[bool, bool]:
         """Request user approval before executing an unsafe tool.
 
         Emits ``UserApprovalRequestEvent`` and waits for the
@@ -439,11 +587,11 @@ class ToolExecutor:
                 )
         except asyncio.TimeoutError:
             logger.warning("Approval timeout for tool '%s'", tool_name)
-            return False
+            return False, True
         finally:
             self._pending_approvals.pop(approval_key, None)
 
-        return self._approval_results.pop(approval_key, False)
+        return self._approval_results.pop(approval_key, False), False
 
     async def _on_approval_response(self, event: "BaseEvent") -> None:
         """Handle incoming approval responses from the TUI."""
@@ -456,3 +604,4 @@ class ToolExecutor:
                 self._approval_results[key] = event.approved
                 wait_event.set()
                 break
+

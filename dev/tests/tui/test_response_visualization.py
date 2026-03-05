@@ -131,6 +131,23 @@ async def test_tool_step_mark_failed_updates_label_and_stops_timer():
 
 
 @pytest.mark.asyncio
+async def test_tool_step_mark_failed_escapes_rich_markup_in_error():
+    step = ToolStepWidget("read_file", {"path": "a.py"})
+    app = _HostApp(step)
+
+    raw_error = "error truncated=false truncated_chars=0 er...[/dim]"
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        step.mark_failed(raw_error)
+        await pilot.pause()
+
+        label = str(step.query_one(".tool_step_label", Static).content)
+        assert "truncated=false" in label
+        assert "truncated_chars=0" in label
+        assert step._timer is None
+
+
+@pytest.mark.asyncio
 async def test_answer_block_append_chunk_accumulates_content():
     answer = AnswerBlock("Hello")
     app = _HostApp(answer)

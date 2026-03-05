@@ -1,7 +1,8 @@
 {
   "title": {
-    "min_words": 2,
-    "max_words": 15
+    "min_words": 0,
+    "max_words": 15,
+    "required": false
   },
   "validation": {
     "max_consecutive_schema_errors": 3,

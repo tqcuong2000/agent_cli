@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Dict, List
 
 from agent_cli.core.infra.registry.registry import DataRegistry
@@ -112,6 +113,16 @@ class StuckDetector:
     @staticmethod
     def _normalize_result_for_stuck_check(result: str) -> str:
         """Remove volatile envelope fields so repeated outcomes can match."""
+        lean = StuckDetector._parse_lean_tool_result(result)
+        if lean is not None:
+            stable = {
+                "status": lean.get("status"),
+                "truncated": lean.get("truncated"),
+                "truncated_chars": lean.get("truncated_chars"),
+                "output": lean.get("output"),
+            }
+            return json.dumps(stable, sort_keys=True, separators=(",", ":"))
+
         try:
             parsed = json.loads(result)
         except json.JSONDecodeError:
@@ -133,6 +144,37 @@ class StuckDetector:
             "output": payload.get("output"),
         }
         return json.dumps(stable, sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _parse_lean_tool_result(result: str) -> Dict[str, Any] | None:
+        """Parse `[tool_result ...]...[/tool_result]` envelopes."""
+        stripped = result.strip()
+        if not stripped.startswith("[tool_result "):
+            return None
+
+        match = re.match(
+            r"^\[tool_result (?P<attrs>[^\]]+)\]\n(?P<body>.*)\n\[/tool_result\]\s*$",
+            stripped,
+            re.DOTALL,
+        )
+        if match is None:
+            return None
+
+        attrs_raw = match.group("attrs")
+        attrs: Dict[str, str] = {}
+        for part in attrs_raw.split():
+            if "=" not in part:
+                continue
+            key, value = part.split("=", 1)
+            attrs[key] = value
+
+        truncated_value = attrs.get("truncated", "false").strip().lower()
+        return {
+            "status": attrs.get("status", ""),
+            "truncated": truncated_value in {"1", "true", "yes", "on"},
+            "truncated_chars": int(attrs.get("truncated_chars", "0") or "0"),
+            "output": match.group("body"),
+        }
 
 
 # ══════════════════════════════════════════════════════════════════════

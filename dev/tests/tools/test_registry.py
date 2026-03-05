@@ -42,6 +42,47 @@ class DummyExecTool(BaseTool):
         return "exec"
 
 
+def _parse_tool_output(output: str) -> dict:
+    if output.startswith("[tool_result "):
+        header, body = output.split("\n", 1)
+        body = body.rsplit("\n[/tool_result]", 1)[0]
+        attrs: dict[str, str] = {}
+        for part in header[len("[tool_result ") : -1].split():
+            key, value = part.split("=", 1)
+            attrs[key] = value
+
+        return {
+            "type": "tool_result",
+            "version": "1.0",
+            "payload": {
+                "tool": attrs.get("tool", ""),
+                "status": attrs.get("status", ""),
+                "output": body,
+                "truncated": attrs.get("truncated", "false") == "true",
+                "truncated_chars": int(attrs.get("truncated_chars", "0")),
+                "error_code": attrs.get("error_code", ""),
+                "retryable": attrs.get("retryable", "") == "true"
+                if "retryable" in attrs
+                else None,
+                "total_chars": int(attrs.get("total_chars", "0"))
+                if "total_chars" in attrs
+                else None,
+                "total_lines": int(attrs.get("total_lines", "0"))
+                if "total_lines" in attrs
+                else None,
+            },
+            "metadata": {
+                "task_id": attrs.get("task_id", ""),
+                "native_call_id": attrs.get("native_call_id", ""),
+                "action_id": attrs.get("action_id", ""),
+                "batch_id": attrs.get("batch_id", ""),
+                "content_ref": attrs.get("content_ref", ""),
+            },
+        }
+
+    return json.loads(output)
+
+
 def test_tool_registry_register_and_get():
     registry = ToolRegistry()
     t1 = DummyFileTool()
@@ -156,7 +197,7 @@ def test_tool_output_formatter():
 
     # Success, short output
     res = formatter.format("test_tool", "short result")
-    parsed = json.loads(res)
+    parsed = _parse_tool_output(res)
     assert parsed["type"] == "tool_result"
     assert parsed["version"] == "1.0"
     assert parsed["payload"]["tool"] == "test_tool"
@@ -167,14 +208,63 @@ def test_tool_output_formatter():
 
     # Failure, short output
     res = formatter.format("test_tool", "short error", success=False)
-    parsed = json.loads(res)
+    parsed = _parse_tool_output(res)
     assert parsed["payload"]["status"] == "error"
     assert parsed["payload"]["output"] == "short error"
 
     # Success, long output (should truncate)
     long_res = "A" * 15 + "B" * 15
     res = formatter.format("test_tool", long_res)
-    parsed = json.loads(res)
+    parsed = _parse_tool_output(res)
     assert parsed["payload"]["truncated"] is True
+    assert parsed["payload"]["total_chars"] == len(long_res)
+    assert parsed["payload"]["total_lines"] == 1
     assert long_res[:10] in parsed["payload"]["output"]
     assert long_res[-10:] in parsed["payload"]["output"]
+
+
+def test_tool_output_formatter_lean_envelope() -> None:
+    formatter = ToolOutputFormatter(
+        max_output_length=20,
+        data_registry=DataRegistry(),
+    )
+    formatter.lean_envelope = True
+
+    res = formatter.format("test_tool", "short result", task_id="task_1", action_id="act_1")
+    parsed = _parse_tool_output(res)
+    assert parsed["type"] == "tool_result"
+    assert parsed["payload"]["tool"] == "test_tool"
+    assert parsed["payload"]["status"] == "success"
+    assert parsed["payload"]["output"] == "short result"
+    assert parsed["metadata"]["task_id"] == "task_1"
+    assert parsed["metadata"]["action_id"] == "act_1"
+
+
+def test_tool_output_formatter_includes_error_code_metadata() -> None:
+    formatter = ToolOutputFormatter(data_registry=DataRegistry())
+    formatter.lean_envelope = False
+
+    res = formatter.format(
+        "read_file",
+        "File not found",
+        success=False,
+        error_code="FILE_NOT_FOUND",
+        retryable=False,
+    )
+    parsed = _parse_tool_output(res)
+    assert parsed["payload"]["error_code"] == "FILE_NOT_FOUND"
+    assert parsed["payload"]["retryable"] is False
+
+
+def test_tool_output_formatter_includes_batch_id_metadata() -> None:
+    formatter = ToolOutputFormatter(data_registry=DataRegistry())
+
+    res = formatter.format(
+        "read_file",
+        "ok",
+        success=True,
+        action_id="act_1",
+        batch_id="batch_abc123",
+    )
+    parsed = _parse_tool_output(res)
+    assert parsed["metadata"]["batch_id"] == "batch_abc123"

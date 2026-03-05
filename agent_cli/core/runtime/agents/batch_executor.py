@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import List
+from uuid import uuid4
 
 from agent_cli.core.runtime.agents.parsers import ParsedAction
 from agent_cli.core.runtime.tools.base import ToolResult
@@ -37,6 +38,7 @@ class BatchExecutor:
         """Execute actions and return results in the original action order."""
         if not actions:
             return []
+        batch_id = f"batch_{uuid4().hex[:8]}"
 
         results: List[ToolResult | None] = [None] * len(actions)
         parallel_indexes: List[int] = []
@@ -55,6 +57,7 @@ class BatchExecutor:
                 action=action,
                 task_id=task_id,
                 fallback_action_id=f"act_{index}",
+                batch_id=batch_id,
                 semaphore=semaphore,
             )
 
@@ -67,6 +70,7 @@ class BatchExecutor:
                 action=action,
                 task_id=task_id,
                 fallback_action_id=f"act_{index}",
+                batch_id=batch_id,
             )
 
         finalized: List[ToolResult] = []
@@ -83,12 +87,14 @@ class BatchExecutor:
                 task_id=task_id,
                 native_call_id=action.native_call_id,
                 action_id=action_id,
+                batch_id=batch_id,
             )
             finalized.append(
                 ToolResult(
                     success=False,
                     output=formatted,
                     error="Batch execution did not produce a result.",
+                    metadata={"batch_id": batch_id},
                     action_id=action_id,
                     tool_name=action.tool_name,
                 )
@@ -107,6 +113,7 @@ class BatchExecutor:
         action: ParsedAction,
         task_id: str,
         fallback_action_id: str,
+        batch_id: str,
         semaphore: asyncio.Semaphore | None = None,
     ) -> ToolResult:
         action_id = action.action_id or fallback_action_id
@@ -118,6 +125,7 @@ class BatchExecutor:
                 task_id=task_id,
                 native_call_id=action.native_call_id,
                 action_id=action_id,
+                batch_id=batch_id,
             )
 
         try:
@@ -139,11 +147,13 @@ class BatchExecutor:
                 task_id=task_id,
                 native_call_id=action.native_call_id,
                 action_id=action_id,
+                batch_id=batch_id,
             )
             return ToolResult(
                 success=False,
                 output=formatted,
                 error=raw_error,
+                metadata={"batch_id": batch_id},
                 action_id=action_id,
                 tool_name=action.tool_name,
             )

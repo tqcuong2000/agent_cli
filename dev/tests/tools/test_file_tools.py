@@ -63,11 +63,14 @@ async def test_read_file_tool(workspace, tmp_path):
 
     # Read entire file
     content = await tool.execute(path="test.txt")
-    assert content == "line1\nline2\nline3\nline4\nline5"
+    assert "File: test.txt | Lines: 5 | Size:" in content
+    assert "Encoding: utf-8" in content
+    assert "line1" in content
+    assert "line5" in content
 
     # Read with slicing
     content_sliced = await tool.execute(path="test.txt", start_line=2, end_line=4)
-    assert "Showing lines" in content_sliced
+    assert "Showing: 2-4 of 5" in content_sliced
     assert "line2" in content_sliced
     assert "line4" in content_sliced
     assert "line1" not in content_sliced
@@ -87,6 +90,7 @@ async def test_read_file_tool_truncates_large_files(workspace, tmp_path):
     content = await tool.execute(path="large.txt")
     assert "File is large" in content
     assert "Showing first 1,048,576 bytes" in content
+    assert "File: large.txt | Lines:" in content
 
 
 @pytest.mark.asyncio
@@ -97,6 +101,7 @@ async def test_read_file_tool_handles_non_utf8_text(workspace, tmp_path):
 
     content = await tool.execute(path="latin1.txt")
     assert "replacement characters" in content
+    assert "Encoding: utf-8 (replacement)" in content
 
 
 @pytest.mark.asyncio

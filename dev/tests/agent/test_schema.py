@@ -192,12 +192,35 @@ def test_parse_prompt_json_execute_actions_repairs_object_shape(
         tool_mode=ToolCallMode.PROMPT_JSON,
     )
     result = validator_multi.parse_and_validate(response)
-    assert result.decision == AgentDecision.EXECUTE_ACTIONS
-    assert result.actions is not None
-    assert len(result.actions) == 1
-    assert result.actions[0].tool_name == "foo"
-    assert result.actions[0].action_id == "act_0"
+    assert result.decision == AgentDecision.EXECUTE_ACTION
+    assert result.action is not None
+    assert result.action.tool_name == "foo"
+    assert result.action.action_id == "act_0"
+    assert result.actions is None
     assert "Repairing execute_actions payload" in caplog.text
+
+
+def test_parse_prompt_json_execute_actions_single_item_downgrades_to_single(
+    validator_multi: SchemaValidator,
+) -> None:
+    payload = {
+        "title": "One call batch",
+        "thought": "Only one action exists.",
+        "decision": {
+            "type": "execute_actions",
+            "actions": [{"tool": "foo", "args": {"x": 1}}],
+        },
+    }
+    response = LLMResponse(
+        text_content=json.dumps(payload),
+        tool_mode=ToolCallMode.PROMPT_JSON,
+    )
+    result = validator_multi.parse_and_validate(response)
+    assert result.decision == AgentDecision.EXECUTE_ACTION
+    assert result.action is not None
+    assert result.action.tool_name == "foo"
+    assert result.action.action_id == "act_0"
+    assert result.actions is None
 
 
 def test_parse_prompt_json_execute_actions_when_multi_disabled(
@@ -263,6 +286,24 @@ def test_parse_native_fc_multiple_calls_when_multi_disabled(
         validator.parse_and_validate(response)
 
 
+def test_parse_native_fc_json_only_reconstructs_audit_fields_when_missing(
+    validator: SchemaValidator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    response = LLMResponse(
+        text_content="",
+        tool_mode=ToolCallMode.NATIVE,
+        tool_calls=[ToolCall(tool_name="foo", arguments={"x": 1}, native_call_id="call_1")],
+    )
+
+    result = validator.parse_and_validate(response)
+
+    assert result.decision == AgentDecision.EXECUTE_ACTION
+    assert result.title == "Call foo"
+    assert "Auto-reconstructed from native function call" in result.thought
+    assert "Native FC format slip detected" in caplog.text
+
+
 def test_parse_prompt_json_notify_user(validator: SchemaValidator) -> None:
     response = LLMResponse(
         text_content=_json_response(
@@ -279,6 +320,50 @@ def test_parse_prompt_json_notify_user(validator: SchemaValidator) -> None:
     assert result.final_answer == "Here is the result."
     assert result.action is None
     assert result.title == "Complete response"
+    assert result.intent == ""
+
+
+def test_parse_prompt_json_notify_user_with_intent(
+    validator: SchemaValidator,
+) -> None:
+    payload = {
+        "title": "Complete response",
+        "thought": "Everything is finished.",
+        "decision": {
+            "type": "notify_user",
+            "message": "Here is the result.",
+            "intent": "report",
+        },
+    }
+    response = LLMResponse(
+        text_content=json.dumps(payload),
+        tool_mode=ToolCallMode.PROMPT_JSON,
+    )
+
+    result = validator.parse_and_validate(response)
+    assert result.decision == AgentDecision.NOTIFY_USER
+    assert result.final_answer == "Here is the result."
+    assert result.intent == "report"
+
+
+def test_parse_prompt_json_missing_title_auto_generates_title(
+    validator: SchemaValidator,
+) -> None:
+    payload = {
+        "thought": "Review failing tests and fix defaults quickly",
+        "decision": {
+            "type": "notify_user",
+            "message": "Done.",
+        },
+    }
+    response = LLMResponse(
+        text_content=json.dumps(payload),
+        tool_mode=ToolCallMode.PROMPT_JSON,
+    )
+
+    result = validator.parse_and_validate(response)
+    assert result.title == "Review failing tests and fix..."
+    assert "Title: Review failing tests and fix..." in result.thought
 
 
 def test_parse_prompt_json_yield(validator: SchemaValidator) -> None:
