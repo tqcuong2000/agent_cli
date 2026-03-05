@@ -5,8 +5,13 @@ import pytest
 from pydantic import ValidationError
 
 from agent_cli.core.infra.events.errors import ToolExecutionError
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.tools import shell_tool
-from agent_cli.core.runtime.tools.shell_tool import RunCommandTool, is_safe_command
+from agent_cli.core.runtime.tools.shell_tool import (
+    RunCommandTool,
+    compile_safe_command_patterns,
+    is_safe_command,
+)
 from agent_cli.core.runtime.tools.workspace import WorkspaceContext
 
 
@@ -16,23 +21,24 @@ def workspace(tmp_path: Path):
 
 
 def test_is_safe_command():
-    assert is_safe_command("ls -la")
-    assert is_safe_command("cat src/main.py")
-    assert is_safe_command("echo hello")
-    assert is_safe_command("pwd")
-    assert is_safe_command("git status")
-    assert is_safe_command("pytest tests/")
-    assert is_safe_command("python -c 'print()'")
+    patterns = compile_safe_command_patterns(DataRegistry())
+    assert is_safe_command("ls -la", patterns)
+    assert is_safe_command("cat src/main.py", patterns)
+    assert is_safe_command("echo hello", patterns)
+    assert is_safe_command("pwd", patterns)
+    assert is_safe_command("git status", patterns)
+    assert is_safe_command("pytest tests/", patterns)
+    assert is_safe_command("python -c 'print()'", patterns)
 
-    assert not is_safe_command("rm -rf /")
-    assert not is_safe_command("python script.py")
-    assert not is_safe_command("docker build .")
-    assert not is_safe_command("git push")
+    assert not is_safe_command("rm -rf /", patterns)
+    assert not is_safe_command("python script.py", patterns)
+    assert not is_safe_command("docker build .", patterns)
+    assert not is_safe_command("git push", patterns)
 
 
 @pytest.mark.asyncio
 async def test_run_command_tool_success(workspace, tmp_path):
-    tool = RunCommandTool(workspace)
+    tool = RunCommandTool(workspace, data_registry=DataRegistry())
 
     # Simple echo
     res = await tool.execute("echo hello", timeout=5)
@@ -42,7 +48,7 @@ async def test_run_command_tool_success(workspace, tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_command_tool_stderr(workspace, tmp_path):
-    tool = RunCommandTool(workspace)
+    tool = RunCommandTool(workspace, data_registry=DataRegistry())
 
     # Simple error
     res = await tool.execute('python -c "1/0"', timeout=5)
@@ -53,7 +59,7 @@ async def test_run_command_tool_stderr(workspace, tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_command_tool_timeout(workspace, tmp_path):
-    tool = RunCommandTool(workspace)
+    tool = RunCommandTool(workspace, data_registry=DataRegistry())
 
     # Use a sleep command that ignores the small timeout
     with pytest.raises(ToolExecutionError, match="Command timed out after 1s"):
@@ -64,7 +70,7 @@ async def test_run_command_tool_timeout(workspace, tmp_path):
 async def test_run_command_uses_devnull_and_strips_terminal_control_sequences(
     workspace, monkeypatch
 ):
-    tool = RunCommandTool(workspace)
+    tool = RunCommandTool(workspace, data_registry=DataRegistry())
     captured: dict[str, object] = {}
 
     class _FakeProc:

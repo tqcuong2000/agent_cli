@@ -6,6 +6,7 @@ from typing import Any, Dict, Sequence
 
 import pytest
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.agents.memory import WorkingMemoryManager
 from agent_cli.core.providers.cost.budget import (
     TokenBudget,
@@ -42,9 +43,27 @@ def test_token_budget_should_compact_threshold():
 
 
 def test_budget_lookup_examples():
-    assert infer_model_max_context("gpt-4o") == 128_000
-    assert infer_model_max_context("claude-3-5-sonnet-20241022") == 200_000
-    assert infer_model_max_context("gemini-2.5-flash") == 1_000_000
+    registry = DataRegistry()
+    assert infer_model_max_context(
+        "gpt-4o",
+        data_registry=registry,
+    ) == registry.get_context_window("gpt-4o")
+    assert (
+        infer_model_max_context(
+            "claude-3-5-sonnet-20241022",
+            data_registry=registry,
+        )
+        == registry.get_context_window("claude-3-5-sonnet-20241022")
+    )
+    assert (
+        infer_model_max_context("gemini-2.5-flash", data_registry=registry)
+        == registry.get_context_window("gemini-2.5-flash")
+    )
+
+
+def test_infer_model_max_context_requires_data_registry() -> None:
+    with pytest.raises(TypeError):
+        infer_model_max_context("gpt-4o")  # type: ignore[call-arg]
 
 
 def test_budget_for_model_override_wins():
@@ -53,6 +72,7 @@ def test_budget_for_model_override_wins():
         response_reserve=2048,
         compaction_threshold=0.75,
         max_context_override=50_000,
+        data_registry=DataRegistry(),
     )
     assert budget.max_context == 50_000
     assert budget.response_reserve == 2048
@@ -69,6 +89,7 @@ async def test_working_memory_reacts_to_smaller_model_budget():
             max_context=5000, response_reserve=0, compaction_threshold=0.80
         ),
         model_name="gpt-4o",
+        data_registry=DataRegistry(),
     )
 
     memory.add_working_event({"role": "system", "content": "sys"})

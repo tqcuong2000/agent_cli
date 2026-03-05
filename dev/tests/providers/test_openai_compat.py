@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.base.models import ToolCallMode
 from agent_cli.core.providers.adapters.openai_compat import OpenAICompatibleProvider
 
@@ -13,7 +14,10 @@ from agent_cli.core.providers.adapters.openai_compat import OpenAICompatibleProv
 def get_mocked_compat(native_tools=False):
     """Returns a mocked OpenAICompatibleProvider."""
     provider = OpenAICompatibleProvider(
-        "llama-3-8b", base_url="http://localhost:11434/v1", native_tools=native_tools
+        "llama-3-8b",
+        base_url="http://localhost:11434/v1",
+        native_tools=native_tools,
+        data_registry=DataRegistry(),
     )
     # Mock the client
     provider.client = MagicMock()

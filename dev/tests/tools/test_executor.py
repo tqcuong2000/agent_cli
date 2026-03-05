@@ -13,6 +13,7 @@ from agent_cli.core.infra.events.events import (
     UserApprovalRequestEvent,
     UserApprovalResponseEvent,
 )
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.ux.interaction.interaction import (
     BaseInteractionHandler,
     InteractionType,
@@ -98,12 +99,17 @@ def event_bus():
 
 @pytest.fixture
 def output_formatter():
-    return ToolOutputFormatter(max_output_length=5000)
+    return ToolOutputFormatter(max_output_length=5000, data_registry=DataRegistry())
 
 
 @pytest.mark.asyncio
 async def test_executor_safe_tool_success(registry, event_bus, output_formatter):
-    executor = ToolExecutor(registry, event_bus, output_formatter)
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        data_registry=DataRegistry(),
+    )
 
     events = []
 
@@ -133,7 +139,12 @@ async def test_executor_safe_tool_success(registry, event_bus, output_formatter)
 
 @pytest.mark.asyncio
 async def test_executor_validation_failure(registry, event_bus, output_formatter):
-    executor = ToolExecutor(registry, event_bus, output_formatter)
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        data_registry=DataRegistry(),
+    )
 
     # Missing arg1
     result = await executor.execute("safe_tool", {})
@@ -144,7 +155,12 @@ async def test_executor_validation_failure(registry, event_bus, output_formatter
 
 @pytest.mark.asyncio
 async def test_executor_unknown_tool(registry, event_bus, output_formatter):
-    executor = ToolExecutor(registry, event_bus, output_formatter)
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        data_registry=DataRegistry(),
+    )
 
     result = await executor.execute("unknown", {"arg1": "test"})
     parsed = _parse_tool_result(result)
@@ -154,7 +170,12 @@ async def test_executor_unknown_tool(registry, event_bus, output_formatter):
 
 @pytest.mark.asyncio
 async def test_executor_tool_execution_error(registry, event_bus, output_formatter):
-    executor = ToolExecutor(registry, event_bus, output_formatter)
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        data_registry=DataRegistry(),
+    )
 
     events = []
 
@@ -177,7 +198,12 @@ async def test_executor_tool_execution_error(registry, event_bus, output_formatt
 
 @pytest.mark.asyncio
 async def test_executor_unexpected_exception(registry, event_bus, output_formatter):
-    executor = ToolExecutor(registry, event_bus, output_formatter)
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        data_registry=DataRegistry(),
+    )
 
     events = []
 
@@ -200,7 +226,13 @@ async def test_executor_unexpected_exception(registry, event_bus, output_formatt
 
 @pytest.mark.asyncio
 async def test_executor_unsafe_tool_auto_approve(registry, event_bus, output_formatter):
-    executor = ToolExecutor(registry, event_bus, output_formatter, auto_approve=True)
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        auto_approve=True,
+        data_registry=DataRegistry(),
+    )
 
     result = await executor.execute("unsafe_tool", {"arg1": "test"})
     parsed = _parse_tool_result(result)
@@ -211,7 +243,13 @@ async def test_executor_unsafe_tool_auto_approve(registry, event_bus, output_for
 async def test_executor_unsafe_tool_requires_approval(
     registry, event_bus, output_formatter
 ):
-    executor = ToolExecutor(registry, event_bus, output_formatter, auto_approve=False)
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        auto_approve=False,
+        data_registry=DataRegistry(),
+    )
 
     approval_events = []
 
@@ -246,7 +284,13 @@ async def test_executor_unsafe_tool_requires_approval(
 
 @pytest.mark.asyncio
 async def test_executor_unsafe_tool_denied(registry, event_bus, output_formatter):
-    executor = ToolExecutor(registry, event_bus, output_formatter, auto_approve=False)
+    executor = ToolExecutor(
+        registry,
+        event_bus,
+        output_formatter,
+        auto_approve=False,
+        data_registry=DataRegistry(),
+    )
 
     # We need a background task to simulate the TUI denying it
     async def deny_delayed():
@@ -283,6 +327,7 @@ async def test_executor_routes_ask_user_to_interaction_handler(
         registry,
         event_bus,
         output_formatter,
+        data_registry=DataRegistry(),
         interaction_handler=interaction_handler,
     )
 

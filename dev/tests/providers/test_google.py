@@ -7,13 +7,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.base.models import ProviderRequestOptions, ToolCallMode
 from agent_cli.core.providers.adapters.google_provider import GoogleProvider
 
 
 def get_mocked_google():
     """Returns a mocked GoogleProvider."""
-    provider = GoogleProvider("gemini-1.5-pro", api_key="AIzaSy")
+    provider = GoogleProvider(
+        "gemini-1.5-pro",
+        api_key="AIzaSy",
+        data_registry=DataRegistry(),
+    )
     # Mock the client
     provider.client = MagicMock()
     provider.client.aio.models.generate_content = AsyncMock()

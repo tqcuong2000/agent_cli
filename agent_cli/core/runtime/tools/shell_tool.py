@@ -13,8 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from functools import lru_cache
-from typing import Any, Type
+from typing import Any, Iterable, Type
 
 from pydantic import BaseModel, Field
 
@@ -27,22 +26,31 @@ from agent_cli.core.ux.interaction.base import BaseWorkspaceManager
 # Safe Command Patterns
 # ══════════════════════════════════════════════════════════════════════
 
-_SHELL_DEFAULTS = DataRegistry().get_tool_defaults().get("shell", {})
-_DEFAULT_TIMEOUT = int(_SHELL_DEFAULTS.get("default_timeout", 30))
-_MAX_TIMEOUT = int(_SHELL_DEFAULTS.get("max_timeout", 120))
+_DEFAULT_TIMEOUT = 30
+_MAX_TIMEOUT = 120
 _ANSI_CSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _ANSI_OSC_RE = re.compile(r"\x1B\][^\x1B\x07]*(?:\x07|\x1B\\)")
 _ANSI_SS3_RE = re.compile(r"\x1BO[@-~]")
 _CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]")
 
 
-def is_safe_command(command: str) -> bool:
+def compile_safe_command_patterns(
+    data_registry: DataRegistry,
+) -> tuple[re.Pattern[str], ...]:
+    defaults = data_registry.get_safe_command_patterns()
+    return tuple(re.compile(pattern) for pattern in defaults)
+
+
+def is_safe_command(
+    command: str,
+    safe_patterns: Iterable[re.Pattern[str]],
+) -> bool:
     """Check if a command matches any known safe pattern.
 
     Returns ``True`` if the command is safe (no approval needed).
     """
     stripped = command.strip()
-    return any(pattern.match(stripped) for pattern in _compiled_safe_patterns())
+    return any(pattern.match(stripped) for pattern in safe_patterns)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -82,8 +90,17 @@ class RunCommandTool(BaseTool):
     is_safe = False  # Requires approval (dynamic regex may override)
     category = ToolCategory.EXECUTION
 
-    def __init__(self, workspace: BaseWorkspaceManager) -> None:
+    def __init__(
+        self,
+        workspace: BaseWorkspaceManager,
+        *,
+        data_registry: DataRegistry,
+    ) -> None:
         self.workspace = workspace
+        defaults = data_registry.get_tool_defaults().get("shell", {})
+        self._default_timeout = int(defaults.get("default_timeout", _DEFAULT_TIMEOUT))
+        self._max_timeout = int(defaults.get("max_timeout", _MAX_TIMEOUT))
+        self._safe_patterns = compile_safe_command_patterns(data_registry)
 
     @property
     def args_schema(self) -> Type[BaseModel]:
@@ -92,10 +109,11 @@ class RunCommandTool(BaseTool):
     async def execute(
         self,
         command: str = "",
-        timeout: int = _DEFAULT_TIMEOUT,
+        timeout: int | None = None,
         **kwargs: Any,
     ) -> str:
-        timeout = min(max(int(timeout), 1), _MAX_TIMEOUT)  # Clamp to [1, max]
+        effective_timeout = self._default_timeout if timeout is None else int(timeout)
+        effective_timeout = min(max(effective_timeout, 1), self._max_timeout)
 
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -106,12 +124,15 @@ class RunCommandTool(BaseTool):
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=effective_timeout,
+            )
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
             raise ToolExecutionError(
-                f"Command timed out after {timeout}s: {command[:100]}",
+                f"Command timed out after {effective_timeout}s: {command[:100]}",
                 tool_name=self.name,
             )
 
@@ -130,12 +151,6 @@ class RunCommandTool(BaseTool):
             output_parts.append(f"[stderr]\n{stderr_text}")
 
         return "\n".join(output_parts)
-
-
-@lru_cache(maxsize=1)
-def _compiled_safe_patterns() -> tuple[re.Pattern[str], ...]:
-    defaults = DataRegistry().get_safe_command_patterns()
-    return tuple(re.compile(pattern) for pattern in defaults)
 
 
 def _sanitize_terminal_output(text: str) -> str:

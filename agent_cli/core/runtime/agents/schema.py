@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Set
+from typing import Any, Set
 
 from agent_cli.core.runtime.agents.parsers import AgentDecision, AgentResponse, ParsedAction
 from agent_cli.core.infra.events.errors import SchemaValidationError
@@ -40,15 +40,16 @@ class SchemaValidator(BaseSchemaValidator):
     def __init__(
         self,
         registered_tools: list[str],
+        *,
+        data_registry: DataRegistry,
         protocol_mode: ProtocolMode | str = ProtocolMode.JSON_ONLY,
-        data_registry: Optional[DataRegistry] = None,
     ) -> None:
         self._registered_tools: Set[str] = set(registered_tools)
         if isinstance(protocol_mode, ProtocolMode):
             self._protocol_mode = protocol_mode
         else:
             self._protocol_mode = ProtocolMode(str(protocol_mode).strip().lower())
-        schema_defaults = (data_registry or DataRegistry()).get_schema_defaults()
+        schema_defaults = data_registry.get_schema_defaults()
         title_defaults = schema_defaults.get("title", {})
         self._title_max_words = int(title_defaults.get("max_words", 15))
 

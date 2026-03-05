@@ -33,10 +33,10 @@ class SummarizingMemoryManager(WorkingMemoryManager):
         summarizer_provider_factory: Optional[SummarizerProviderFactory] = None,
         summary_budget_tokens: int | None = None,
         summary_response_tokens: int | None = None,
-        data_registry: Optional[DataRegistry] = None,
+        data_registry: DataRegistry,
         **kwargs: Any,
     ) -> None:
-        registry = data_registry or DataRegistry()
+        registry = data_registry
         summarizer_defaults = registry.get_summarizer_defaults()
         internal_models = registry.get_internal_models()
         heuristic_limits = summarizer_defaults.get("heuristic_limits", {})
@@ -65,6 +65,8 @@ class SummarizingMemoryManager(WorkingMemoryManager):
         keep_recent_messages = max(effective_keep_recent_turns * 2, 6)
         if "keep_recent" not in kwargs:
             kwargs["keep_recent"] = keep_recent_messages
+        if "data_registry" not in kwargs:
+            kwargs["data_registry"] = registry
         super().__init__(*args, **kwargs)
 
         self._keep_recent_turns = effective_keep_recent_turns

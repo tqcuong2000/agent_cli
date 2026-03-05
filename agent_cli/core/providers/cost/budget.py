@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 
 from agent_cli.core.infra.registry.registry import DataRegistry
 
@@ -26,9 +25,9 @@ class TokenBudget:
         return current_tokens >= trigger_at
 
 
-def infer_model_max_context(model_name: str) -> int:
+def infer_model_max_context(model_name: str, *, data_registry: DataRegistry) -> int:
     """Infer max context window size from the data registry."""
-    return _default_data_registry().get_context_window(model_name)
+    return data_registry.get_context_window(model_name)
 
 
 def budget_for_model(
@@ -37,21 +36,16 @@ def budget_for_model(
     response_reserve: int = 4096,
     compaction_threshold: float = 0.80,
     max_context_override: int | None = None,
-    data_registry: DataRegistry | None = None,
+    data_registry: DataRegistry,
 ) -> TokenBudget:
     """Build a TokenBudget for a model with optional provider override."""
     if max_context_override is not None:
         max_context = max_context_override
     else:
-        registry = data_registry or _default_data_registry()
-        max_context = registry.get_context_window(model_name)
+        max_context = data_registry.get_context_window(model_name)
     return TokenBudget(
         max_context=max_context,
         response_reserve=response_reserve,
         compaction_threshold=compaction_threshold,
     )
 
-
-@lru_cache(maxsize=1)
-def _default_data_registry() -> DataRegistry:
-    return DataRegistry()

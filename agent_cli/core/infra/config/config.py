@@ -370,15 +370,14 @@ class AgentSettings(BaseSettings):
 def load_providers(
     config_data: Dict[str, Any] | None = None,
     *,
-    data_registry: DataRegistry | None = None,
+    data_registry: DataRegistry,
 ) -> Dict[str, ProviderConfig]:
     """Parse provider definitions from merged TOML config.
 
     Built-in providers are always registered.  Custom providers
     from the ``[providers.*]`` TOML sections extend the list.
     """
-    registry = data_registry or DataRegistry()
-    providers = registry.get_builtin_providers()
+    providers = data_registry.get_builtin_providers()
 
     if config_data is None:
         return providers

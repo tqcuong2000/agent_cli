@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
@@ -148,7 +149,10 @@ def test_tool_registry_rejects_missing_get_json_schema():
 
 
 def test_tool_output_formatter():
-    formatter = ToolOutputFormatter(max_output_length=20)
+    formatter = ToolOutputFormatter(
+        max_output_length=20,
+        data_registry=DataRegistry(),
+    )
 
     # Success, short output
     res = formatter.format("test_tool", "short result")

@@ -7,7 +7,6 @@ import json
 import logging
 import math
 from abc import ABC, abstractmethod
-from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from agent_cli.core.infra.registry.registry import DataRegistry
@@ -36,9 +35,9 @@ class HeuristicTokenCounter(BaseTokenCounter):
         self,
         chars_per_token: float | None = None,
         *,
-        data_registry: DataRegistry | None = None,
+        data_registry: DataRegistry,
     ) -> None:
-        registry = data_registry or _default_data_registry()
+        registry = data_registry
         configured = registry.get_token_counter_defaults().get(
             "heuristic_chars_per_token",
             4.0,
@@ -70,9 +69,9 @@ class TiktokenCounter(BaseTokenCounter):
         self,
         fallback: Optional[BaseTokenCounter] = None,
         *,
-        data_registry: DataRegistry | None = None,
+        data_registry: DataRegistry,
     ) -> None:
-        self._data_registry = data_registry or _default_data_registry()
+        self._data_registry = data_registry
         self._fallback = fallback or HeuristicTokenCounter(
             data_registry=self._data_registry
         )
@@ -114,11 +113,11 @@ class AnthropicTokenCounter(BaseTokenCounter):
         api_key: Optional[str] = None,
         fallback: Optional[BaseTokenCounter] = None,
         *,
-        data_registry: DataRegistry | None = None,
+        data_registry: DataRegistry,
     ) -> None:
         self._api_key = api_key
         self._fallback = fallback or HeuristicTokenCounter(
-            data_registry=data_registry or _default_data_registry()
+            data_registry=data_registry
         )
         self._client: Any = None
         self._client_ready = False
@@ -172,11 +171,11 @@ class GeminiTokenCounter(BaseTokenCounter):
         api_key: Optional[str] = None,
         fallback: Optional[BaseTokenCounter] = None,
         *,
-        data_registry: DataRegistry | None = None,
+        data_registry: DataRegistry,
     ) -> None:
         self._api_key = api_key
         self._fallback = fallback or HeuristicTokenCounter(
-            data_registry=data_registry or _default_data_registry()
+            data_registry=data_registry
         )
         self._client: Any = None
         self._client_ready = False
@@ -285,8 +284,3 @@ def _value_to_text(value: Any) -> str:
     if isinstance(value, dict):
         return json.dumps(value, sort_keys=True, ensure_ascii=True)
     return str(value)
-
-
-@lru_cache(maxsize=1)
-def _default_data_registry() -> DataRegistry:
-    return DataRegistry()

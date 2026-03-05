@@ -97,7 +97,8 @@ class BaseLLMProvider(ABC):
         model_name: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        data_registry: Optional[DataRegistry] = None,
+        *,
+        data_registry: DataRegistry,
         observability: Optional["ObservabilityManager"] = None,
     ) -> None:
         self.model_name = model_name
@@ -257,11 +258,7 @@ class BaseLLMProvider(ABC):
         requested_effort = normalize_effort(effort).value
         effective_effort = self.resolve_effective_effort(requested_effort).value
 
-        retry_defaults = (
-            self._data_registry.get_retry_defaults()
-            if self._data_registry is not None
-            else {}
-        )
+        retry_defaults = self._data_registry.get_retry_defaults()
         retries = int(
             max_retries
             if max_retries is not None

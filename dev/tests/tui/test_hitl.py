@@ -8,6 +8,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from agent_cli.core.infra.events.event_bus import AsyncEventBus
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.infra.events.events import (
     AgentMessageEvent,
     AgentQuestionRequestEvent,
@@ -136,7 +137,10 @@ async def test_tool_executor_uses_interaction_handler_for_approval():
     registry.register(_UnsafeTool())
 
     bus = AsyncEventBus()
-    formatter = ToolOutputFormatter(max_output_length=5000)
+    formatter = ToolOutputFormatter(
+        max_output_length=5000,
+        data_registry=DataRegistry(),
+    )
     interaction_handler = _DenyInteractionHandler()
     executor = ToolExecutor(
         registry,
@@ -144,6 +148,7 @@ async def test_tool_executor_uses_interaction_handler_for_approval():
         formatter,
         auto_approve=False,
         interaction_handler=interaction_handler,
+        data_registry=DataRegistry(),
     )
 
     result = await executor.execute(

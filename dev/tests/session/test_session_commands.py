@@ -16,6 +16,7 @@ from agent_cli.core.infra.config.config import AgentSettings
 from agent_cli.core.infra.events.event_bus import AsyncEventBus
 from agent_cli.core.infra.events.events import SettingsChangedEvent, TaskResultEvent
 from agent_cli.core.runtime.orchestrator.state_manager import TaskStateManager
+from agent_cli.core.providers.adapter_registry import AdapterRegistry
 from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.session.file_store import FileSessionManager
 
@@ -45,13 +46,14 @@ def _build_app_context(
         session_dir=session_dir,
         default_model=cfg.default_model,
     )
-    memory_manager = WorkingMemoryManager()
+    memory_manager = WorkingMemoryManager(data_registry=DataRegistry())
 
     return AppContext(
         data_registry=DataRegistry(),
         settings=cfg,
         event_bus=event_bus,
         state_manager=state_manager,
+        adapter_registry=AdapterRegistry(),
         providers=SimpleNamespace(),
         tool_registry=_DummyToolRegistry(),  # type: ignore[arg-type]
         tool_executor=SimpleNamespace(),  # type: ignore[arg-type]

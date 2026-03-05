@@ -113,8 +113,9 @@ class BaseAgent(ABC):
         event_bus: AbstractEventBus,
         state_manager: AbstractStateManager,
         prompt_builder: PromptBuilder,
+        *,
+        data_registry: DataRegistry,
         settings: Any = None,  # AgentSettings
-        data_registry: Optional[DataRegistry] = None,
     ) -> None:
         self.config = config
         self.provider = provider
@@ -133,7 +134,7 @@ class BaseAgent(ABC):
         else:
             self.settings = settings
 
-        self._data_registry = data_registry or DataRegistry()
+        self._data_registry = data_registry
         self._schema_defaults = self._data_registry.get_schema_defaults()
         self._retry_defaults = self._data_registry.get_retry_defaults()
         self._cached_capability_snapshot: Any = None

@@ -328,8 +328,14 @@ class TextWindowContainer(Container):
                 self._messages.mount(self._current_arc)
                 
                 # Try JSON protocol parsing
-                validator = SchemaValidator(registered_tools=[])
-                parsed = validator._extract_json_object(content)
+                if self._app_context is not None:
+                    validator = SchemaValidator(
+                        registered_tools=[],
+                        data_registry=self._app_context.data_registry,
+                    )
+                    parsed = validator._extract_json_object(content)
+                else:
+                    parsed = None
 
                 if isinstance(parsed, dict) and "decision" in parsed:
                     title = str(parsed.get("title", "")).strip()

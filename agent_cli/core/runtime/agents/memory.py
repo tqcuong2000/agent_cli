@@ -22,6 +22,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.cost.budget import TokenBudget, budget_for_model
 from agent_cli.core.providers.cost.token_counter import BaseTokenCounter, HeuristicTokenCounter
 
@@ -120,12 +121,20 @@ class WorkingMemoryManager(BaseMemoryManager):
         token_counter: Optional[BaseTokenCounter] = None,
         token_budget: Optional[TokenBudget] = None,
         model_name: str = "unknown",
+        *,
+        data_registry: DataRegistry,
     ) -> None:
         self._messages: List[Dict[str, Any]] = []
         self._keep_recent = keep_recent
         self._model_name = model_name
-        self._token_counter = token_counter or HeuristicTokenCounter()
-        self._token_budget = token_budget or budget_for_model(model_name)
+        self._data_registry = data_registry
+        self._token_counter = token_counter or HeuristicTokenCounter(
+            data_registry=self._data_registry
+        )
+        self._token_budget = token_budget or budget_for_model(
+            model_name,
+            data_registry=self._data_registry,
+        )
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -228,7 +237,10 @@ class WorkingMemoryManager(BaseMemoryManager):
         if token_budget is not None:
             self._token_budget = token_budget
         else:
-            self._token_budget = budget_for_model(model_name)
+            self._token_budget = budget_for_model(
+                model_name,
+                data_registry=self._data_registry,
+            )
 
         new_available = self._token_budget.available_for_context()
         needs_compaction = self.should_compact()

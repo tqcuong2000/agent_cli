@@ -18,6 +18,7 @@ from agent_cli.core.infra.events.events import StateChangeEvent, UserRequestEven
 from agent_cli.core.infra.config.config_models import ProtocolMode
 from agent_cli.core.runtime.orchestrator.state_models import TaskState
 from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.providers.adapter_registry import AdapterRegistry
 from agent_cli.core.providers.manager import ProviderManager
 from agent_cli.core.ux.interaction.sandbox import SandboxWorkspaceManager
 
@@ -41,6 +42,7 @@ def test_create_app_returns_app_context():
     assert isinstance(ctx.settings, AgentSettings)
     assert isinstance(ctx.event_bus, AsyncEventBus)
     assert ctx.state_manager is not None
+    assert isinstance(ctx.adapter_registry, AdapterRegistry)
     assert isinstance(ctx.providers, ProviderManager)
     assert ctx.session_manager is not None
     assert ctx.file_indexer is not None
@@ -119,11 +121,18 @@ def test_create_app_freezes_static_registries(monkeypatch: pytest.MonkeyPatch):
     ctx = create_app(settings=AgentSettings(default_model="gemini-2.5-flash-lite"))
     try:
         assert ctx.tool_registry.is_frozen is True
+        assert ctx.adapter_registry.is_frozen is True
         assert ctx.agent_registry is not None
         assert ctx.agent_registry.is_frozen is True
         assert ctx.command_registry is not None
         assert ctx.command_registry.is_frozen is True
 
+        with pytest.raises(RuntimeError, match="frozen"):
+            ctx.adapter_registry.register(  # type: ignore[union-attr]
+                "tmp",
+                adapter_cls=object,  # type: ignore[arg-type]
+                token_counter_factory=lambda _settings, _data_registry, fallback: fallback,
+            )
         with pytest.raises(RuntimeError, match="frozen"):
             ctx.command_registry.register(  # type: ignore[union-attr]
                 type("Cmd", (), {"name": "tmp"})()

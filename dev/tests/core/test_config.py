@@ -22,6 +22,7 @@ from agent_cli.core.infra.config.config import (
     _deep_merge,
     load_providers,
 )
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.infra.config.config_models import (
     EffortLevel,
     ProtocolMode,
@@ -35,7 +36,7 @@ from agent_cli.core.infra.config.config_models import (
 def test_default_settings():
     """Verify settings initialize with expected defaults when no env/toml are present."""
     # Ensure no old env vars leak into test
-    os.environ.pop("AGENT_DEFAULT_MODEL", None)
+    os.environ.pop("DEFAULT_MODEL", None)
 
     settings = AgentSettings()
     # In this environment, it might be loading gemini-3-flash-preview from config.toml
@@ -47,10 +48,10 @@ def test_default_settings():
 
 
 def test_env_var_override():
-    """Environment variables prefixed with AGENT_ should override defaults."""
-    os.environ["AGENT_DEFAULT_MODEL"] = "gpt-4o"
-    os.environ["AGENT_MAX_ITERATIONS"] = "150"
-    os.environ["AGENT_AUTO_APPROVE_TOOLS"] = "true"
+    """Environment variables should override defaults."""
+    os.environ["DEFAULT_MODEL"] = "gpt-4o"
+    os.environ["MAX_ITERATIONS"] = "150"
+    os.environ["AUTO_APPROVE_TOOLS"] = "true"
 
     settings = AgentSettings()
 
@@ -59,9 +60,9 @@ def test_env_var_override():
     assert settings.auto_approve_tools is True
 
     # Cleanup
-    del os.environ["AGENT_DEFAULT_MODEL"]
-    del os.environ["AGENT_MAX_ITERATIONS"]
-    del os.environ["AGENT_AUTO_APPROVE_TOOLS"]
+    del os.environ["DEFAULT_MODEL"]
+    del os.environ["MAX_ITERATIONS"]
+    del os.environ["AUTO_APPROVE_TOOLS"]
 
 
 def test_protocol_mode_defaults_to_json_only_when_not_set():
@@ -214,7 +215,7 @@ def test_load_providers_with_custom_toml():
         }
     }
 
-    providers = load_providers(config_data)
+    providers = load_providers(config_data, data_registry=DataRegistry())
 
     assert "anthropic" in providers  # Built-in is kept
     assert "google" in providers  # Built-in is kept
@@ -237,7 +238,7 @@ def test_load_providers_preserves_builtin_native_tools_when_omitted():
         }
     }
 
-    providers = load_providers(config_data)
+    providers = load_providers(config_data, data_registry=DataRegistry())
 
     assert providers["google"].supports_native_tools is True
 
@@ -253,7 +254,7 @@ def test_load_providers_custom_provider_defaults_native_tools_false():
         }
     }
 
-    providers = load_providers(config_data)
+    providers = load_providers(config_data, data_registry=DataRegistry())
 
     assert providers["local_llama"].supports_native_tools is False
 

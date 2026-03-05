@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Sequence
 
 import pytest
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.cost.budget import TokenBudget
 from agent_cli.core.providers.cost.summarizer import SummarizingMemoryManager
 from agent_cli.core.providers.cost.token_counter import BaseTokenCounter
@@ -79,6 +80,7 @@ async def test_summarizer_preserves_system_and_recent_turns():
         summarization_model="gpt-4o-mini",
         summarizer_provider_factory=lambda model: provider,
         summary_response_tokens=300,
+        data_registry=DataRegistry(),
     )
 
     manager.add_working_event({"role": "system", "content": "system prompt"})
@@ -114,6 +116,7 @@ async def test_summarizer_uses_heuristic_fallback_when_provider_unavailable():
         summarizer_provider_factory=lambda model: (_ for _ in ()).throw(
             RuntimeError("provider unavailable")
         ),
+        data_registry=DataRegistry(),
     )
 
     manager.add_working_event({"role": "system", "content": "system prompt"})
@@ -151,6 +154,7 @@ async def test_summarizer_uses_configured_cheap_model_name():
         keep_recent_turns=1,
         summarization_model="gpt-4o-mini",
         summarizer_provider_factory=provider_factory,
+        data_registry=DataRegistry(),
     )
 
     manager.add_working_event({"role": "system", "content": "system prompt"})

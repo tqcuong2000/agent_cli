@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.agents.parsers import AgentDecision
 from agent_cli.core.runtime.agents.schema import SchemaValidator
 from agent_cli.core.infra.events.errors import SchemaValidationError
@@ -16,6 +17,7 @@ def validator() -> SchemaValidator:
     return SchemaValidator(
         registered_tools=["foo", "bar"],
         protocol_mode=ProtocolMode.JSON_ONLY,
+        data_registry=DataRegistry(),
     )
 
 

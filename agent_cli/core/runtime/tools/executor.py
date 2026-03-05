@@ -38,7 +38,10 @@ from agent_cli.core.infra.logging.tracing import start_span
 from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
-from agent_cli.core.runtime.tools.shell_tool import is_safe_command
+from agent_cli.core.runtime.tools.shell_tool import (
+    compile_safe_command_patterns,
+    is_safe_command,
+)
 
 if TYPE_CHECKING:
     from agent_cli.core.infra.events.event_bus import EventCallback
@@ -78,7 +81,7 @@ class ToolExecutor:
         interaction_handler: Optional["BaseInteractionHandler"] = None,
         file_tracker: Optional[FileChangeTracker] = None,
         approval_timeout_seconds: float | None = None,
-        data_registry: DataRegistry | None = None,
+        data_registry: DataRegistry,
         observability: Optional["ObservabilityManager"] = None,
     ) -> None:
         self.registry = registry
@@ -88,9 +91,8 @@ class ToolExecutor:
         self._interaction_handler = interaction_handler
         self._file_tracker = file_tracker
         self._observability = observability
-        defaults = (
-            (data_registry or DataRegistry()).get_tool_defaults().get("executor", {})
-        )
+        defaults = data_registry.get_tool_defaults().get("executor", {})
+        self._safe_command_patterns = compile_safe_command_patterns(data_registry)
         self._approval_timeout_seconds = float(
             approval_timeout_seconds
             if approval_timeout_seconds is not None
@@ -155,7 +157,7 @@ class ToolExecutor:
         # Dynamic override: safe shell commands skip approval
         if requires_approval and tool.name == "run_command":
             cmd = arguments.get("command", "")
-            if is_safe_command(cmd):
+            if is_safe_command(cmd, self._safe_command_patterns):
                 requires_approval = False
 
         if requires_approval and not self._auto_approve:

@@ -34,7 +34,11 @@ class _FakeProvider(BaseLLMProvider):
         self._native_tools = native_tools
         self._effort = effort
         self._web_search = web_search
-        super().__init__(model_name=model_name, base_url=base_url)
+        super().__init__(
+            model_name=model_name,
+            base_url=base_url,
+            data_registry=DataRegistry(),
+        )
 
     @property
     def provider_name(self) -> str:

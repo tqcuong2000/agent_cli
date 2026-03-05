@@ -30,7 +30,11 @@ def _mock_chat_response(message: str = "from chat") -> MagicMock:
 
 def get_mocked_openai():
     """Returns a mocked OpenAIProvider."""
-    provider = OpenAIProvider("gpt-5", api_key="sk-test")
+    provider = OpenAIProvider(
+        "gpt-5",
+        api_key="sk-test",
+        data_registry=DataRegistry(),
+    )
     # Mock the client
     provider.client = MagicMock()
     provider.client.chat.completions.create = AsyncMock()
@@ -39,7 +43,11 @@ def get_mocked_openai():
 
 def get_mocked_azure(data_registry: DataRegistry | None = None):
     """Returns a mocked AzureProvider."""
-    provider = AzureProvider("gpt-4.1", api_key="az-test", data_registry=data_registry)
+    provider = AzureProvider(
+        "gpt-4.1",
+        api_key="az-test",
+        data_registry=data_registry or DataRegistry(),
+    )
     provider.client = MagicMock()
     provider.client.chat.completions.create = AsyncMock()
     provider.client.responses.create = AsyncMock()

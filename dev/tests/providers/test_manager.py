@@ -1,23 +1,83 @@
 """Unit tests for the ProviderManager factory."""
 
-from types import MappingProxyType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
 from agent_cli.core.infra.config.config import AgentSettings
+from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.providers.adapter_registry import AdapterRegistry
+from agent_cli.core.providers.adapters.anthropic_provider import AnthropicProvider
+from agent_cli.core.providers.adapters.azure_provider import AzureProvider
+from agent_cli.core.providers.adapters.google_provider import GoogleProvider
+from agent_cli.core.providers.adapters.ollama_provider import OllamaProvider
+from agent_cli.core.providers.adapters.openai_compat import OpenAICompatibleProvider
+from agent_cli.core.providers.adapters.openai_provider import OpenAIProvider
 from agent_cli.core.providers.cost.token_counter import (
     AnthropicTokenCounter,
     GeminiTokenCounter,
     HeuristicTokenCounter,
     TiktokenCounter,
 )
-import agent_cli.core.providers.manager as manager_module
-from agent_cli.core.providers.manager import ADAPTER_TYPES, ProviderManager
+from agent_cli.core.providers.manager import ProviderManager
+
+
+def _build_adapter_registry() -> AdapterRegistry:
+    registry = AdapterRegistry()
+    registry.register(
+        "openai",
+        adapter_cls=OpenAIProvider,
+        token_counter_factory=lambda _settings, data_registry, fallback: TiktokenCounter(
+            fallback=fallback,
+            data_registry=data_registry,
+        ),
+    )
+    registry.register(
+        "azure",
+        adapter_cls=AzureProvider,
+        token_counter_factory=lambda _settings, data_registry, fallback: TiktokenCounter(
+            fallback=fallback,
+            data_registry=data_registry,
+        ),
+    )
+    registry.register(
+        "anthropic",
+        adapter_cls=AnthropicProvider,
+        token_counter_factory=lambda settings, data_registry, fallback: AnthropicTokenCounter(
+            api_key=settings.resolve_api_key("anthropic"),
+            fallback=fallback,
+            data_registry=data_registry,
+        ),
+    )
+    registry.register(
+        "google",
+        adapter_cls=GoogleProvider,
+        token_counter_factory=lambda settings, data_registry, fallback: GeminiTokenCounter(
+            api_key=settings.resolve_api_key("google"),
+            fallback=fallback,
+            data_registry=data_registry,
+        ),
+    )
+    registry.register(
+        "ollama",
+        adapter_cls=OllamaProvider,
+        token_counter_factory=lambda _settings, _data_registry, fallback: fallback,
+    )
+    registry.register(
+        "openai_compatible",
+        adapter_cls=OpenAICompatibleProvider,
+        token_counter_factory=lambda _settings, _data_registry, fallback: fallback,
+    )
+    return registry
 
 
 def test_manager_rejects_unknown_models_without_inference() -> None:
     settings = AgentSettings(openai_api_key="sk-test")
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
 
     try:
         manager.get_provider("gpt-4.5")
@@ -38,7 +98,11 @@ def test_manager_creates_from_config():
         }
     }
 
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
 
     config = manager._provider_configs["local_vllm"]
     assert config.adapter_type == "openai_compatible"
@@ -48,7 +112,11 @@ def test_manager_creates_from_config():
 def test_manager_caching_behavior():
     """Verify that multiple requests for the same model return the same instance."""
     settings = AgentSettings(openai_api_key="sk-test")
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
 
     sentinel = SimpleNamespace(provider_name="stub")
     calls: list[str] = []
@@ -88,7 +156,11 @@ def test_manager_returns_token_counters_by_provider(monkeypatch: pytest.MonkeyPa
             "google": {"adapter_type": "google"},
         }
     )
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
 
     model_specs = {
         "openai-model": SimpleNamespace(provider="openai"),
@@ -131,7 +203,11 @@ def test_manager_token_budget_uses_provider_override(monkeypatch: pytest.MonkeyP
             "max_context_tokens": 42_000,
         }
     }
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
     monkeypatch.setattr(
         type(manager._data_registry),
         "resolve_model_spec",
@@ -155,7 +231,11 @@ def test_manager_token_budget_uses_provider_override(monkeypatch: pytest.MonkeyP
 
 def test_manager_rejects_azure_prefixed_unknown_deployment():
     settings = AgentSettings(azure_openai_api_key="az-test-key")
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
 
     try:
         manager.get_provider("azure/my-deployment")
@@ -170,7 +250,11 @@ def test_manager_token_counter_uses_model_registry_provider(
 ) -> None:
     settings = AgentSettings(openai_api_key="sk-test")
     settings.providers.update({"openai": {"adapter_type": "openai"}})
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
     monkeypatch.setattr(
         type(manager._data_registry),
         "resolve_model_spec",
@@ -194,7 +278,11 @@ def test_manager_api_key_env_falls_back_to_settings_alias_values() -> None:
         }
     }
 
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
     cfg = manager._provider_configs["anthropic"]
 
     resolved = manager._resolve_api_key("anthropic", cfg)
@@ -211,31 +299,35 @@ def test_manager_api_key_env_normalizes_wrapped_quotes(monkeypatch) -> None:
     }
     monkeypatch.setenv("ANTHROPIC_API_KEY", '  "sk-ant-quoted"  ')
 
-    manager = ProviderManager(settings)
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
     cfg = manager._provider_configs["anthropic"]
 
     resolved = manager._resolve_api_key("anthropic", cfg)
     assert resolved == "sk-ant-quoted"
 
 
-def test_adapter_types_is_immutable() -> None:
-    with pytest.raises(TypeError):
-        ADAPTER_TYPES["custom"] = object  # type: ignore[index]
-
-
-def test_manager_validates_adapter_types_empty_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    invalid = MappingProxyType({"": next(iter(ADAPTER_TYPES.values()))})
-    monkeypatch.setattr(manager_module, "ADAPTER_TYPES", invalid)
-
-    with pytest.raises(RuntimeError, match="Empty adapter type key"):
-        ProviderManager(AgentSettings())
-
-
-def test_manager_validates_adapter_types_invalid_base(
+def test_manager_unknown_adapter_type_uses_fallback_counter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    invalid = MappingProxyType({"openai": object})  # type: ignore[dict-item]
-    monkeypatch.setattr(manager_module, "ADAPTER_TYPES", invalid)
-
-    with pytest.raises(RuntimeError, match="must inherit BaseLLMProvider"):
-        ProviderManager(AgentSettings())
+    settings = AgentSettings()
+    settings.providers = {"custom": {"adapter_type": "custom_adapter"}}
+    manager = ProviderManager(
+        settings,
+        adapter_registry=_build_adapter_registry(),
+        data_registry=DataRegistry(),
+    )
+    monkeypatch.setattr(
+        type(manager._data_registry),
+        "resolve_model_spec",
+        lambda self, _: SimpleNamespace(
+            provider="custom",
+            api_model="custom-model",
+            model_id="custom:model",
+        ),
+    )
+    counter = manager.get_token_counter("custom-model")
+    assert isinstance(counter, HeuristicTokenCounter)

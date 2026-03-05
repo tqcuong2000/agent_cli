@@ -122,10 +122,10 @@ class PromptBuilder:
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        data_registry: DataRegistry | None = None,
+        data_registry: DataRegistry,
     ) -> None:
         self.tool_registry = tool_registry
-        self._data_registry = data_registry or DataRegistry()
+        self._data_registry = data_registry
         title_defaults = self._data_registry.get_schema_defaults().get("title", {})
         self._title_max_words = int(title_defaults.get("max_words", 15))
 

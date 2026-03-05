@@ -50,7 +50,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         api_key: Optional[str] = None,
         base_url: str = "http://localhost:11434/v1",
         native_tools: bool = False,
-        data_registry: Optional[DataRegistry] = None,
+        *,
+        data_registry: DataRegistry,
     ) -> None:
         self._native_tools = native_tools
         super().__init__(

@@ -20,6 +20,7 @@ from agent_cli.core.infra.events.errors import (
     LLMTransientError,
 )
 from agent_cli.core.infra.config.config_models import EffortLevel
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.base.base import BaseLLMProvider, BaseToolFormatter
 from agent_cli.core.providers.base.models import (
     LLMRequest,
@@ -51,7 +52,7 @@ class MockProvider(BaseLLMProvider):
         simulate_error: Optional[Exception] = None,
         supports_fc: bool = True,
     ):
-        super().__init__(model_name)
+        super().__init__(model_name, data_registry=DataRegistry())
         self.simulate_error = simulate_error
         self._supports_fc = supports_fc
         self.call_count = 0

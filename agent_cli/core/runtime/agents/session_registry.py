@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional
 
 from agent_cli.core.runtime.agents.base import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 
 class AgentStatus(str, Enum):
@@ -47,6 +50,8 @@ class SessionAgentRegistry:
         )
         if activate:
             self.switch_to(agent.name)
+            return
+        self._validate_invariants()
 
     def switch_to(self, name: str) -> BaseAgent:
         if name not in self._agents:
@@ -65,6 +70,7 @@ class SessionAgentRegistry:
 
         target.status = AgentStatus.ACTIVE
         self._active_name = name
+        self._validate_invariants()
         return target.agent_instance
 
     def disable(self, name: str) -> None:
@@ -73,14 +79,17 @@ class SessionAgentRegistry:
         if name == self._active_name:
             raise ValueError("Cannot disable the active agent. Switch first.")
         self._agents[name].status = AgentStatus.INACTIVE
+        self._validate_invariants()
 
     def enable(self, name: str) -> None:
         if name not in self._agents:
             raise KeyError(f"Agent '{name}' is not in this session.")
         if name == self._active_name:
             self._agents[name].status = AgentStatus.ACTIVE
+            self._validate_invariants()
             return
         self._agents[name].status = AgentStatus.IDLE
+        self._validate_invariants()
 
     def remove(self, name: str) -> None:
         if name not in self._agents:
@@ -88,6 +97,7 @@ class SessionAgentRegistry:
         if name == self._active_name:
             raise ValueError("Cannot remove the active agent. Switch first.")
         self._agents.pop(name, None)
+        self._validate_invariants()
 
     def has(self, name: str) -> bool:
         return name in self._agents
@@ -104,3 +114,68 @@ class SessionAgentRegistry:
 
     def list_agents(self) -> List[SessionAgent]:
         return list(self._agents.values())
+
+    def validate(self) -> None:
+        """Validate internal consistency of active and agent states."""
+        self._validate_invariants()
+
+    def _validate_invariants(self) -> None:
+        active_count = 0
+        for key, session_agent in self._agents.items():
+            expected_name = str(key).strip()
+            actual_name = str(session_agent.name).strip()
+            if not expected_name:
+                logger.error("Session registry has an empty agent key.")
+                raise RuntimeError("Session registry invariant failed: empty agent key.")
+            if not actual_name:
+                logger.error("Session registry agent key '%s' has empty name.", key)
+                raise RuntimeError(
+                    "Session registry invariant failed: empty SessionAgent.name."
+                )
+            if expected_name != actual_name:
+                logger.error(
+                    "Session registry key/name mismatch (key=%s, name=%s).",
+                    expected_name,
+                    actual_name,
+                )
+                raise RuntimeError(
+                    "Session registry invariant failed: key/name mismatch."
+                )
+            if session_agent.status == AgentStatus.ACTIVE:
+                active_count += 1
+
+        if active_count > 1:
+            logger.error("Session registry has multiple ACTIVE agents.")
+            raise RuntimeError(
+                "Session registry invariant failed: multiple ACTIVE agents."
+            )
+
+        if self._active_name is None:
+            if active_count > 0:
+                logger.error(
+                    "Session registry has ACTIVE agent(s) but no active_name."
+                )
+                raise RuntimeError(
+                    "Session registry invariant failed: ACTIVE agent without active_name."
+                )
+            return
+
+        if self._active_name not in self._agents:
+            logger.error(
+                "Session registry active_name '%s' is not in agent map.",
+                self._active_name,
+            )
+            raise RuntimeError(
+                "Session registry invariant failed: active_name is dangling."
+            )
+
+        active_entry = self._agents[self._active_name]
+        if active_entry.status != AgentStatus.ACTIVE:
+            logger.error(
+                "Session registry active_name '%s' is not ACTIVE (status=%s).",
+                self._active_name,
+                active_entry.status,
+            )
+            raise RuntimeError(
+                "Session registry invariant failed: active_name must be ACTIVE."
+            )

@@ -65,7 +65,8 @@ class AnthropicProvider(BaseLLMProvider):
         model_name: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        data_registry: Optional[DataRegistry] = None,
+        *,
+        data_registry: DataRegistry,
     ) -> None:
         super().__init__(
             model_name,
@@ -316,19 +317,17 @@ class AnthropicProvider(BaseLLMProvider):
     ) -> bool:
         if request_options is None or not request_options.web_search_enabled:
             return False
-        registry = self._data_registry or DataRegistry()
-        defaults = registry.get_web_search_provider_defaults("anthropic")
+        defaults = self._data_registry.get_web_search_provider_defaults("anthropic")
         return bool(defaults.get("enabled", True))
 
     def _build_web_search_tool(self) -> Dict[str, Any]:
-        registry = self._data_registry or DataRegistry()
-        defaults = registry.get_web_search_provider_defaults("anthropic")
+        defaults = self._data_registry.get_web_search_provider_defaults("anthropic")
 
         # Resolve tool_type: Model-specific > Provider-default > Hardcoded Fallback (2026)
         tool_type = "web_search_20260209"
 
         # 1. Try model capabilities
-        caps = registry.get_model_capabilities(self.model_name)
+        caps = self._data_registry.get_model_capabilities(self.model_name)
         if caps and caps.web_search and caps.web_search.tool_type:
             tool_type = caps.web_search.tool_type
         # 2. Try provider defaults (merged from tools.json + providers.json)

@@ -31,14 +31,10 @@ class ToolOutputFormatter:
         max_output_length: int = 5000,
         *,
         error_truncation_chars: int | None = None,
-        data_registry: DataRegistry | None = None,
+        data_registry: DataRegistry,
     ) -> None:
         self.max_output_length = max_output_length
-        defaults = (
-            (data_registry or DataRegistry())
-            .get_tool_defaults()
-            .get("output_formatter", {})
-        )
+        defaults = data_registry.get_tool_defaults().get("output_formatter", {})
         self.error_truncation_chars = int(
             error_truncation_chars
             if error_truncation_chars is not None

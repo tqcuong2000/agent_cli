@@ -73,7 +73,8 @@ class OpenAIProvider(BaseLLMProvider):
         model_name: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        data_registry: Optional[DataRegistry] = None,
+        *,
+        data_registry: DataRegistry,
     ) -> None:
         super().__init__(
             model_name,
@@ -417,9 +418,7 @@ class OpenAIProvider(BaseLLMProvider):
                 "Azure web_search requested but responses API is unavailable in SDK client."
             )
             return False
-        defaults = (
-            self._data_registry or DataRegistry()
-        ).get_web_search_provider_defaults("azure")
+        defaults = self._data_registry.get_web_search_provider_defaults("azure")
         return bool(defaults.get("enabled", True))
 
     async def _generate_with_azure_web_search(
@@ -428,9 +427,7 @@ class OpenAIProvider(BaseLLMProvider):
         context: List[Dict[str, Any]],
         max_tokens: int,
     ) -> LLMResponse:
-        defaults = (
-            self._data_registry or DataRegistry()
-        ).get_web_search_provider_defaults("azure")
+        defaults = self._data_registry.get_web_search_provider_defaults("azure")
         tool = self._build_azure_web_search_tool(defaults)
         instructions, response_input = self._build_responses_input(context)
 

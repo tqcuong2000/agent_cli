@@ -79,7 +79,8 @@ class GoogleProvider(BaseLLMProvider):
         model_name: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        data_registry: Optional[DataRegistry] = None,
+        *,
+        data_registry: DataRegistry,
     ) -> None:
         super().__init__(
             model_name,
@@ -330,8 +331,7 @@ class GoogleProvider(BaseLLMProvider):
     ) -> bool:
         if request_options is None or not request_options.web_search_enabled:
             return False
-        registry = self._data_registry or DataRegistry()
-        defaults = registry.get_web_search_provider_defaults("google")
+        defaults = self._data_registry.get_web_search_provider_defaults("google")
         return bool(defaults.get("enabled", True))
 
     @staticmethod

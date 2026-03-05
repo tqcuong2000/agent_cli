@@ -262,16 +262,17 @@ class ObservabilityManager:
         desired_effort: Optional[str] = None,
         effective_effort: Optional[str] = None,
     ) -> None:
-        resolved_cost = (
-            cost_usd
-            if cost_usd is not None
-            else estimate_cost(
+        if cost_usd is not None:
+            resolved_cost = cost_usd
+        elif self._data_registry is not None:
+            resolved_cost = estimate_cost(
                 model,
                 input_tokens,
                 output_tokens,
                 data_registry=self._data_registry,
             )
-        )
+        else:
+            resolved_cost = 0.0
 
         with self._lock:
             self.metrics.total_input_tokens += int(input_tokens)

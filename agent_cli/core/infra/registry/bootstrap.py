@@ -40,6 +40,19 @@ from agent_cli.core.infra.logging.logging import configure_observability
 from agent_cli.core.runtime.orchestrator.orchestrator import Orchestrator
 from agent_cli.core.runtime.orchestrator.state_manager import AbstractStateManager, TaskStateManager
 from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.providers.adapter_registry import AdapterRegistry
+from agent_cli.core.providers.adapters.anthropic_provider import AnthropicProvider
+from agent_cli.core.providers.adapters.azure_provider import AzureProvider
+from agent_cli.core.providers.adapters.google_provider import GoogleProvider
+from agent_cli.core.providers.adapters.ollama_provider import OllamaProvider
+from agent_cli.core.providers.adapters.openai_compat import OpenAICompatibleProvider
+from agent_cli.core.providers.adapters.openai_provider import OpenAIProvider
+from agent_cli.core.providers.cost.token_counter import (
+    AnthropicTokenCounter,
+    BaseTokenCounter,
+    GeminiTokenCounter,
+    TiktokenCounter,
+)
 from agent_cli.core.providers.cost.summarizer import SummarizingMemoryManager
 from agent_cli.core.providers.base.capability_probe import CapabilityProbeService
 from agent_cli.core.providers.manager import ProviderManager
@@ -84,6 +97,7 @@ class AppContext:
     state_manager: AbstractStateManager
 
     # ── Phase 2 Providers ────────────────────────────────────────
+    adapter_registry: AdapterRegistry
     providers: ProviderManager
 
     # ── Phase 3 Agent Core ───────────────────────────────────────
@@ -341,6 +355,7 @@ def create_app(
         settings = AgentSettings()
 
     observability = configure_observability(settings, data_registry=data_registry)
+    adapter_registry = _build_adapter_registry()
 
     # 2. Event Bus
     event_bus = AsyncEventBus()
@@ -354,6 +369,7 @@ def create_app(
     # 4. Provider Manager (depends on Settings)
     providers = ProviderManager(
         settings,
+        adapter_registry=adapter_registry,
         data_registry=data_registry,
         observability=observability,
     )
@@ -379,7 +395,7 @@ def create_app(
     file_tracker = FileChangeTracker(event_bus=event_bus)
     file_tracker.start_tracking(workspace.get_root())
 
-    tool_registry = _build_tool_registry(workspace)
+    tool_registry = _build_tool_registry(workspace, data_registry=data_registry)
     output_formatter = ToolOutputFormatter(
         max_output_length=settings.tool_output_max_chars,
         data_registry=data_registry,
@@ -443,6 +459,7 @@ def create_app(
         event_bus=event_bus,
         state_manager=state_manager,
         observability=observability,
+        adapter_registry=adapter_registry,
         providers=providers,
         tool_registry=tool_registry,
         tool_executor=tool_executor,
@@ -632,6 +649,7 @@ def create_app(
     context.session_agents = session_agents
 
     # Freeze static registries after bootstrap population.
+    adapter_registry.freeze()
     tool_registry.freeze()
     agent_registry.freeze()
     cmd_registry.freeze()
@@ -688,7 +706,93 @@ def _create_agent_memory(
 # ══════════════════════════════════════════════════════════════════════
 
 
-def _build_tool_registry(workspace: BaseWorkspaceManager) -> ToolRegistry:
+def _build_adapter_registry() -> AdapterRegistry:
+    """Create and populate the adapter registry with built-in bindings."""
+    registry = AdapterRegistry()
+
+    def _heuristic_counter(
+        _settings: AgentSettings,
+        _data_registry: DataRegistry,
+        fallback: BaseTokenCounter,
+    ) -> BaseTokenCounter:
+        return fallback
+
+    def _tiktoken_counter(
+        _settings: AgentSettings,
+        data_registry: DataRegistry,
+        fallback: BaseTokenCounter,
+    ) -> BaseTokenCounter:
+        return TiktokenCounter(
+            fallback=fallback,
+            data_registry=data_registry,
+        )
+
+    def _anthropic_counter(
+        settings: AgentSettings,
+        data_registry: DataRegistry,
+        fallback: BaseTokenCounter,
+    ) -> BaseTokenCounter:
+        return AnthropicTokenCounter(
+            api_key=settings.resolve_api_key("anthropic"),
+            fallback=fallback,
+            data_registry=data_registry,
+        )
+
+    def _google_counter(
+        settings: AgentSettings,
+        data_registry: DataRegistry,
+        fallback: BaseTokenCounter,
+    ) -> BaseTokenCounter:
+        return GeminiTokenCounter(
+            api_key=settings.resolve_api_key("google"),
+            fallback=fallback,
+            data_registry=data_registry,
+        )
+
+    registry.register(
+        "openai",
+        adapter_cls=OpenAIProvider,
+        token_counter_factory=_tiktoken_counter,
+    )
+    registry.register(
+        "azure",
+        adapter_cls=AzureProvider,
+        token_counter_factory=_tiktoken_counter,
+    )
+    registry.register(
+        "anthropic",
+        adapter_cls=AnthropicProvider,
+        token_counter_factory=_anthropic_counter,
+    )
+    registry.register(
+        "google",
+        adapter_cls=GoogleProvider,
+        token_counter_factory=_google_counter,
+    )
+    registry.register(
+        "ollama",
+        adapter_cls=OllamaProvider,
+        token_counter_factory=_heuristic_counter,
+    )
+    registry.register(
+        "openai_compatible",
+        adapter_cls=OpenAICompatibleProvider,
+        token_counter_factory=_heuristic_counter,
+    )
+
+    logger.info(
+        "Adapter registry built with %d types: %s",
+        len(registry.all_types()),
+        ", ".join(registry.all_types()),
+    )
+    return registry
+
+
+def _build_tool_registry(
+    workspace: BaseWorkspaceManager,
+    *,
+    data_registry: DataRegistry,
+) -> ToolRegistry:
     """Create and populate the tool registry with all built-in tools."""
     from agent_cli.core.runtime.tools.ask_user_tool import AskUserTool
     from agent_cli.core.runtime.tools.file_tools import (
@@ -709,7 +813,7 @@ def _build_tool_registry(workspace: BaseWorkspaceManager) -> ToolRegistry:
     registry.register(SearchFilesTool(workspace))
     registry.register(StrReplaceTool(workspace))
     registry.register(InsertLinesTool(workspace))
-    registry.register(RunCommandTool(workspace))
+    registry.register(RunCommandTool(workspace, data_registry=data_registry))
     registry.register(AskUserTool())
 
     logger.info(

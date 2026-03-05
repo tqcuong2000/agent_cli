@@ -1,4 +1,4 @@
-"""Multi-turn continuity tests through Orchestrator + SessionManager."""
+﻿"""Multi-turn continuity tests through Orchestrator + SessionManager."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.agents.base import AgentConfig, BaseAgent
 from agent_cli.core.runtime.agents.memory import WorkingMemoryManager
 from agent_cli.core.runtime.agents.react_loop import PromptBuilder
@@ -25,12 +26,14 @@ from agent_cli.core.runtime.tools.executor import ToolExecutor
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
 
+TEST_DATA_REGISTRY = DataRegistry()
+
 
 class ContextCaptureProvider(BaseLLMProvider):
     """Mock provider that records request context for assertions."""
 
     def __init__(self) -> None:
-        super().__init__("mock-model")
+        super().__init__("mock-model", data_registry=TEST_DATA_REGISTRY)
         self.context_calls: List[List[Dict[str, Any]]] = []
         self.effort_calls: List[str] = []
 
@@ -133,12 +136,16 @@ async def test_orchestrator_persists_and_rehydrates_multi_turn_context(tmp_path:
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
-        output_formatter=ToolOutputFormatter(),
+        output_formatter=ToolOutputFormatter(data_registry=TEST_DATA_REGISTRY),
         auto_approve=True,
+        data_registry=TEST_DATA_REGISTRY,
     )
-    validator = SchemaValidator(registry.get_all_names())
-    memory = WorkingMemoryManager()
-    prompt_builder = PromptBuilder(registry)
+    validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=TEST_DATA_REGISTRY,
+    )
+    memory = WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY)
+    prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
 
     provider = ContextCaptureProvider()
     agent = SessionAwareAgent(
@@ -150,6 +157,7 @@ async def test_orchestrator_persists_and_rehydrates_multi_turn_context(tmp_path:
         event_bus=event_bus,
         state_manager=state_manager,
         prompt_builder=prompt_builder,
+        data_registry=TEST_DATA_REGISTRY,
     )
 
     session_manager = FileSessionManager(
@@ -193,20 +201,25 @@ async def test_orchestrator_defers_session_name_and_calls_service(tmp_path: Path
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
-        output_formatter=ToolOutputFormatter(),
+        output_formatter=ToolOutputFormatter(data_registry=TEST_DATA_REGISTRY),
         auto_approve=True,
+        data_registry=TEST_DATA_REGISTRY,
     )
-    validator = SchemaValidator(registry.get_all_names())
+    validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=TEST_DATA_REGISTRY,
+    )
     provider = ContextCaptureProvider()
     agent = SessionAwareAgent(
         config=AgentConfig(name="session-agent"),
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=validator,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY),
         event_bus=event_bus,
         state_manager=state_manager,
-        prompt_builder=PromptBuilder(registry),
+        prompt_builder=PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY),
+        data_registry=TEST_DATA_REGISTRY,
     )
     session_manager = FileSessionManager(
         session_dir=tmp_path / "sessions", default_model="mock-model"
@@ -255,20 +268,25 @@ async def test_orchestrator_falls_back_to_untitled_session(tmp_path: Path):
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
-        output_formatter=ToolOutputFormatter(),
+        output_formatter=ToolOutputFormatter(data_registry=TEST_DATA_REGISTRY),
         auto_approve=True,
+        data_registry=TEST_DATA_REGISTRY,
     )
-    validator = SchemaValidator(registry.get_all_names())
+    validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=TEST_DATA_REGISTRY,
+    )
     provider = EmptyTitleProvider()
     agent = SessionAwareAgent(
         config=AgentConfig(name="session-agent"),
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=validator,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY),
         event_bus=event_bus,
         state_manager=state_manager,
-        prompt_builder=PromptBuilder(registry),
+        prompt_builder=PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY),
+        data_registry=TEST_DATA_REGISTRY,
     )
     session_manager = FileSessionManager(
         session_dir=tmp_path / "sessions", default_model="mock-model"
@@ -302,11 +320,15 @@ async def test_end_to_end_switch_save_and_restore_session(tmp_path: Path):
         tool_executor = ToolExecutor(
             registry=registry,
             event_bus=event_bus,
-            output_formatter=ToolOutputFormatter(),
+            output_formatter=ToolOutputFormatter(data_registry=TEST_DATA_REGISTRY),
             auto_approve=True,
-        )
-        validator = SchemaValidator(registry.get_all_names())
-        prompt_builder = PromptBuilder(registry)
+        data_registry=TEST_DATA_REGISTRY,
+    )
+        validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=TEST_DATA_REGISTRY,
+    )
+        prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
         return (
             event_bus,
             state_manager,
@@ -335,20 +357,22 @@ async def test_end_to_end_switch_save_and_restore_session(tmp_path: Path):
         provider=coder_provider_1,
         tool_executor=tool_executor_1,
         schema_validator=validator_1,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY),
         event_bus=event_bus_1,
         state_manager=state_manager_1,
         prompt_builder=prompt_builder_1,
+        data_registry=TEST_DATA_REGISTRY,
     )
     researcher_1 = SessionAwareAgent(
         config=AgentConfig(name="researcher"),
         provider=researcher_provider_1,
         tool_executor=tool_executor_1,
         schema_validator=validator_1,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY),
         event_bus=event_bus_1,
         state_manager=state_manager_1,
         prompt_builder=prompt_builder_1,
+        data_registry=TEST_DATA_REGISTRY,
     )
     agent_registry_1 = AgentRegistry()
     agent_registry_1.register(coder_1)
@@ -392,20 +416,22 @@ async def test_end_to_end_switch_save_and_restore_session(tmp_path: Path):
         provider=coder_provider_2,
         tool_executor=tool_executor_2,
         schema_validator=validator_2,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY),
         event_bus=event_bus_2,
         state_manager=state_manager_2,
         prompt_builder=prompt_builder_2,
+        data_registry=TEST_DATA_REGISTRY,
     )
     researcher_2 = SessionAwareAgent(
         config=AgentConfig(name="researcher"),
         provider=researcher_provider_2,
         tool_executor=tool_executor_2,
         schema_validator=validator_2,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY),
         event_bus=event_bus_2,
         state_manager=state_manager_2,
         prompt_builder=prompt_builder_2,
+        data_registry=TEST_DATA_REGISTRY,
     )
     agent_registry_2 = AgentRegistry()
     agent_registry_2.register(coder_2)
@@ -437,10 +463,14 @@ async def test_orchestrator_passes_session_desired_effort_to_agent(tmp_path: Pat
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
-        output_formatter=ToolOutputFormatter(),
+        output_formatter=ToolOutputFormatter(data_registry=TEST_DATA_REGISTRY),
         auto_approve=True,
+        data_registry=TEST_DATA_REGISTRY,
     )
-    validator = SchemaValidator(registry.get_all_names())
+    validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=TEST_DATA_REGISTRY,
+    )
     provider = EffortCapableContextProvider()
     provider.model_name = "gemini-2.5-flash"
     agent = SessionAwareAgent(
@@ -448,10 +478,11 @@ async def test_orchestrator_passes_session_desired_effort_to_agent(tmp_path: Pat
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=validator,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY),
         event_bus=event_bus,
         state_manager=state_manager,
-        prompt_builder=PromptBuilder(registry),
+        prompt_builder=PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY),
+        data_registry=TEST_DATA_REGISTRY,
     )
     session_manager = FileSessionManager(
         session_dir=tmp_path / "sessions", default_model="mock-model"
@@ -489,20 +520,25 @@ async def test_orchestrator_probes_capabilities_once_on_first_session_creation(
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
-        output_formatter=ToolOutputFormatter(),
+        output_formatter=ToolOutputFormatter(data_registry=TEST_DATA_REGISTRY),
         auto_approve=True,
+        data_registry=TEST_DATA_REGISTRY,
     )
-    validator = SchemaValidator(registry.get_all_names())
+    validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=TEST_DATA_REGISTRY,
+    )
     provider = ContextCaptureProvider()
     agent = SessionAwareAgent(
         config=AgentConfig(name="session-agent"),
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=validator,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY),
         event_bus=event_bus,
         state_manager=state_manager,
-        prompt_builder=PromptBuilder(registry),
+        prompt_builder=PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY),
+        data_registry=TEST_DATA_REGISTRY,
     )
     session_manager = FileSessionManager(
         session_dir=tmp_path / "sessions", default_model="mock-model"
@@ -519,3 +555,6 @@ async def test_orchestrator_probes_capabilities_once_on_first_session_creation(
     await orchestrator.handle_request("first")
     await orchestrator.handle_request("second")
     assert probe.calls == ["session_start"]
+
+
+

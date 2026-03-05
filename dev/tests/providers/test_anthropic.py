@@ -13,7 +13,11 @@ from agent_cli.core.providers.adapters.anthropic_provider import AnthropicProvid
 
 def get_mocked_anthropic():
     """Returns a mocked AnthropicProvider."""
-    provider = AnthropicProvider("claude-sonnet-4.6", api_key="sk-test")
+    provider = AnthropicProvider(
+        "claude-sonnet-4.6",
+        api_key="sk-test",
+        data_registry=DataRegistry(),
+    )
     # Mock the client
     provider.client = MagicMock()
     provider.client.messages.create = AsyncMock()

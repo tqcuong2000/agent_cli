@@ -17,23 +17,15 @@ from typing import Any, Optional, Type
 from pydantic import BaseModel, Field
 
 from agent_cli.core.infra.events.errors import ToolExecutionError
-from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
 from agent_cli.core.ux.interaction.base import BaseWorkspaceManager
 
-_FILE_TOOL_DEFAULTS = DataRegistry().get_tool_defaults().get("file_tools", {})
-_LIST_DIRECTORY_DEFAULT_DEPTH = int(
-    _FILE_TOOL_DEFAULTS.get("list_directory_default_depth", 2)
-)
-_SEARCH_FILES_DEFAULT_MAX_RESULTS = int(
-    _FILE_TOOL_DEFAULTS.get("search_files_default_max_results", 50)
-)
-_DIFF_CONTEXT_LINES = int(_FILE_TOOL_DEFAULTS.get("diff_context_lines", 2))
-_DIFF_MAX_LINES = int(_FILE_TOOL_DEFAULTS.get("diff_max_lines", 60))
-_READ_FILE_MAX_BYTES = int(_FILE_TOOL_DEFAULTS.get("read_file_max_bytes", 1_048_576))
-_SEARCH_FILES_MAX_FILE_BYTES = int(
-    _FILE_TOOL_DEFAULTS.get("search_files_max_file_bytes", 524_288)
-)
+_LIST_DIRECTORY_DEFAULT_DEPTH = 2
+_SEARCH_FILES_DEFAULT_MAX_RESULTS = 50
+_DIFF_CONTEXT_LINES = 2
+_DIFF_MAX_LINES = 60
+_READ_FILE_MAX_BYTES = 1_048_576
+_SEARCH_FILES_MAX_FILE_BYTES = 524_288
 
 
 def _is_probably_binary(data: bytes) -> bool:

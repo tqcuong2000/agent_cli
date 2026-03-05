@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from pydantic import BaseModel
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.runtime.agents.base import AgentConfig, BaseAgent
 from agent_cli.core.runtime.agents.memory import WorkingMemoryManager
 from agent_cli.core.runtime.agents.react_loop import PromptBuilder
@@ -55,7 +56,7 @@ class MockProvider(BaseLLMProvider):
     """Mock provider that always returns a final answer."""
 
     def __init__(self, answer: str = "Done."):
-        super().__init__("mock_model")
+        super().__init__("mock_model", data_registry=DataRegistry())
         self._answer = answer
 
     @property
@@ -116,18 +117,23 @@ def deps():
 
     registry = ToolRegistry()
     registry.register(MockTool())
+    data_registry = DataRegistry()
 
-    output_formatter = ToolOutputFormatter()
+    output_formatter = ToolOutputFormatter(data_registry=data_registry)
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
         output_formatter=output_formatter,
         auto_approve=True,
+        data_registry=data_registry,
     )
 
-    schema_validator = SchemaValidator(registry.get_all_names())
-    memory_manager = WorkingMemoryManager()
-    prompt_builder = PromptBuilder(registry)
+    schema_validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=data_registry,
+    )
+    memory_manager = WorkingMemoryManager(data_registry=data_registry)
+    prompt_builder = PromptBuilder(registry, data_registry=data_registry)
 
     provider = MockProvider(answer="42")
 
@@ -144,6 +150,7 @@ def deps():
         event_bus=event_bus,
         state_manager=state_manager,
         prompt_builder=prompt_builder,
+        data_registry=data_registry,
     )
 
     orchestrator = Orchestrator(
@@ -166,35 +173,42 @@ def multi_agent_deps():
     state_manager = TaskStateManager(event_bus)
 
     registry = ToolRegistry()
-    output_formatter = ToolOutputFormatter()
+    data_registry = DataRegistry()
+    output_formatter = ToolOutputFormatter(data_registry=data_registry)
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
         output_formatter=output_formatter,
         auto_approve=True,
+        data_registry=data_registry,
     )
-    schema_validator = SchemaValidator(registry.get_all_names())
-    prompt_builder = PromptBuilder(registry)
+    schema_validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=data_registry,
+    )
+    prompt_builder = PromptBuilder(registry, data_registry=data_registry)
 
     coder = MockAgent(
         config=AgentConfig(name="coder"),
         provider=MockProvider(answer="coder-result"),
         tool_executor=tool_executor,
         schema_validator=schema_validator,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=data_registry),
         event_bus=event_bus,
         state_manager=state_manager,
         prompt_builder=prompt_builder,
+        data_registry=data_registry,
     )
     researcher = MockAgent(
         config=AgentConfig(name="researcher"),
         provider=MockProvider(answer="researcher-result"),
         tool_executor=tool_executor,
         schema_validator=schema_validator,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=data_registry),
         event_bus=event_bus,
         state_manager=state_manager,
         prompt_builder=prompt_builder,
+        data_registry=data_registry,
     )
 
     agent_registry = AgentRegistry()
@@ -366,15 +380,20 @@ async def test_orchestrator_rejects_concurrent_request_while_busy():
     event_bus = AsyncEventBus()
     state_manager = TaskStateManager(event_bus)
     registry = ToolRegistry()
-    output_formatter = ToolOutputFormatter()
+    data_registry = DataRegistry()
+    output_formatter = ToolOutputFormatter(data_registry=data_registry)
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
         output_formatter=output_formatter,
         auto_approve=True,
+        data_registry=data_registry,
     )
-    schema_validator = SchemaValidator(registry.get_all_names())
-    prompt_builder = PromptBuilder(registry)
+    schema_validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=data_registry,
+    )
+    prompt_builder = PromptBuilder(registry, data_registry=data_registry)
     provider = MockProvider(answer="slow-42")
 
     async def delayed_safe_generate(context, tools=None, **kwargs):
@@ -390,10 +409,11 @@ async def test_orchestrator_rejects_concurrent_request_while_busy():
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=schema_validator,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=data_registry),
         event_bus=event_bus,
         state_manager=state_manager,
         prompt_builder=prompt_builder,
+        data_registry=data_registry,
     )
     orchestrator = Orchestrator(
         event_bus=event_bus,
@@ -423,15 +443,20 @@ async def test_orchestrator_interrupts_active_task():
     event_bus = AsyncEventBus()
     state_manager = TaskStateManager(event_bus)
     registry = ToolRegistry()
-    output_formatter = ToolOutputFormatter()
+    data_registry = DataRegistry()
+    output_formatter = ToolOutputFormatter(data_registry=data_registry)
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
         output_formatter=output_formatter,
         auto_approve=True,
+        data_registry=data_registry,
     )
-    schema_validator = SchemaValidator(registry.get_all_names())
-    prompt_builder = PromptBuilder(registry)
+    schema_validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=data_registry,
+    )
+    prompt_builder = PromptBuilder(registry, data_registry=data_registry)
     provider = MockProvider(answer="slow-42")
 
     async def delayed_safe_generate(context, tools=None, **kwargs):
@@ -447,10 +472,11 @@ async def test_orchestrator_interrupts_active_task():
         provider=provider,
         tool_executor=tool_executor,
         schema_validator=schema_validator,
-        memory_manager=WorkingMemoryManager(),
+        memory_manager=WorkingMemoryManager(data_registry=data_registry),
         event_bus=event_bus,
         state_manager=state_manager,
         prompt_builder=prompt_builder,
+        data_registry=data_registry,
     )
     orchestrator = Orchestrator(
         event_bus=event_bus,

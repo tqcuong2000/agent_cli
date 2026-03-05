@@ -71,7 +71,8 @@ class OllamaProvider(BaseLLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = "http://localhost:11434",
         native_tools: bool = False,
-        data_registry: Optional[DataRegistry] = None,
+        *,
+        data_registry: DataRegistry,
     ) -> None:
         super().__init__(
             model_name,

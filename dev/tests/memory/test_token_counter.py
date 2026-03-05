@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
+from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.cost.token_counter import (
     AnthropicTokenCounter,
     BaseTokenCounter,
@@ -25,14 +26,14 @@ class StubCounter(BaseTokenCounter):
 
 
 def test_heuristic_counter_counts_nonzero():
-    counter = HeuristicTokenCounter()
+    counter = HeuristicTokenCounter(data_registry=DataRegistry())
     messages = [{"role": "user", "content": "hello world"}]
     assert counter.count(messages, "any-model") > 0
 
 
 def test_tiktoken_counter_falls_back_when_module_unavailable(monkeypatch):
     fallback = StubCounter(77)
-    counter = TiktokenCounter(fallback=fallback)
+    counter = TiktokenCounter(fallback=fallback, data_registry=DataRegistry())
 
     monkeypatch.setitem(sys.modules, "tiktoken", None)
     result = counter.count([{"role": "user", "content": "hi"}], "gpt-4o")
@@ -56,15 +57,20 @@ def test_tiktoken_counter_picks_o200k_for_new_openai_models(monkeypatch):
         sys.modules, "tiktoken", SimpleNamespace(get_encoding=fake_get_encoding)
     )
 
-    counter = TiktokenCounter()
+    registry = DataRegistry()
+    counter = TiktokenCounter(data_registry=registry)
     _ = counter.count([{"role": "user", "content": "hi"}], "gpt-4o-mini")
 
-    assert captured["encoding"] == "o200k_base"
+    assert captured["encoding"] == registry.get_tokenizer_encoding("gpt-4o-mini")
 
 
 def test_anthropic_counter_uses_count_tokens_api(monkeypatch):
     fallback = StubCounter(12)
-    counter = AnthropicTokenCounter(api_key="test", fallback=fallback)
+    counter = AnthropicTokenCounter(
+        api_key="test",
+        fallback=fallback,
+        data_registry=DataRegistry(),
+    )
 
     call_args: dict[str, object] = {}
 
@@ -93,7 +99,11 @@ def test_anthropic_counter_uses_count_tokens_api(monkeypatch):
 
 def test_gemini_counter_falls_back_when_api_errors(monkeypatch):
     fallback = StubCounter(55)
-    counter = GeminiTokenCounter(api_key="test", fallback=fallback)
+    counter = GeminiTokenCounter(
+        api_key="test",
+        fallback=fallback,
+        data_registry=DataRegistry(),
+    )
 
     class FakeModels:
         @staticmethod

@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -28,7 +28,9 @@ from agent_cli.core.runtime.tools.executor import ToolExecutor
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
 
-# ── Mocks ────────────────────────────────────────────────────────────
+TEST_DATA_REGISTRY = DataRegistry()
+
+# â”€â”€ Mocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class MockMathToolArgs(BaseModel):
@@ -58,7 +60,7 @@ class MockLLMProvider(BaseLLMProvider):
         provider_name: str = "mock",
         supports_effort: bool = False,
     ):
-        super().__init__(model_name)
+        super().__init__(model_name, data_registry=TEST_DATA_REGISTRY)
         self.responses = responses
         self.call_count = 0
         self.requests = []
@@ -195,7 +197,7 @@ def _json_response(
     return json.dumps(payload)
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────
+# â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @pytest.fixture
@@ -205,18 +207,19 @@ def base_deps():
 
     event_bus = AsyncEventBus()
     state_manager = TaskStateManager(event_bus)
-    output_formatter = ToolOutputFormatter()
+    output_formatter = ToolOutputFormatter(data_registry=TEST_DATA_REGISTRY)
 
     tool_executor = ToolExecutor(
         registry=registry,
         event_bus=event_bus,
         output_formatter=output_formatter,
         auto_approve=True,
+        data_registry=TEST_DATA_REGISTRY,
     )
 
-    schema_validator = SchemaValidator(registry.get_all_names())
-    memory_manager = WorkingMemoryManager()
-    prompt_builder = PromptBuilder(registry)
+    schema_validator = SchemaValidator(registry.get_all_names(), data_registry=TEST_DATA_REGISTRY)
+    memory_manager = WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY)
+    prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
 
     from agent_cli.core.infra.config.config import AgentSettings
 
@@ -230,11 +233,12 @@ def base_deps():
         "event_bus": event_bus,
         "state_manager": state_manager,
         "prompt_builder": prompt_builder,
+        "data_registry": TEST_DATA_REGISTRY,
         "settings": settings,
     }
 
 
-# ── Integration Tests ────────────────────────────────────────────────
+# â”€â”€ Integration Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_max_iterations_prefers_agent_override(base_deps):
@@ -469,7 +473,7 @@ def test_prompt_builder_adds_ask_user_policy_when_tool_available():
     registry = ToolRegistry()
     registry.register(MockMathTool())
     registry.register(AskUserTool())
-    prompt_builder = PromptBuilder(registry)
+    prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
 
     prompt = prompt_builder.build(
         persona="You are a tester.",
@@ -483,7 +487,7 @@ def test_prompt_builder_adds_ask_user_policy_when_tool_available():
 def test_prompt_builder_skips_ask_user_policy_when_tool_missing():
     registry = ToolRegistry()
     registry.register(MockMathTool())
-    prompt_builder = PromptBuilder(registry)
+    prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
 
     prompt = prompt_builder.build(
         persona="You are a tester.",
@@ -495,7 +499,7 @@ def test_prompt_builder_skips_ask_user_policy_when_tool_missing():
 def test_prompt_builder_renders_title_word_limit_from_template():
     registry = ToolRegistry()
     registry.register(MockMathTool())
-    prompt_builder = PromptBuilder(registry)
+    prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
 
     prompt = prompt_builder.build(
         persona="You are a tester.",
@@ -509,7 +513,7 @@ def test_prompt_builder_renders_title_word_limit_from_template():
 def test_prompt_builder_switches_native_vs_prompt_json_output_template():
     registry = ToolRegistry()
     registry.register(MockMathTool())
-    prompt_builder = PromptBuilder(registry)
+    prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
 
     prompt_json = prompt_builder.build(
         persona="You are a tester.",
@@ -529,7 +533,7 @@ def test_prompt_builder_switches_native_vs_prompt_json_output_template():
 def test_prompt_builder_renders_provider_managed_capabilities_section():
     registry = ToolRegistry()
     registry.register(MockMathTool())
-    prompt_builder = PromptBuilder(registry)
+    prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
 
     prompt = prompt_builder.build(
         persona="You are a tester.",
@@ -624,12 +628,13 @@ async def test_agent_disables_web_search_when_effective_capability_is_unsupporte
             }
         },
     )
+    deps = dict(base_deps)
+    deps["data_registry"] = registry
 
     agent = DummyAgent(
         config=AgentConfig(name="dummy", tools=["add", "web_search"]),
         provider=provider,
-        data_registry=registry,
-        **base_deps,
+        **deps,
     )
     task = await base_deps["state_manager"].create_task("web")
     await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
@@ -674,12 +679,13 @@ async def test_agent_forces_effort_auto_when_effective_capability_is_unsupported
             }
         },
     )
+    deps = dict(base_deps)
+    deps["data_registry"] = registry
 
     agent = DummyAgent(
         config=AgentConfig(name="dummy", tools=["add"]),
         provider=provider,
-        data_registry=registry,
-        **base_deps,
+        **deps,
     )
     task = await base_deps["state_manager"].create_task("effort")
     await base_deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
@@ -693,3 +699,4 @@ async def test_agent_forces_effort_auto_when_effective_capability_is_unsupported
     assert result == "FINAL: done"
     assert provider.efforts
     assert provider.efforts[0] == "auto"
+
