@@ -26,6 +26,7 @@ from agent_cli.core.ux.commands.base import (
     CommandResult,
 )
 from agent_cli.core.ux.commands.parser import CommandParser
+from agent_cli.core.ux.commands.handlers.core import cycle_effort
 from agent_cli.core.infra.registry.bootstrap import _build_command_registry
 from agent_cli.core.infra.registry.registry import DataRegistry
 
@@ -134,7 +135,6 @@ def test_command_decorator_registers_into_registry(registry: CommandRegistry):
     assert "exit" in names
     assert "agent" in names
     assert "model" in names
-    assert "effort" in names
     assert "debug" in names
     assert "config" in names
     assert "cost" in names
@@ -275,6 +275,13 @@ async def test_parser_execute_unknown_returns_failure(parser: CommandParser):
     assert "Unknown command" in result.message
 
 
+@pytest.mark.asyncio
+async def test_parser_execute_effort_returns_unknown(parser: CommandParser):
+    result = await parser.execute("/effort high")
+    assert result.success is False
+    assert "Unknown command: /effort" in result.message
+
+
 def test_get_suggestions_prefix_match(parser: CommandParser):
     """get_suggestions('mo') returns /model."""
     suggestions = parser.get_suggestions("mo")
@@ -317,15 +324,82 @@ async def test_model_command_updates_model_and_emits_settings_event(
             get_context_budget=lambda: {"compaction_threshold": 0.80}
         ),
     )
+    ctx.settings.default_effort = "high"
 
     result = await parser.execute("/model gpt-4o-mini")
 
     assert result.success is True
     assert ctx.settings.default_model == "gpt-4o-mini"
+    assert ctx.settings.default_effort == "auto"
     assert any(
         getattr(event, "setting_name", "") == "default_model"
         for event in ctx.event_bus.published_events
     )
+    assert any(
+        getattr(event, "setting_name", "") == "effort"
+        and getattr(event, "new_value", "") == "auto"
+        for event in ctx.event_bus.published_events
+    )
+
+
+@pytest.mark.asyncio
+async def test_model_command_updates_tui_status_model(parser: CommandParser, ctx: CommandContext):
+    class _MockStatus:
+        def __init__(self) -> None:
+            self.model = ""
+            self.agent = ""
+            self.effort = ""
+
+        def update_model(self, value: str) -> None:
+            self.model = value
+
+        def update_active_agent(self, value: str) -> None:
+            self.agent = value
+
+        def update_effort(self, value: str) -> None:
+            self.effort = value
+
+    class _MockBadge:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def update(self, value: str) -> None:
+            self.value = value
+
+    class _MockApp:
+        def __init__(self) -> None:
+            self.status = _MockStatus()
+            self.badge = _MockBadge()
+
+        def query_one(self, cls: Any) -> Any:
+            if cls.__name__ == "StatusContainer":
+                return self.status
+            if cls.__name__ == "AgentBadgeComponent":
+                return self.badge
+            raise LookupError(cls)
+
+    class _MockProviders:
+        def get_token_counter(self, model_name: str) -> object:
+            return object()
+
+        def get_token_budget(self, model_name: str, **kwargs: Any) -> object:
+            return object()
+
+    mock_app = _MockApp()
+    ctx.app = mock_app  # type: ignore[assignment]
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        orchestrator=None,
+        providers=_MockProviders(),
+        data_registry=SimpleNamespace(
+            get_context_budget=lambda: {"compaction_threshold": 0.80}
+        ),
+    )
+
+    result = await parser.execute("/model gpt-4o-mini")
+
+    assert result.success is True
+    assert mock_app.status.model == "gpt-4o-mini"
+    assert mock_app.status.effort == "auto"
 
 
 
@@ -339,6 +413,44 @@ async def test_debug_command_updates_log_level(
     result = await parser.execute("/debug on")
     assert result.success is True
     assert ctx.settings.log_level == "DEBUG"
+
+
+@pytest.mark.asyncio
+async def test_cycle_effort_uses_active_model_supported_levels(ctx: CommandContext):
+    class _Provider:
+        provider_name = "openai"
+        model_name = "gpt-4o-mini"
+        base_url = ""
+
+    class _DataRegistry:
+        def get_capability_snapshot(self, **kwargs: Any) -> Any:
+            _ = kwargs
+            return SimpleNamespace(
+                declared=SimpleNamespace(
+                    effort=SimpleNamespace(supported=True, levels=["auto", "low", "high"])
+                ),
+                effective={
+                    "effort": SimpleNamespace(status="supported", reason="declared_supported")
+                },
+            )
+
+    ctx.settings.default_effort = "auto"
+    ctx.app_context = SimpleNamespace(  # type: ignore[assignment]
+        data_registry=_DataRegistry(),
+        orchestrator=SimpleNamespace(
+            active_agent=SimpleNamespace(provider=_Provider())
+        ),
+        session_manager=None,
+    )
+
+    result = await cycle_effort(ctx)
+    assert result.success is True
+    assert ctx.settings.default_effort == "low"
+    assert any(
+        getattr(event, "setting_name", "") == "effort"
+        and getattr(event, "new_value", "") == "low"
+        for event in ctx.event_bus.published_events
+    )
 
 
 @pytest.mark.asyncio

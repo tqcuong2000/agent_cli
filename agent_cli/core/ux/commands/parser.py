@@ -44,6 +44,11 @@ class CommandParser:
         """Current Textual app attached to the command context."""
         return self._context.app
 
+    @property
+    def context(self) -> CommandContext:
+        """Execution context used by command handlers."""
+        return self._context
+
     def set_app(self, app: "App | None") -> None:
         """Attach the active Textual app so handlers can update UI widgets."""
         self._context.app = app

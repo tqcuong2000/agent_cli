@@ -21,6 +21,16 @@ def validator() -> SchemaValidator:
     )
 
 
+@pytest.fixture
+def validator_multi() -> SchemaValidator:
+    return SchemaValidator(
+        registered_tools=["foo", "bar"],
+        protocol_mode=ProtocolMode.JSON_ONLY,
+        data_registry=DataRegistry(),
+        multi_action_enabled=True,
+    )
+
+
 def _json_response(
     decision_type: str,
     *,
@@ -61,6 +71,10 @@ def test_extract_thinking_returns_empty_when_missing_json(
     assert validator.extract_thinking("just text") == ""
 
 
+def test_agent_decision_includes_execute_actions() -> None:
+    assert AgentDecision.EXECUTE_ACTIONS.value == "execute_actions"
+
+
 def test_parse_native_fc_success(validator: SchemaValidator) -> None:
     response = LLMResponse(
         text_content=_json_response("execute_action", title="Use tool", thought="go"),
@@ -77,6 +91,8 @@ def test_parse_native_fc_success(validator: SchemaValidator) -> None:
     assert result.action.tool_name == "foo"
     assert result.action.arguments == {"x": 1}
     assert result.action.native_call_id == "call_1"
+    assert result.action.action_id == ""
+    assert result.actions is None
     assert result.title == "Use tool"
 
 
@@ -107,8 +123,144 @@ def test_parse_prompt_json_execute_action(validator: SchemaValidator) -> None:
     assert result.action is not None
     assert result.action.tool_name == "foo"
     assert result.action.arguments == {"x": 1}
+    assert result.action.action_id == ""
+    assert result.actions is None
     assert result.title == "Use foo safely"
     assert "Title: Use foo safely" in result.thought
+
+
+def test_parse_prompt_json_execute_actions(validator_multi: SchemaValidator) -> None:
+    payload = {
+        "title": "Batch read",
+        "thought": "Run both tools.",
+        "decision": {
+            "type": "execute_actions",
+            "actions": [
+                {"tool": "foo", "args": {"x": 1}},
+                {"tool": "bar", "args": {"y": 2}},
+            ],
+        },
+    }
+    response = LLMResponse(
+        text_content=json.dumps(payload),
+        tool_mode=ToolCallMode.PROMPT_JSON,
+    )
+    result = validator_multi.parse_and_validate(response)
+    assert result.decision == AgentDecision.EXECUTE_ACTIONS
+    assert result.actions is not None
+    assert len(result.actions) == 2
+    assert result.actions[0].tool_name == "foo"
+    assert result.actions[0].action_id == "act_0"
+    assert result.actions[1].tool_name == "bar"
+    assert result.actions[1].action_id == "act_1"
+
+
+def test_parse_prompt_json_execute_actions_invalid_shapes(
+    validator_multi: SchemaValidator,
+) -> None:
+    bad_payloads = [
+        {"decision": {"type": "execute_actions", "actions": []}},
+        {"decision": {"type": "execute_actions", "actions": "not-list"}},
+        {"decision": {"type": "execute_actions", "actions": [{"args": {}}]}},
+        {"decision": {"type": "execute_actions", "actions": [{"tool": "missing"}]}},
+        {"decision": {"type": "execute_actions", "actions": [{"tool": "foo", "args": "x"}]}},
+    ]
+
+    for payload in bad_payloads:
+        response = LLMResponse(
+            text_content=json.dumps(payload),
+            tool_mode=ToolCallMode.PROMPT_JSON,
+        )
+        with pytest.raises(SchemaValidationError):
+            validator_multi.parse_and_validate(response)
+
+
+def test_parse_prompt_json_execute_actions_repairs_object_shape(
+    validator_multi: SchemaValidator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    payload = {
+        "title": "Batch read",
+        "thought": "Run both tools.",
+        "decision": {
+            "type": "execute_actions",
+            "actions": {"tool": "foo", "args": {"x": 1}},
+        },
+    }
+    response = LLMResponse(
+        text_content=json.dumps(payload),
+        tool_mode=ToolCallMode.PROMPT_JSON,
+    )
+    result = validator_multi.parse_and_validate(response)
+    assert result.decision == AgentDecision.EXECUTE_ACTIONS
+    assert result.actions is not None
+    assert len(result.actions) == 1
+    assert result.actions[0].tool_name == "foo"
+    assert result.actions[0].action_id == "act_0"
+    assert "Repairing execute_actions payload" in caplog.text
+
+
+def test_parse_prompt_json_execute_actions_when_multi_disabled(
+    validator: SchemaValidator,
+) -> None:
+    payload = {
+        "title": "Batch read",
+        "thought": "Run both tools.",
+        "decision": {
+            "type": "execute_actions",
+            "actions": [{"tool": "foo", "args": {"x": 1}}],
+        },
+    }
+    response = LLMResponse(text_content=json.dumps(payload), tool_mode=ToolCallMode.PROMPT_JSON)
+    with pytest.raises(SchemaValidationError, match="execute_actions is disabled"):
+        validator.parse_and_validate(response)
+
+
+def test_single_execute_action_remains_single_when_multi_enabled(
+    validator_multi: SchemaValidator,
+) -> None:
+    response = LLMResponse(
+        text_content=_json_response("execute_action", tool="foo", args={"x": 1}),
+        tool_mode=ToolCallMode.PROMPT_JSON,
+    )
+    result = validator_multi.parse_and_validate(response)
+    assert result.decision == AgentDecision.EXECUTE_ACTION
+    assert result.action is not None
+    assert result.actions is None
+
+
+def test_parse_native_fc_multiple_calls_when_multi_enabled(
+    validator_multi: SchemaValidator,
+) -> None:
+    response = LLMResponse(
+        text_content=_json_response("execute_actions", title="native multi", thought="go"),
+        tool_mode=ToolCallMode.NATIVE,
+        tool_calls=[
+            ToolCall(tool_name="foo", arguments={"x": 1}, native_call_id="call_a"),
+            ToolCall(tool_name="bar", arguments={"y": 2}),
+        ],
+    )
+    result = validator_multi.parse_and_validate(response)
+    assert result.decision == AgentDecision.EXECUTE_ACTIONS
+    assert result.actions is not None
+    assert len(result.actions) == 2
+    assert result.actions[0].action_id == "call_a"
+    assert result.actions[1].action_id == "act_1"
+
+
+def test_parse_native_fc_multiple_calls_when_multi_disabled(
+    validator: SchemaValidator,
+) -> None:
+    response = LLMResponse(
+        text_content=_json_response("execute_action"),
+        tool_mode=ToolCallMode.NATIVE,
+        tool_calls=[
+            ToolCall(tool_name="foo", arguments={"x": 1}),
+            ToolCall(tool_name="bar", arguments={"y": 2}),
+        ],
+    )
+    with pytest.raises(SchemaValidationError, match="Multiple native tool calls"):
+        validator.parse_and_validate(response)
 
 
 def test_parse_prompt_json_notify_user(validator: SchemaValidator) -> None:

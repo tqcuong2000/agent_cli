@@ -21,14 +21,14 @@ from agent_cli.core.ux.interaction.interaction import (
     UserInteractionResponse,
 )
 from agent_cli.core.runtime.tools.ask_user_tool import AskUserTool
-from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
+from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory, ToolResult
 from agent_cli.core.runtime.tools.executor import ToolExecutor
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
 
 
-def _parse_tool_result(result: str) -> dict[str, Any]:
-    parsed = json.loads(result)
+def _parse_tool_result(result: ToolResult) -> dict[str, Any]:
+    parsed = json.loads(result.output)
     assert parsed["type"] == "tool_result"
     return parsed
 
@@ -121,6 +121,8 @@ async def test_executor_safe_tool_success(registry, event_bus, output_formatter)
 
     result = await executor.execute("safe_tool", {"arg1": "test"})
     parsed = _parse_tool_result(result)
+    assert result.success is True
+    assert result.tool_name == "safe_tool"
 
     assert "Safe test" in parsed["payload"]["output"]
     assert parsed["payload"]["status"] == "success"
@@ -134,7 +136,7 @@ async def test_executor_safe_tool_success(registry, event_bus, output_formatter)
     result_event = events[1]
     assert isinstance(result_event, ToolExecutionResultEvent)
     assert not result_event.is_error
-    assert result_event.output == result
+    assert result_event.output == result.output
 
 
 @pytest.mark.asyncio
@@ -149,6 +151,7 @@ async def test_executor_validation_failure(registry, event_bus, output_formatter
     # Missing arg1
     result = await executor.execute("safe_tool", {})
     parsed = _parse_tool_result(result)
+    assert result.success is False
     assert parsed["payload"]["status"] == "error"
     assert "Invalid arguments" in parsed["payload"]["output"]
 
@@ -164,6 +167,7 @@ async def test_executor_unknown_tool(registry, event_bus, output_formatter):
 
     result = await executor.execute("unknown", {"arg1": "test"})
     parsed = _parse_tool_result(result)
+    assert result.success is False
     assert parsed["payload"]["status"] == "error"
     assert "Unknown tool" in parsed["payload"]["output"]
 
@@ -186,6 +190,7 @@ async def test_executor_tool_execution_error(registry, event_bus, output_formatt
 
     result = await executor.execute("safe_tool", {"arg1": "fail"})
     parsed = _parse_tool_result(result)
+    assert result.success is False
 
     assert parsed["payload"]["status"] == "error"
     assert "Expected failure" in parsed["payload"]["output"]
@@ -193,7 +198,7 @@ async def test_executor_tool_execution_error(registry, event_bus, output_formatt
     await asyncio.sleep(0.05)
     assert len(events) == 1
     assert events[0].is_error
-    assert events[0].output == result
+    assert events[0].output == result.output
 
 
 @pytest.mark.asyncio
@@ -214,6 +219,7 @@ async def test_executor_unexpected_exception(registry, event_bus, output_formatt
 
     result = await executor.execute("safe_tool", {"arg1": "crash"})
     parsed = _parse_tool_result(result)
+    assert result.success is False
 
     assert "ValueError" in parsed["payload"]["output"]
     assert "Unexpected exception" in parsed["payload"]["output"]
@@ -221,7 +227,7 @@ async def test_executor_unexpected_exception(registry, event_bus, output_formatt
     await asyncio.sleep(0.05)
     assert len(events) == 1
     assert events[0].is_error
-    assert events[0].output == result
+    assert events[0].output == result.output
 
 
 @pytest.mark.asyncio
@@ -236,6 +242,7 @@ async def test_executor_unsafe_tool_auto_approve(registry, event_bus, output_for
 
     result = await executor.execute("unsafe_tool", {"arg1": "test"})
     parsed = _parse_tool_result(result)
+    assert result.success is True
     assert "Unsafe test" in parsed["payload"]["output"]
 
 
@@ -307,6 +314,7 @@ async def test_executor_unsafe_tool_denied(registry, event_bus, output_formatter
 
     result = await executor.execute("unsafe_tool", {"arg1": "test"}, task_id="task_2")
     parsed = _parse_tool_result(result)
+    assert result.success is False
 
     await task
 
@@ -340,6 +348,7 @@ async def test_executor_routes_ask_user_to_interaction_handler(
         task_id="task-ask-executor-1",
     )
     parsed = _parse_tool_result(result)
+    assert result.success is True
 
     assert parsed["payload"]["tool"] == "ask_user"
     assert parsed["payload"]["status"] == "success"

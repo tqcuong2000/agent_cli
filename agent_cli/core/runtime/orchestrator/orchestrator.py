@@ -23,9 +23,6 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, cast
 
-from agent_cli.core.runtime.agents.base import BaseAgent
-from agent_cli.core.runtime.agents.registry import AgentRegistry
-from agent_cli.core.runtime.agents.session_registry import SessionAgentRegistry
 from agent_cli.core.infra.events.errors import AgentCLIError
 from agent_cli.core.infra.events.event_bus import AbstractEventBus
 from agent_cli.core.infra.events.events import (
@@ -36,17 +33,19 @@ from agent_cli.core.infra.events.events import (
     TaskResultEvent,
     UserRequestEvent,
 )
+from agent_cli.core.infra.logging.tracing import bind_trace, new_trace_id
+from agent_cli.core.runtime.agents.base import BaseAgent
+from agent_cli.core.runtime.agents.registry import AgentRegistry
+from agent_cli.core.runtime.agents.session_registry import SessionAgentRegistry
 from agent_cli.core.runtime.orchestrator.state_manager import AbstractStateManager
 from agent_cli.core.runtime.orchestrator.state_models import TaskState
-from agent_cli.core.infra.logging.tracing import bind_trace, new_trace_id
-from agent_cli.core.infra.logging.tracing import bind_trace, new_trace_id
 from agent_cli.core.runtime.session.base import AbstractSessionManager, Session
 from agent_cli.core.runtime.session.title_service import SessionTitleService
 
 if TYPE_CHECKING:
-    from agent_cli.core.ux.commands.parser import CommandParser
     from agent_cli.core.infra.logging.logging import ObservabilityManager
     from agent_cli.core.providers.base.capability_probe import CapabilityProbeService
+    from agent_cli.core.ux.commands.parser import CommandParser
 
 logger = logging.getLogger(__name__)
 
@@ -555,16 +554,18 @@ class Orchestrator:
             session.total_cost = round(session.total_cost + task_cost, 6)
 
         session_title_changed = False
-        
+
         if self._title_service and self._title_service.should_generate(session):
-            candidate = await self._title_service.generate_title(agent.provider, session.messages)
+            candidate = await self._title_service.generate_title(
+                agent.provider, session.messages
+            )
             if candidate:
                 session.name = candidate
                 session_title_changed = True
-        
+
         # Ensure a default so it's not totally blank before the turn threshold
         if not str(session.name or "").strip():
-             session.name = "Untitled session"
+            session.name = "Untitled session"
 
         self._session_manager.save(session)
         if session_title_changed:

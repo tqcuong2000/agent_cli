@@ -88,6 +88,7 @@ class RunCommandTool(BaseTool):
         "For long-running processes, use spawn_terminal instead."
     )
     is_safe = False  # Requires approval (dynamic regex may override)
+    parallel_safe = False
     category = ToolCategory.EXECUTION
 
     def __init__(

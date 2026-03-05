@@ -167,6 +167,7 @@ class WriteFileTool(BaseTool):
         "Parent directories are created automatically."
     )
     is_safe = False  # Requires approval — modifies filesystem
+    parallel_safe = False
     category = ToolCategory.FILE
 
     def __init__(self, workspace: BaseWorkspaceManager) -> None:
@@ -275,6 +276,7 @@ class StrReplaceTool(BaseTool):
         "Fails if zero or multiple matches are found. Returns a unified diff."
     )
     is_safe = False
+    parallel_safe = False
     category = ToolCategory.FILE
 
     def __init__(
@@ -379,6 +381,7 @@ class InsertLinesTool(BaseTool):
         "(use 0 to insert at the top)."
     )
     is_safe = False
+    parallel_safe = False
     category = ToolCategory.FILE
 
     def __init__(self, workspace: BaseWorkspaceManager) -> None:

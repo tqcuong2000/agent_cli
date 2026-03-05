@@ -28,6 +28,10 @@ class _MockInteractionHandler(BaseInteractionHandler):
         return None
 
 
+def test_ask_user_parallel_safe_flag():
+    assert AskUserTool().parallel_safe is False
+
+
 def test_ask_user_args_validation():
     tool = AskUserTool()
 

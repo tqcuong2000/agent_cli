@@ -1,5 +1,6 @@
 ﻿import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -9,9 +10,12 @@ from pydantic import BaseModel
 from agent_cli.core.runtime.agents.base import AgentConfig, BaseAgent
 from agent_cli.core.runtime.agents.default import DefaultAgent
 from agent_cli.core.runtime.agents.memory import WorkingMemoryManager
-from agent_cli.core.runtime.agents.react_loop import PromptBuilder
+from agent_cli.core.runtime.agents.react_loop import PromptBuilder, StuckDetector
 from agent_cli.core.runtime.agents.schema import SchemaValidator
-from agent_cli.core.infra.events.errors import MaxIterationsExceededError
+from agent_cli.core.infra.events.errors import (
+    MaxIterationsExceededError,
+    SchemaValidationError,
+)
 from agent_cli.core.infra.events.event_bus import AbstractEventBus, AsyncEventBus
 from agent_cli.core.runtime.orchestrator.state_manager import TaskState, TaskStateManager
 from agent_cli.core.infra.registry.registry import DataRegistry
@@ -27,6 +31,11 @@ from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
 from agent_cli.core.runtime.tools.executor import ToolExecutor
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
+from agent_cli.core.ux.interaction.interaction import (
+    BaseInteractionHandler,
+    UserInteractionRequest,
+    UserInteractionResponse,
+)
 
 TEST_DATA_REGISTRY = DataRegistry()
 
@@ -49,6 +58,48 @@ class MockMathTool(BaseTool):
 
     async def execute(self, x: int, y: int, **kwargs: Any) -> str:
         return str(x + y)
+
+
+class MockReadToolArgs(BaseModel):
+    path: str
+    delay: float = 0.0
+
+
+class MockParallelReadTool(BaseTool):
+    name = "read_file"
+    description = "Read mock file content."
+    category = ToolCategory.FILE
+    is_safe = True
+    parallel_safe = True
+
+    @property
+    def args_schema(self) -> type[BaseModel]:
+        return MockReadToolArgs
+
+    async def execute(self, path: str, delay: float = 0.0, **kwargs: Any) -> str:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        return f"read:{path}"
+
+
+class MockSequentialReadTool(MockParallelReadTool):
+    parallel_safe = False
+
+
+class AnsweringInteractionHandler(BaseInteractionHandler):
+    def __init__(self, *, answer: str = "Balanced") -> None:
+        self.answer = answer
+        self.requests: List[UserInteractionRequest] = []
+
+    async def request_human_input(
+        self,
+        request: UserInteractionRequest,
+    ) -> UserInteractionResponse:
+        self.requests.append(request)
+        return UserInteractionResponse(action="answered", feedback=self.answer)
+
+    async def notify(self, message: str) -> None:
+        _ = message
 
 
 class MockLLMProvider(BaseLLMProvider):
@@ -152,6 +203,19 @@ class DummyAgent(BaseAgent):
         return f"FINAL: {answer}"
 
 
+class BatchTrackingAgent(DummyAgent):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tool_result_calls: List[tuple[str, str]] = []
+        self.batch_calls: List[tuple[List[Any], List[Any]]] = []
+
+    async def on_tool_result(self, tool_name: str, result: str) -> None:
+        self.tool_result_calls.append((tool_name, result))
+
+    async def on_batch_complete(self, actions: List[Any], results: List[Any]) -> None:
+        self.batch_calls.append((actions, results))
+
+
 class _MockToolFormatter(BaseToolFormatter):
     def format_for_native_fc(self, tools: List[Dict[str, Any]]) -> Any:
         return tools
@@ -179,6 +243,7 @@ def _json_response(
     *,
     tool: str = "",
     args: dict | None = None,
+    actions: List[Dict[str, Any]] | None = None,
     message: str = "",
     title: str = "Plan next step",
     thought: str = "I will continue.",
@@ -192,6 +257,8 @@ def _json_response(
         payload["decision"]["tool"] = tool
     if args is not None:
         payload["decision"]["args"] = args
+    if actions is not None:
+        payload["decision"]["actions"] = actions
     if message:
         payload["decision"]["message"] = message
     return json.dumps(payload)
@@ -200,11 +267,11 @@ def _json_response(
 # â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
-@pytest.fixture
-def base_deps():
-    registry = ToolRegistry()
-    registry.register(MockMathTool())
-
+def _build_deps(
+    registry: ToolRegistry,
+    *,
+    multi_action_enabled: bool = False,
+) -> Dict[str, Any]:
     event_bus = AsyncEventBus()
     state_manager = TaskStateManager(event_bus)
     output_formatter = ToolOutputFormatter(data_registry=TEST_DATA_REGISTRY)
@@ -217,7 +284,11 @@ def base_deps():
         data_registry=TEST_DATA_REGISTRY,
     )
 
-    schema_validator = SchemaValidator(registry.get_all_names(), data_registry=TEST_DATA_REGISTRY)
+    schema_validator = SchemaValidator(
+        registry.get_all_names(),
+        data_registry=TEST_DATA_REGISTRY,
+        multi_action_enabled=multi_action_enabled,
+    )
     memory_manager = WorkingMemoryManager(data_registry=TEST_DATA_REGISTRY)
     prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
 
@@ -236,6 +307,13 @@ def base_deps():
         "data_registry": TEST_DATA_REGISTRY,
         "settings": settings,
     }
+
+
+@pytest.fixture
+def base_deps():
+    registry = ToolRegistry()
+    registry.register(MockMathTool())
+    return _build_deps(registry)
 
 
 # â”€â”€ Integration Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -295,7 +373,24 @@ def test_format_assistant_history_appends_native_tool_call_json_trace():
     assert trace["version"] == "1.0"
     assert trace["payload"]["tool"] == "read_file"
     assert trace["payload"]["args"] == {"path": "README.md"}
+    assert trace["payload"]["action_id"] == "call_1"
     assert trace["metadata"]["native_call_id"] == "call_1"
+
+
+def test_format_assistant_history_assigns_fallback_action_ids_for_multi_native_calls():
+    response = LLMResponse(
+        text_content="",
+        tool_mode=ToolCallMode.NATIVE,
+        tool_calls=[
+            ToolCall(tool_name="read_file", arguments={"path": "a.txt"}, native_call_id=""),
+            ToolCall(tool_name="search_files", arguments={"pattern": "TODO"}, native_call_id=""),
+        ],
+    )
+
+    formatted = BaseAgent._format_assistant_history(response)
+    traces = [json.loads(line) for line in formatted.splitlines()]
+    assert traces[0]["payload"]["action_id"] == "act_0"
+    assert traces[1]["payload"]["action_id"] == "act_1"
 
 
 @pytest.mark.asyncio
@@ -346,6 +441,214 @@ async def test_react_loop_successful_task(base_deps):
     ]
     assert any(p.get("type") == "tool_result" for p in tool_payloads)
     assert any(p.get("payload", {}).get("tool") == "add" for p in tool_payloads)
+
+
+@pytest.mark.asyncio
+async def test_react_loop_execute_actions_dispatches_batch(base_deps):
+    mock_responses = [
+        _json_response(
+            "execute_actions",
+            actions=[
+                {"tool": "add", "args": {"x": 2, "y": 3}},
+                {"tool": "add", "args": {"x": 10, "y": 5}},
+            ],
+            title="Run independent tool calls",
+            thought="I can execute both actions in one batch.",
+        ),
+        _json_response(
+            "notify_user",
+            message="Batch completed.",
+            title="Finalize",
+            thought="Done",
+        ),
+    ]
+    provider = MockLLMProvider(mock_responses)
+    deps = dict(base_deps)
+    deps["schema_validator"] = SchemaValidator(
+        deps["tool_executor"].registry.get_all_names(),
+        data_registry=TEST_DATA_REGISTRY,
+        multi_action_enabled=True,
+    )
+    config = AgentConfig(name="dummy", tools=["add"], multi_action_enabled=True)
+    agent = BatchTrackingAgent(config=config, provider=provider, **deps)
+
+    task = await deps["state_manager"].create_task("Batch add")
+    await deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
+    await deps["state_manager"].transition(task.task_id, TaskState.WORKING)
+
+    result = await agent.handle_task(
+        task_id=task.task_id,
+        task_description="Add numbers in parallel",
+    )
+
+    assert result == "FINAL: Batch completed."
+    assert len(agent.tool_result_calls) == 2
+    assert len(agent.batch_calls) == 1
+
+    tool_messages = [
+        m for m in deps["memory_manager"].get_working_context() if m.get("role") == "tool"
+    ]
+    assert len(tool_messages) == 2
+    envelopes = [json.loads(m["content"]) for m in tool_messages]
+    assert [e["metadata"]["action_id"] for e in envelopes] == ["act_0", "act_1"]
+
+
+@pytest.mark.asyncio
+async def test_react_loop_multi_action_parallel_read_fanout_e2e():
+    responses = [
+        _json_response(
+            "execute_actions",
+            actions=[
+                {"tool": "read_file", "args": {"path": "a.txt", "delay": 0.20}},
+                {"tool": "read_file", "args": {"path": "b.txt", "delay": 0.20}},
+                {"tool": "read_file", "args": {"path": "c.txt", "delay": 0.20}},
+            ],
+            title="Read all files",
+            thought="Fan out independent reads.",
+        ),
+        _json_response(
+            "notify_user",
+            message="All reads done.",
+            title="Complete",
+            thought="Collected all file outputs.",
+        ),
+    ]
+
+    parallel_registry = ToolRegistry()
+    parallel_registry.register(MockParallelReadTool())
+    parallel_deps = _build_deps(parallel_registry, multi_action_enabled=True)
+    parallel_provider = MockLLMProvider(list(responses))
+    parallel_agent = BatchTrackingAgent(
+        config=AgentConfig(
+            name="dummy",
+            tools=["read_file"],
+            multi_action_enabled=True,
+            max_concurrent_actions=3,
+        ),
+        provider=parallel_provider,
+        **parallel_deps,
+    )
+
+    parallel_task = await parallel_deps["state_manager"].create_task("Fanout reads")
+    await parallel_deps["state_manager"].transition(parallel_task.task_id, TaskState.ROUTING)
+    await parallel_deps["state_manager"].transition(parallel_task.task_id, TaskState.WORKING)
+    started = time.perf_counter()
+    result = await parallel_agent.handle_task(
+        task_id=parallel_task.task_id,
+        task_description="Read a,b,c files",
+    )
+    parallel_elapsed = time.perf_counter() - started
+
+    sequential_registry = ToolRegistry()
+    sequential_registry.register(MockSequentialReadTool())
+    sequential_deps = _build_deps(sequential_registry, multi_action_enabled=True)
+    sequential_provider = MockLLMProvider(list(responses))
+    sequential_agent = BatchTrackingAgent(
+        config=AgentConfig(
+            name="dummy",
+            tools=["read_file"],
+            multi_action_enabled=True,
+            max_concurrent_actions=3,
+        ),
+        provider=sequential_provider,
+        **sequential_deps,
+    )
+    sequential_task = await sequential_deps["state_manager"].create_task("Sequential reads")
+    await sequential_deps["state_manager"].transition(
+        sequential_task.task_id,
+        TaskState.ROUTING,
+    )
+    await sequential_deps["state_manager"].transition(
+        sequential_task.task_id,
+        TaskState.WORKING,
+    )
+    started = time.perf_counter()
+    seq_result = await sequential_agent.handle_task(
+        task_id=sequential_task.task_id,
+        task_description="Read a,b,c files",
+    )
+    sequential_elapsed = time.perf_counter() - started
+
+    assert result == "FINAL: All reads done."
+    assert seq_result == "FINAL: All reads done."
+    assert len(parallel_agent.tool_result_calls) == 3
+    assert len(parallel_agent.batch_calls) == 1
+    assert parallel_elapsed < sequential_elapsed * 0.75
+    assert sequential_elapsed >= 0.55
+
+    tool_messages = [
+        m
+        for m in parallel_deps["memory_manager"].get_working_context()
+        if m.get("role") == "tool"
+    ]
+    assert len(tool_messages) == 3
+
+
+@pytest.mark.asyncio
+async def test_react_loop_multi_action_enforces_ask_user_singleton_e2e(
+    caplog: pytest.LogCaptureFixture,
+):
+    registry = ToolRegistry()
+    registry.register(MockMathTool())
+    registry.register(AskUserTool())
+    deps = _build_deps(registry, multi_action_enabled=True)
+    interaction_handler = AnsweringInteractionHandler(answer="Option B")
+    deps["tool_executor"].set_interaction_handler(interaction_handler)
+
+    mock_responses = [
+        _json_response(
+            "execute_actions",
+            actions=[
+                {
+                    "tool": "ask_user",
+                    "args": {
+                        "question": "Which mode?",
+                        "options": ["Option A", "Option B"],
+                    },
+                },
+                {"tool": "add", "args": {"x": 1, "y": 2}},
+            ],
+            title="Need clarification first",
+            thought="ask_user must run alone.",
+        ),
+        _json_response(
+            "notify_user",
+            message="Clarification captured.",
+            title="Complete",
+            thought="Done",
+        ),
+    ]
+    provider = MockLLMProvider(mock_responses)
+    agent = BatchTrackingAgent(
+        config=AgentConfig(
+            name="dummy",
+            tools=["ask_user", "add"],
+            multi_action_enabled=True,
+        ),
+        provider=provider,
+        **deps,
+    )
+
+    task = await deps["state_manager"].create_task("Ask then continue")
+    await deps["state_manager"].transition(task.task_id, TaskState.ROUTING)
+    await deps["state_manager"].transition(task.task_id, TaskState.WORKING)
+
+    result = await agent.handle_task(
+        task_id=task.task_id,
+        task_description="Ask a clarification",
+    )
+
+    assert result == "FINAL: Clarification captured."
+    assert len(interaction_handler.requests) == 1
+    assert len(agent.tool_result_calls) == 1
+    assert agent.tool_result_calls[0][0] == "ask_user"
+    tool_messages = [
+        m for m in deps["memory_manager"].get_working_context() if m.get("role") == "tool"
+    ]
+    assert len(tool_messages) == 1
+    payload = json.loads(tool_messages[0]["content"])["payload"]
+    assert payload["tool"] == "ask_user"
+    assert "stripping batch to ask_user only" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -469,6 +772,25 @@ async def test_react_loop_stuck_detection(base_deps):
     assert any("repeating the same action" in m["content"] for m in mem)
 
 
+def test_stuck_detector_detects_repeated_batch_order_independently():
+    detector = StuckDetector(threshold=2, history_cap=5)
+
+    batch_a = [("read_file", "alpha"), ("search_files", "beta")]
+    batch_b = [("search_files", "beta"), ("read_file", "alpha")]
+
+    assert detector.is_stuck_batch(batch_a) is False
+    assert detector.is_stuck_batch(batch_b) is True
+
+
+def test_stuck_detector_batch_reset_clears_batch_history():
+    detector = StuckDetector(threshold=2, history_cap=5)
+    batch = [("read_file", "alpha"), ("search_files", "beta")]
+
+    assert detector.is_stuck_batch(batch) is False
+    detector.reset()
+    assert detector.is_stuck_batch(batch) is False
+
+
 def test_prompt_builder_adds_ask_user_policy_when_tool_available():
     registry = ToolRegistry()
     registry.register(MockMathTool())
@@ -530,6 +852,29 @@ def test_prompt_builder_switches_native_vs_prompt_json_output_template():
     assert "native function-calling" in native_prompt
 
 
+def test_prompt_builder_switches_multi_action_output_template():
+    registry = ToolRegistry()
+    registry.register(MockMathTool())
+    prompt_builder = PromptBuilder(registry, data_registry=TEST_DATA_REGISTRY)
+
+    prompt_json = prompt_builder.build(
+        persona="You are a tester.",
+        tool_names=["add"],
+        multi_action=True,
+    )
+    native_prompt = prompt_builder.build(
+        persona="You are a tester.",
+        tool_names=["add"],
+        native_tool_mode=True,
+        multi_action=True,
+    )
+
+    assert "execute_actions" in prompt_json
+    assert "Wait for ALL Results" in prompt_json
+    assert "execute_actions" in native_prompt
+    assert "native function-calling" in native_prompt
+
+
 def test_prompt_builder_renders_provider_managed_capabilities_section():
     registry = ToolRegistry()
     registry.register(MockMathTool())
@@ -569,6 +914,43 @@ async def test_default_agent_prompt_includes_web_search_capability_when_supporte
     prompt = await agent.build_system_prompt("")
     assert "# Provider-Managed Capabilities" in prompt
     assert "web_search" in prompt
+
+
+@pytest.mark.asyncio
+async def test_default_agent_prompt_uses_multi_action_template_when_enabled(base_deps):
+    provider = MockLLMProvider([])
+    agent = DefaultAgent(
+        config=AgentConfig(name="default", tools=["add"], multi_action_enabled=True),
+        provider=provider,
+        **base_deps,
+    )
+
+    prompt = await agent.build_system_prompt("")
+    assert "execute_actions" in prompt
+    assert "Wait for ALL Results" in prompt
+
+
+def test_schema_recovery_message_includes_multi_action_example_when_enabled(base_deps):
+    provider = MockLLMProvider([])
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add"], multi_action_enabled=True),
+        provider=provider,
+        **base_deps,
+    )
+    message = agent._build_schema_recovery_message(SchemaValidationError("bad schema"))
+    assert "execute_actions" in message
+    assert "Multi-action" in message
+
+
+def test_schema_recovery_message_omits_multi_action_example_when_disabled(base_deps):
+    provider = MockLLMProvider([])
+    agent = DummyAgent(
+        config=AgentConfig(name="dummy", tools=["add"], multi_action_enabled=False),
+        provider=provider,
+        **base_deps,
+    )
+    message = agent._build_schema_recovery_message(SchemaValidationError("bad schema"))
+    assert "Multi-action" not in message
 
 
 @pytest.mark.asyncio

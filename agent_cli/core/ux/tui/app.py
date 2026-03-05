@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 
+from agent_cli.core.infra.config.config_models import normalize_effort
 from agent_cli.core.infra.registry.bootstrap import create_app
 from agent_cli.core.infra.events.events import BaseEvent, SettingsChangedEvent
 from agent_cli.core.ux.tui.views.body.body import BodyContainer
@@ -26,6 +27,7 @@ class AgentCLIApp(App):
 
     BINDINGS = [
         Binding("ctrl+p", "open_command_palette", "Commands", show=True),
+        Binding("ctrl+e", "cycle_effort", "Effort", show=True),
         Binding("escape", "interrupt_agent", "Stop", show=False),
         Binding("ctrl+l", "clear_context", "Clear", show=False),
         Binding("ctrl+q", "quit_app", "Quit", show=False),
@@ -112,7 +114,7 @@ class AgentCLIApp(App):
         """Push current settings into the reactive status bar."""
         try:
             from agent_cli.core.ux.tui.views.header.agent_badge import AgentBadgeComponent
-            from agent_cli.core.ux.tui.views.header.status import StatusContainer
+            from agent_cli.core.ux.tui.views.footer.status import StatusContainer
 
             status = self.query_one(StatusContainer)
             s = self.app_context.settings
@@ -121,6 +123,15 @@ class AgentCLIApp(App):
             if self.app_context.orchestrator is not None:
                 active_name = self.app_context.orchestrator.active_agent_name
             status.update_active_agent(active_name)
+            desired_effort = normalize_effort(getattr(s, "default_effort", None)).value
+            session_manager = getattr(self.app_context, "session_manager", None)
+            if session_manager is not None:
+                active_session = session_manager.get_active()
+                if active_session is not None:
+                    desired_effort = normalize_effort(
+                        getattr(active_session, "desired_effort", None)
+                    ).value
+            status.update_effort(desired_effort)
             badge = self.query_one(AgentBadgeComponent)
             badge.update(active_name)
         except Exception:
@@ -195,6 +206,16 @@ class AgentCLIApp(App):
         if parser:
             result = await parser.execute("/clear")
             self.notify(result.message)
+
+    async def action_cycle_effort(self) -> None:
+        """Cycle desired reasoning effort for the active session/default."""
+        parser = getattr(self.app_context, "command_parser", None)
+        if parser is None:
+            return
+
+        from agent_cli.core.ux.commands.handlers.core import cycle_effort
+
+        await cycle_effort(parser.context)
 
     async def action_quit_app(self) -> None:
         """Exit the application."""

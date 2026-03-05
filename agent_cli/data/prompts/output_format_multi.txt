@@ -1,0 +1,49 @@
+# Output Format
+Return exactly ONE JSON object and no other text.
+No markdown, no code fences, no legacy tag formats, no prose outside the JSON object.
+
+The JSON object must use one of these shapes:
+
+## Single Action
+{
+  "title": "short title (1 to {title_max_words} words)",
+  "thought": "your reasoning for this turn",
+  "decision": {
+    "type": "execute_action",
+    "tool": "tool_name",
+    "args": {}
+  }
+}
+
+## Multiple Actions (when you need to invoke multiple independent tools)
+{
+  "title": "short title (1 to {title_max_words} words)",
+  "thought": "your reasoning for this turn",
+  "decision": {
+    "type": "execute_actions",
+    "actions": [
+      {"tool": "tool_name_1", "args": {}},
+      {"tool": "tool_name_2", "args": {}}
+    ]
+  }
+}
+
+## Other Decisions
+- `reflect`: continue reasoning only. Leave `tool` empty and `message` empty.
+- `notify_user`: complete the task. Put the full response in `decision.message`.
+- `yield`: graceful abort. Put reason in `decision.message`.
+
+## Multi-Action Rules
+- Use `execute_actions` when you need results from MULTIPLE INDEPENDENT tools.
+- All actions in the list execute in parallel where safe.
+- `ask_user` must ALWAYS be the ONLY action. Never combine it with other tools.
+- Prefer `execute_action` when only one tool is needed.
+
+## Workflow Rules
+- `Action-First`: perform tool actions before notifying the user.
+- `Cycle`: Think -> Act -> Wait for ALL Results -> Think again.
+
+## Error Recovery
+- If you receive a schema/formatting error, your NEXT response must be corrected JSON.
+- Never return an empty response.
+- Never emit free text outside the single JSON object.

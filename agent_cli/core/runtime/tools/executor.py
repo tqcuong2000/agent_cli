@@ -36,6 +36,7 @@ from agent_cli.core.ux.interaction.interaction import (
 )
 from agent_cli.core.infra.logging.tracing import start_span
 from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.runtime.tools.base import ToolResult
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
 from agent_cli.core.runtime.tools.shell_tool import (
@@ -116,7 +117,8 @@ class ToolExecutor:
         task_id: str = "",
         *,
         native_call_id: str = "",
-    ) -> str:
+        action_id: str = "",
+    ) -> ToolResult:
         """Execute a validated tool call.
 
         Flow:
@@ -128,28 +130,46 @@ class ToolExecutor:
         6. Execute with error shielding
         7. Format output via ToolOutputFormatter
         8. Emit ToolExecutionResultEvent
-        9. Return formatted result string
+        9. Return structured ``ToolResult``
         """
         tool = self.registry.get(tool_name)
         if tool is None:
-            return self.output_formatter.format(
+            error_message = f"Unknown tool: '{tool_name}'"
+            formatted = self.output_formatter.format(
                 tool_name,
-                f"Unknown tool: '{tool_name}'",
+                error_message,
                 success=False,
                 task_id=task_id,
                 native_call_id=native_call_id,
+                action_id=action_id,
+            )
+            return ToolResult(
+                success=False,
+                output=formatted,
+                error=error_message,
+                action_id=action_id,
+                tool_name=tool_name,
             )
 
         # ── 1. Validate arguments ────────────────────────────────
         try:
             validated = tool.validate_args(**arguments)
         except Exception as e:
-            return self.output_formatter.format(
+            error_message = f"Invalid arguments for '{tool_name}': {e}"
+            formatted = self.output_formatter.format(
                 tool_name,
-                f"Invalid arguments for '{tool_name}': {e}",
+                error_message,
                 success=False,
                 task_id=task_id,
                 native_call_id=native_call_id,
+                action_id=action_id,
+            )
+            return ToolResult(
+                success=False,
+                output=formatted,
+                error=error_message,
+                action_id=action_id,
+                tool_name=tool_name,
             )
 
         # ── 2. Safety check ──────────────────────────────────────
@@ -175,12 +195,21 @@ class ToolExecutor:
                     task_id=task_id,
                 )
             if not approved:
-                return self.output_formatter.format(
+                error_message = "User denied execution."
+                formatted = self.output_formatter.format(
                     tool_name,
-                    "User denied execution.",
+                    error_message,
                     success=False,
                     task_id=task_id,
                     native_call_id=native_call_id,
+                    action_id=action_id,
+                )
+                return ToolResult(
+                    success=False,
+                    output=formatted,
+                    error=error_message,
+                    action_id=action_id,
+                    tool_name=tool_name,
                 )
 
         # Use publish() (synchronous) so the TUI handler mounts the
@@ -305,6 +334,7 @@ class ToolExecutor:
             success,
             task_id=task_id,
             native_call_id=native_call_id,
+            action_id=action_id,
         )
 
         await self.event_bus.publish(
@@ -317,7 +347,20 @@ class ToolExecutor:
             )
         )
 
-        return formatted
+        metadata: Dict[str, Any] = {}
+        if task_id:
+            metadata["task_id"] = task_id
+        if native_call_id:
+            metadata["native_call_id"] = native_call_id
+
+        return ToolResult(
+            success=success,
+            output=formatted,
+            error="" if success else raw_result,
+            metadata=metadata,
+            action_id=action_id,
+            tool_name=tool_name,
+        )
 
     # ── Approval Handling ────────────────────────────────────────
 
@@ -327,6 +370,10 @@ class ToolExecutor:
     ) -> None:
         """Attach or replace the HITL interaction handler."""
         self._interaction_handler = interaction_handler
+
+    def get_observability_manager(self) -> Optional["ObservabilityManager"]:
+        """Return the attached observability manager, if configured."""
+        return self._observability
 
     async def _request_approval_via_handler(
         self,

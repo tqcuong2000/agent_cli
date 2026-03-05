@@ -253,6 +253,8 @@ class SessionOverlay(Container):
         else:
             self._notify(f"Restored session: {summary.display_name}")
 
+        await self._publish_effort_setting(session.desired_effort)
+        self._update_status_bar(effort=session.desired_effort)
         await self._publish_session_title(session.name)
         self.hide_overlay()
 
@@ -324,6 +326,21 @@ class SessionOverlay(Container):
             )
         )
 
+    async def _publish_effort_setting(self, effort: str) -> None:
+        app_context = self._get_app_context()
+        if app_context is None:
+            return
+        event_bus = getattr(app_context, "event_bus", None)
+        if event_bus is None:
+            return
+        await event_bus.publish(
+            SettingsChangedEvent(
+                setting_name="effort",
+                new_value=effort,
+                source="session_overlay",
+            )
+        )
+
     async def _switch_runtime_model(self, model_name: str) -> Optional[str]:
         app_context = self._get_app_context()
         if app_context is None:
@@ -371,13 +388,17 @@ class SessionOverlay(Container):
         self._update_status_bar(model=model_name)
         return None
 
-    def _update_status_bar(self, *, model: Optional[str] = None) -> None:
+    def _update_status_bar(
+        self, *, model: Optional[str] = None, effort: Optional[str] = None
+    ) -> None:
         try:
-            from agent_cli.core.ux.tui.views.header.status import StatusContainer
+            from agent_cli.core.ux.tui.views.footer.status import StatusContainer
 
             status = self.app.query_one(StatusContainer)
             if model is not None:
                 status.update_model(model)
+            if effort is not None:
+                status.update_effort(effort)
         except Exception:
             pass
 

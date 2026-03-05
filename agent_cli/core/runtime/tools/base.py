@@ -52,6 +52,8 @@ class ToolResult:
     output: str = ""
     error: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+    action_id: str = ""
+    tool_name: str = ""
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -71,12 +73,14 @@ class BaseTool(ABC):
     - is_safe:     Whether this tool can execute without user approval.
     - category:    Grouping for tool filtering (e.g., file-only agents
                    get FILE + SEARCH tools).
+    - parallel_safe: Whether this tool can run in parallel with other tools.
     """
 
     name: str
     description: str
     is_safe: bool = False
     category: ToolCategory = ToolCategory.UTILITY
+    parallel_safe: bool = True
 
     @property
     @abstractmethod

@@ -23,7 +23,11 @@
     "search_files_max_file_bytes": 524288
   },
   "executor": {
-    "approval_timeout_seconds": 300.0
+    "approval_timeout_seconds": 300.0,
+    "multi_action": {
+      "enabled": false,
+      "max_concurrent_actions": 5
+    }
   },
   "workspace": {
     "terminal_max_lines": 2000,

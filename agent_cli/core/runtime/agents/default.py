@@ -32,6 +32,7 @@ class DefaultAgent(BaseAgent):
             tool_names=self.get_prompt_tool_names(),
             workspace_context=f"Operating System: {platform.system() or 'Unknown'}",
             native_tool_mode=native_tools,
+            multi_action=self.config.multi_action_enabled,
             provider_managed_capabilities=provider_capabilities,
         )
         return prompt

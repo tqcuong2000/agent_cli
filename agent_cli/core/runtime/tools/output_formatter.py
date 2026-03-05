@@ -49,6 +49,7 @@ class ToolOutputFormatter:
         *,
         task_id: str = "",
         native_call_id: str = "",
+        action_id: str = "",
     ) -> str:
         """Format a tool's raw output for the Agent's Working Memory.
 
@@ -66,6 +67,7 @@ class ToolOutputFormatter:
                 truncated_chars=max(0, len(raw_output) - self.error_truncation_chars),
                 task_id=task_id,
                 native_call_id=native_call_id,
+                action_id=action_id,
             )
 
         if len(raw_output) <= self.max_output_length:
@@ -77,6 +79,7 @@ class ToolOutputFormatter:
                 truncated_chars=0,
                 task_id=task_id,
                 native_call_id=native_call_id,
+                action_id=action_id,
             )
 
         # Truncate: keep head and tail for context
@@ -98,6 +101,7 @@ class ToolOutputFormatter:
             truncated_chars=truncated_chars,
             task_id=task_id,
             native_call_id=native_call_id,
+            action_id=action_id,
         )
 
     @staticmethod
@@ -110,6 +114,7 @@ class ToolOutputFormatter:
         truncated_chars: int,
         task_id: str,
         native_call_id: str,
+        action_id: str,
     ) -> str:
         """Render a tool result envelope as compact JSON for working memory."""
         metadata: dict[str, str] = {}
@@ -117,6 +122,8 @@ class ToolOutputFormatter:
             metadata["task_id"] = task_id
         if native_call_id:
             metadata["native_call_id"] = native_call_id
+        if action_id:
+            metadata["action_id"] = action_id
 
         envelope = {
             "id": f"msg_{uuid4().hex}",

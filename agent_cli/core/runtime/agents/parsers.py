@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # ══════════════════════════════════════════════════════════════════════
 # Agent Decision
@@ -21,16 +21,18 @@ from typing import Any, Dict, Optional
 
 
 class AgentDecision(Enum):
-    """The four decisions an agent can make per turn.
+    """The decisions an agent can make per turn.
 
     REFLECT:        Thinking-only turn — no tool call, no output.
     EXECUTE_ACTION: Invoke exactly one tool and wait for the result.
+    EXECUTE_ACTIONS: Invoke multiple tools in one turn.
     NOTIFY_USER:    Deliver the final answer — ends the task.
     YIELD:          Graceful abort — ends the task with a reason.
     """
 
     REFLECT = "reflect"
     EXECUTE_ACTION = "execute_action"
+    EXECUTE_ACTIONS = "execute_actions"
     NOTIFY_USER = "notify_user"
     YIELD = "yield"
 
@@ -54,6 +56,7 @@ class ParsedAction:
     tool_name: str
     arguments: Dict[str, Any]
     native_call_id: str = ""
+    action_id: str = ""
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -80,4 +83,5 @@ class AgentResponse:
     title: str = ""
     thought: str = ""
     action: Optional[ParsedAction] = None
+    actions: Optional[List[ParsedAction]] = None
     final_answer: Optional[str] = None

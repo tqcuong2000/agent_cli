@@ -19,6 +19,15 @@ def workspace(tmp_path: Path):
     return WorkspaceContext(root_path=tmp_path)
 
 
+def test_file_tool_parallel_safety_flags(workspace):
+    assert ReadFileTool(workspace).parallel_safe is True
+    assert ListDirectoryTool(workspace).parallel_safe is True
+    assert SearchFilesTool(workspace).parallel_safe is True
+    assert WriteFileTool(workspace).parallel_safe is False
+    assert StrReplaceTool(workspace).parallel_safe is False
+    assert InsertLinesTool(workspace).parallel_safe is False
+
+
 def test_workspace_resolve_path_success(workspace, tmp_path):
     foo_file = tmp_path / "foo.txt"
     foo_file.touch()

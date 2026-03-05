@@ -133,6 +133,11 @@ StatusContainer {
         display: none;
     }
 
+    StatusContainer #effort_values {
+        width: auto;
+        color: $accent;
+    }
+
 
 /* --- footer.py --- */
 FooterContainer {

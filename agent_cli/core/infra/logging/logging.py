@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from agent_cli.core.infra.logging.tracing import get_trace_fields
 from agent_cli.core.infra.registry.registry import DataRegistry
@@ -100,6 +100,13 @@ class SessionMetrics:
     capability_probe_successes: int = 0
     capability_probe_failures: int = 0
     unknown_capability_fallbacks: int = 0
+    multi_action_batches: int = 0
+    multi_action_total_actions: int = 0
+    multi_action_parallel_actions: int = 0
+    multi_action_sequential_actions: int = 0
+    multi_action_batch_duration_ms: int = 0
+    multi_action_ask_user_strip_count: int = 0
+    multi_action_stuck_batch_count: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -108,6 +115,11 @@ class SessionMetrics:
     def to_summary(self) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         duration_seconds = max(0.0, (now - self.started_at).total_seconds())
+        avg_batch_duration_ms = 0.0
+        if self.multi_action_batches > 0:
+            avg_batch_duration_ms = (
+                self.multi_action_batch_duration_ms / self.multi_action_batches
+            )
         return {
             "session_id": self.session_id,
             "duration_seconds": round(duration_seconds, 2),
@@ -131,6 +143,16 @@ class SessionMetrics:
                 "capability_probe_successes": self.capability_probe_successes,
                 "capability_probe_failures": self.capability_probe_failures,
                 "unknown_capability_fallbacks": self.unknown_capability_fallbacks,
+            },
+            "multi_action": {
+                "batches": self.multi_action_batches,
+                "actions_total": self.multi_action_total_actions,
+                "parallel_actions": self.multi_action_parallel_actions,
+                "sequential_actions": self.multi_action_sequential_actions,
+                "batch_duration_ms_total": self.multi_action_batch_duration_ms,
+                "batch_duration_ms_avg": round(avg_batch_duration_ms, 2),
+                "ask_user_strip_count": self.multi_action_ask_user_strip_count,
+                "stuck_batch_count": self.multi_action_stuck_batch_count,
             },
             "cost_usd": round(self.total_cost_usd, 6),
         }
@@ -335,6 +357,97 @@ class ObservabilityManager:
                     "success": bool(success),
                     "duration_ms": int(duration_ms),
                     "result_length": int(result_length),
+                },
+            },
+        )
+
+    def record_multi_action_batch(
+        self,
+        *,
+        task_id: str,
+        batch_size: int,
+        parallel_count: int,
+        sequential_count: int,
+        batch_duration_ms: int,
+        action_ids: List[str],
+        tool_names: List[str],
+    ) -> None:
+        safe_batch_size = max(int(batch_size), 0)
+        safe_parallel_count = max(int(parallel_count), 0)
+        safe_sequential_count = max(int(sequential_count), 0)
+        safe_duration = max(int(batch_duration_ms), 0)
+
+        with self._lock:
+            self.metrics.multi_action_batches += 1
+            self.metrics.multi_action_total_actions += safe_batch_size
+            self.metrics.multi_action_parallel_actions += safe_parallel_count
+            self.metrics.multi_action_sequential_actions += safe_sequential_count
+            self.metrics.multi_action_batch_duration_ms += safe_duration
+
+        self._logger.info(
+            "Multi-action batch executed",
+            extra={
+                "source": "agent_multi_action",
+                "task_id": task_id,
+                "data": {
+                    "batch_size": safe_batch_size,
+                    "parallel_count": safe_parallel_count,
+                    "sequential_count": safe_sequential_count,
+                    "batch_duration_ms": safe_duration,
+                    "action_ids": list(action_ids),
+                    "tool_names": list(tool_names),
+                    "multi_action.batch_size": safe_batch_size,
+                    "multi_action.parallel_count": safe_parallel_count,
+                    "multi_action.sequential_count": safe_sequential_count,
+                    "multi_action.batch_duration_ms": safe_duration,
+                },
+            },
+        )
+
+    def record_multi_action_ask_user_strip(
+        self,
+        *,
+        task_id: str,
+        batch_size: int,
+    ) -> None:
+        safe_batch_size = max(int(batch_size), 0)
+        with self._lock:
+            self.metrics.multi_action_ask_user_strip_count += 1
+
+        self._logger.info(
+            "Multi-action ask_user singleton enforced",
+            extra={
+                "source": "agent_multi_action",
+                "task_id": task_id,
+                "data": {
+                    "original_batch_size": safe_batch_size,
+                    "multi_action.ask_user_strip_count": 1,
+                },
+            },
+        )
+
+    def record_multi_action_stuck_batch(
+        self,
+        *,
+        task_id: str,
+        batch_size: int,
+        action_ids: List[str],
+        tool_names: List[str],
+    ) -> None:
+        safe_batch_size = max(int(batch_size), 0)
+        with self._lock:
+            self.metrics.multi_action_stuck_batch_count += 1
+
+        self._logger.warning(
+            "Multi-action batch stuck detected",
+            extra={
+                "source": "agent_multi_action",
+                "task_id": task_id,
+                "data": {
+                    "batch_size": safe_batch_size,
+                    "action_ids": list(action_ids),
+                    "tool_names": list(tool_names),
+                    "multi_action.stuck_batch_count": 1,
                 },
             },
         )

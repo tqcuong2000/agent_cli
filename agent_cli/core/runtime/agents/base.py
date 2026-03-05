@@ -22,10 +22,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, List, Optional
 
 from agent_cli.core.runtime.agents.memory import BaseMemoryManager
-from agent_cli.core.runtime.agents.parsers import AgentDecision, AgentResponse
+from agent_cli.core.runtime.agents.parsers import (
+    AgentDecision,
+    AgentResponse,
+    ParsedAction,
+)
 from agent_cli.core.runtime.agents.react_loop import PromptBuilder, StuckDetector
 from agent_cli.core.runtime.agents.schema import BaseSchemaValidator
 from agent_cli.core.infra.events.errors import (
@@ -43,6 +48,7 @@ from agent_cli.core.runtime.orchestrator.state_manager import AbstractStateManag
 from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.base.base import BaseLLMProvider
 from agent_cli.core.providers.base.models import LLMResponse, ProviderRequestOptions
+from agent_cli.core.runtime.tools.base import ToolResult
 from agent_cli.core.runtime.tools.executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -68,6 +74,8 @@ class AgentConfig:
         tools:                    Tool names from ``ToolRegistry``.
         max_iterations_override:  Custom max (overrides global max_iterations).
         show_thinking:            Whether to stream reasoning to TUI.
+        multi_action_enabled:     Enable multi-action planning/dispatch.
+        max_concurrent_actions:   Maximum concurrent actions in a batch.
     """
 
     name: str = ""
@@ -77,6 +85,8 @@ class AgentConfig:
     tools: List[str] = field(default_factory=list)
     max_iterations_override: Optional[int] = None
     show_thinking: bool = True
+    multi_action_enabled: bool = False
+    max_concurrent_actions: int = 5
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -177,8 +187,15 @@ class BaseAgent(ABC):
             The (potentially modified) final answer.
         """
 
-    # ── The Core ReAct Loop ──────────────────────────────────────
+    async def on_batch_complete(
+        self,
+        actions: List[ParsedAction],
+        results: List[ToolResult],
+    ) -> None:
+        """Hook called after all actions in a multi-action batch complete."""
+        _ = actions, results  # Default no-op hook
 
+    # The Core ReAct Loop
     async def handle_task(
         self,
         task_id: str,
@@ -219,6 +236,13 @@ class BaseAgent(ABC):
         requested_effort = normalize_effort(effort_source).value
         effort_value = self._resolve_effective_effort_from_capabilities(
             requested_effort
+        )
+        multi_action_enabled = bool(self.config.multi_action_enabled)
+        max_concurrent_actions = int(self.config.max_concurrent_actions)
+        logger.debug(
+            "Agent multi-action config resolved (enabled=%s, max_concurrent_actions=%d)",
+            multi_action_enabled,
+            max_concurrent_actions,
         )
 
         # ── Build system prompt ──────────────────────────────────
@@ -291,6 +315,24 @@ class BaseAgent(ABC):
                 3,
             )
         )
+        batch_executor = None
+        multi_action_validator = None
+        if multi_action_enabled:
+            from agent_cli.core.runtime.agents.batch_executor import BatchExecutor
+            from agent_cli.core.runtime.agents.multi_action_validator import (
+                MultiActionValidator,
+            )
+
+            batch_executor = BatchExecutor(
+                tool_executor=self.tool_executor,
+                tool_registry=self.tool_executor.registry,
+                max_concurrent=max_concurrent_actions,
+            )
+            multi_action_validator = MultiActionValidator(
+                tool_registry=self.tool_executor.registry,
+                max_batch_size=max_concurrent_actions,
+                observability=self._get_observability_manager(),
+            )
 
         # ── The Loop ─────────────────────────────────────────────
         try:
@@ -394,25 +436,159 @@ class BaseAgent(ABC):
                                 arguments=action.arguments,
                                 task_id=task_id,
                                 native_call_id=action.native_call_id,
+                                action_id=action.action_id or "act_0",
                             )
+                            tool_output = result.output
 
                             # Add tool result to Working Memory
                             _append_message(
-                                {"role": "tool", "content": result},
+                                {"role": "tool", "content": tool_output},
                                 track_for_session=True,
                             )
 
                             # Agent-specific hook
-                            await self.on_tool_result(action.tool_name, result)
+                            await self.on_tool_result(action.tool_name, tool_output)
 
                             # Stuck detection
-                            if stuck_detector.is_stuck(action.tool_name, result):
+                            if stuck_detector.is_stuck(action.tool_name, tool_output):
                                 _append_message(
                                     {
                                         "role": "system",
                                         "content": (
                                             "⚠ You appear to be repeating the same "
                                             "action with the same result. "
+                                            "Try a completely different approach."
+                                        ),
+                                    },
+                                    track_for_session=True,
+                                )
+
+                            continue  # Next iteration
+
+                        case AgentDecision.EXECUTE_ACTIONS:
+                            actions = response.actions
+                            if not actions:
+                                raise SchemaValidationError(
+                                    "Invalid agent response: execute_actions requires a non-empty actions payload.",
+                                    raw_response=llm_response_text,
+                                )
+                            if not multi_action_enabled:
+                                raise SchemaValidationError(
+                                    "Invalid agent response: execute_actions received while multi_action_enabled=False.",
+                                    raw_response=llm_response_text,
+                                )
+                            if batch_executor is None or multi_action_validator is None:
+                                raise SchemaValidationError(
+                                    "Internal error: multi-action runtime is not initialized.",
+                                    raw_response=llm_response_text,
+                                )
+
+                            reflect_count = 0
+                            _append_message(
+                                {
+                                    "role": "assistant",
+                                    "content": self._format_assistant_history(
+                                        llm_response
+                                    ),
+                                },
+                                track_for_session=True,
+                            )
+
+                            validated_actions = multi_action_validator.validate(
+                                actions,
+                                task_id=task_id,
+                            )
+                            batch_tool_names = [
+                                action.tool_name for action in validated_actions
+                            ]
+                            batch_action_ids = [
+                                action.action_id or f"act_{idx}"
+                                for idx, action in enumerate(validated_actions)
+                            ]
+                            parallel_count = sum(
+                                1
+                                for action in validated_actions
+                                if self._is_tool_parallel_safe(action.tool_name)
+                            )
+                            sequential_count = len(validated_actions) - parallel_count
+                            batch_started = perf_counter()
+                            batch_results = await batch_executor.execute_batch(
+                                validated_actions,
+                                task_id=task_id,
+                            )
+                            batch_duration_ms = int(
+                                (perf_counter() - batch_started) * 1000
+                            )
+                            observability = self._get_observability_manager()
+                            if observability is not None:
+                                observability.record_multi_action_batch(
+                                    task_id=task_id,
+                                    batch_size=len(validated_actions),
+                                    parallel_count=parallel_count,
+                                    sequential_count=sequential_count,
+                                    batch_duration_ms=batch_duration_ms,
+                                    action_ids=batch_action_ids,
+                                    tool_names=batch_tool_names,
+                                )
+                            else:
+                                logger.info(
+                                    "Multi-action batch executed",
+                                    extra={
+                                        "source": "agent_multi_action",
+                                        "task_id": task_id,
+                                        "data": {
+                                            "batch_size": len(validated_actions),
+                                            "parallel_count": parallel_count,
+                                            "sequential_count": sequential_count,
+                                            "batch_duration_ms": batch_duration_ms,
+                                            "action_ids": batch_action_ids,
+                                            "tool_names": batch_tool_names,
+                                        },
+                                    },
+                                )
+
+                            for tool_result in batch_results:
+                                _append_message(
+                                    {"role": "tool", "content": tool_result.output},
+                                    track_for_session=True,
+                                )
+
+                            for action, tool_result in zip(
+                                validated_actions,
+                                batch_results,
+                            ):
+                                await self.on_tool_result(
+                                    action.tool_name,
+                                    tool_result.output,
+                                )
+
+                            await self.on_batch_complete(
+                                validated_actions,
+                                batch_results,
+                            )
+
+                            stuck_inputs = [
+                                (action.tool_name, tool_result.output)
+                                for action, tool_result in zip(
+                                    validated_actions,
+                                    batch_results,
+                                )
+                            ]
+                            if stuck_detector.is_stuck_batch(stuck_inputs):
+                                observability = self._get_observability_manager()
+                                if observability is not None:
+                                    observability.record_multi_action_stuck_batch(
+                                        task_id=task_id,
+                                        batch_size=len(validated_actions),
+                                        action_ids=batch_action_ids,
+                                        tool_names=batch_tool_names,
+                                    )
+                                _append_message(
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "Warning: you appear to be repeating the same batch of "
+                                            "actions with the same results. "
                                             "Try a completely different approach."
                                         ),
                                     },
@@ -641,7 +817,7 @@ class BaseAgent(ABC):
             tool_calls = getattr(llm_response, "tool_calls", [])
             if tool_calls:
                 snippets: List[str] = []
-                for tc in tool_calls:
+                for idx, tc in enumerate(tool_calls):
                     snippets.append(
                         json.dumps(
                             {
@@ -650,6 +826,7 @@ class BaseAgent(ABC):
                                 "payload": {
                                     "tool": tc.tool_name,
                                     "args": tc.arguments,
+                                    "action_id": tc.native_call_id or f"act_{idx}",
                                 },
                                 "metadata": {"native_call_id": tc.native_call_id}
                                 if tc.native_call_id
@@ -672,6 +849,20 @@ class BaseAgent(ABC):
         if not executable_tools:
             return []
         return self.tool_executor.registry.get_definitions_for_llm(executable_tools)
+
+    def _is_tool_parallel_safe(self, tool_name: str) -> bool:
+        """Whether a tool can run concurrently with other actions."""
+        tool = self.tool_executor.registry.get(tool_name)
+        if tool is None:
+            return False
+        return bool(getattr(tool, "parallel_safe", True))
+
+    def _get_observability_manager(self) -> Any:
+        """Get observability manager from tool executor when configured."""
+        getter = getattr(self.tool_executor, "get_observability_manager", None)
+        if callable(getter):
+            return getter()
+        return None
 
     def get_prompt_tool_names(self) -> List[str]:
         """Return locally executable tool names for prompt construction."""
@@ -790,10 +981,16 @@ class BaseAgent(ABC):
             "Your NEXT response must be corrected and valid. "
             "Use exactly one decision, no empty response, and output exactly one JSON object."
         )
+        multi_action_enabled = bool(self.config.multi_action_enabled)
+        multi_action_example = (
+            '4) Multi-action: {"title":"Batch reads","thought":"I need multiple independent results.",'
+            '"decision":{"type":"execute_actions","actions":[{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"search_files","args":{"pattern":"TODO"}}]}}'
+        )
 
         native_mode = self._supports_native_tools_effective()
         if native_mode:
-            return (
+            native_examples = (
                 f"{header}\n"
                 "Valid native-mode JSON examples:\n"
                 "1) Tool call: "
@@ -804,8 +1001,11 @@ class BaseAgent(ABC):
                 "3) Yield: "
                 '{"title":"Blocked","thought":"I cannot proceed safely.","decision":{"type":"yield","message":"..."}}'
             )
+            if multi_action_enabled:
+                return f"{native_examples}\n{multi_action_example}"
+            return native_examples
 
-        return (
+        prompt_examples = (
             f"{header}\n"
             "Valid prompt JSON examples:\n"
             "1) Tool call: "
@@ -815,6 +1015,9 @@ class BaseAgent(ABC):
             "3) Yield: "
             '{"title":"Blocked","thought":"I cannot proceed safely.","decision":{"type":"yield","message":"..."}}'
         )
+        if multi_action_enabled:
+            return f"{prompt_examples}\n{multi_action_example}"
+        return prompt_examples
 
     def _debug_intercept_response(
         self, task_id: str, iteration: int, raw_content: str
@@ -835,3 +1038,4 @@ class BaseAgent(ABC):
                 f.write(f"\n{'=' * 80}\n")
         except Exception as e:
             logger.error(f"Failed to save debug interception: {e}")
+

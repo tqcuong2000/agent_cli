@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent_cli.core.infra.events.events import SettingsChangedEvent
+from agent_cli.core.ux.commands.base import CommandResult
 from agent_cli.core.ux.tui.app import AgentCLIApp
 from agent_cli.core.ux.tui.views.header.title import TitleComponent
 
@@ -74,3 +75,24 @@ async def test_session_title_event_updates_header_and_app_title(tmp_path):
         title_widget = app.query_one(TitleComponent)
         assert str(title_widget.content) == "My Session"
         assert app.title == "Engine CLI - My Session"
+
+
+@pytest.mark.asyncio
+async def test_ctrl_e_action_cycles_effort_without_notification(tmp_path, monkeypatch):
+    app = AgentCLIApp(root_folder=str(tmp_path))
+    notices: list[str] = []
+    app.notify = lambda message, **kwargs: notices.append(str(message))  # type: ignore[method-assign]
+    calls = {"count": 0}
+
+    async def _fake_cycle(_ctx):
+        calls["count"] += 1
+        return CommandResult(success=True, message="Effort: high")
+
+    monkeypatch.setattr(
+        "agent_cli.core.ux.commands.handlers.core.cycle_effort",
+        _fake_cycle,
+    )
+
+    await app.action_cycle_effort()
+    assert calls["count"] == 1
+    assert notices == []

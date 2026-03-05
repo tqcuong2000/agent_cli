@@ -57,6 +57,7 @@ class AskUserTool(BaseTool):
         "Use this when required details are missing before continuing."
     )
     is_safe = True
+    parallel_safe = False
     category = ToolCategory.UTILITY
 
     @property

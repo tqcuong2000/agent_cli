@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Set
+from typing import Any, List, Optional, Set
 
 from agent_cli.core.runtime.agents.parsers import AgentDecision, AgentResponse, ParsedAction
 from agent_cli.core.infra.events.errors import SchemaValidationError
@@ -43,12 +43,14 @@ class SchemaValidator(BaseSchemaValidator):
         *,
         data_registry: DataRegistry,
         protocol_mode: ProtocolMode | str = ProtocolMode.JSON_ONLY,
+        multi_action_enabled: bool = False,
     ) -> None:
         self._registered_tools: Set[str] = set(registered_tools)
         if isinstance(protocol_mode, ProtocolMode):
             self._protocol_mode = protocol_mode
         else:
             self._protocol_mode = ProtocolMode(str(protocol_mode).strip().lower())
+        self._multi_action_enabled = bool(multi_action_enabled)
         schema_defaults = data_registry.get_schema_defaults()
         title_defaults = schema_defaults.get("title", {})
         self._title_max_words = int(title_defaults.get("max_words", 15))
@@ -56,16 +58,9 @@ class SchemaValidator(BaseSchemaValidator):
     def parse_and_validate(self, response: LLMResponse) -> AgentResponse:
         """Parse and validate an LLM response."""
         if response.tool_mode == ToolCallMode.NATIVE:
-            action = self._parse_native_fc(response)
-            if action is not None:
-                title, _ = self._extract_json_reasoning(response.text_content)
-                return AgentResponse(
-                    decision=AgentDecision.EXECUTE_ACTION,
-                    title=title,
-                    thought=self.extract_thinking(response.text_content),
-                    action=action,
-                    final_answer=None,
-                )
+            native_response = self._parse_native_fc(response)
+            if native_response is not None:
+                return native_response
 
         parsed = self._parse_json_response(response.text_content, strict=True)
         if parsed is None:
@@ -84,15 +79,51 @@ class SchemaValidator(BaseSchemaValidator):
         """Active parser protocol mode."""
         return self._protocol_mode
 
-    def _parse_native_fc(self, response: LLMResponse) -> Optional[ParsedAction]:
+    @property
+    def multi_action_enabled(self) -> bool:
+        return self._multi_action_enabled
+
+    def _parse_native_fc(self, response: LLMResponse) -> Optional[AgentResponse]:
         """Parse structured tool calls from native function-calling."""
         if not response.tool_calls:
             return None
 
+        title, _ = self._extract_json_reasoning(response.text_content)
+        thought = self.extract_thinking(response.text_content)
+
         if len(response.tool_calls) > 1:
-            raise SchemaValidationError(
-                "Multiple native tool calls found. You must call exactly ONE tool per response and wait for the result.",
-                raw_response=response.text_content,
+            if not self._multi_action_enabled:
+                raise SchemaValidationError(
+                    "Multiple native tool calls found. You must call exactly ONE tool per response and wait for the result.",
+                    raw_response=response.text_content,
+                )
+
+            parsed_actions: List[ParsedAction] = []
+            for idx, tc in enumerate(response.tool_calls):
+                if tc.tool_name not in self._registered_tools:
+                    raise SchemaValidationError(
+                        f"Unknown tool '{tc.tool_name}'. "
+                        f"Available tools: {', '.join(sorted(self._registered_tools))}",
+                        raw_response=response.text_content,
+                    )
+
+                native_call_id = tc.native_call_id.strip()
+                action_id = native_call_id or f"act_{idx}"
+                parsed_actions.append(
+                    ParsedAction(
+                        tool_name=tc.tool_name,
+                        arguments=tc.arguments,
+                        native_call_id=native_call_id,
+                        action_id=action_id,
+                    )
+                )
+
+            return AgentResponse(
+                decision=AgentDecision.EXECUTE_ACTIONS,
+                title=title,
+                thought=thought,
+                actions=parsed_actions,
+                final_answer=None,
             )
 
         tc = response.tool_calls[0]
@@ -103,10 +134,16 @@ class SchemaValidator(BaseSchemaValidator):
                 raw_response=response.text_content,
             )
 
-        return ParsedAction(
-            tool_name=tc.tool_name,
-            arguments=tc.arguments,
-            native_call_id=tc.native_call_id,
+        return AgentResponse(
+            decision=AgentDecision.EXECUTE_ACTION,
+            title=title,
+            thought=thought,
+            action=ParsedAction(
+                tool_name=tc.tool_name,
+                arguments=tc.arguments,
+                native_call_id=tc.native_call_id,
+            ),
+            final_answer=None,
         )
 
     def _parse_json_response(
@@ -186,6 +223,80 @@ class SchemaValidator(BaseSchemaValidator):
                 final_answer=None,
             )
 
+        if decision_type == AgentDecision.EXECUTE_ACTIONS.value:
+            if not self._multi_action_enabled:
+                raise SchemaValidationError(
+                    "decision.type=execute_actions is disabled for this agent/runtime.",
+                    raw_response=text,
+                )
+
+            raw_actions = decision.get("actions")
+            if isinstance(raw_actions, dict):
+                logger.warning(
+                    "Repairing execute_actions payload: wrapped object into actions list"
+                )
+                raw_actions = [raw_actions]
+            elif raw_actions is None:
+                legacy_tool = str(decision.get("tool", "")).strip()
+                legacy_args = decision.get("args", {})
+                if legacy_args is None:
+                    legacy_args = {}
+                if legacy_tool and isinstance(legacy_args, dict):
+                    logger.warning(
+                        "Repairing execute_actions payload: using legacy tool/args fields as single action"
+                    )
+                    raw_actions = [{"tool": legacy_tool, "args": legacy_args}]
+            if not isinstance(raw_actions, list) or len(raw_actions) == 0:
+                raise SchemaValidationError(
+                    "decision.actions must be a non-empty list for execute_actions.",
+                    raw_response=text,
+                )
+
+            parsed_actions: List[ParsedAction] = []
+            for idx, raw_action in enumerate(raw_actions):
+                if not isinstance(raw_action, dict):
+                    raise SchemaValidationError(
+                        f"Action[{idx}] must be an object.",
+                        raw_response=text,
+                    )
+
+                tool_name = str(raw_action.get("tool", "")).strip()
+                if not tool_name:
+                    raise SchemaValidationError(
+                        f"Action at index {idx} missing 'tool' field.",
+                        raw_response=text,
+                    )
+                if tool_name not in self._registered_tools:
+                    raise SchemaValidationError(
+                        f"Unknown tool '{tool_name}' in action[{idx}].",
+                        raw_response=text,
+                    )
+
+                arguments = raw_action.get("args", {})
+                if arguments is None:
+                    arguments = {}
+                if not isinstance(arguments, dict):
+                    raise SchemaValidationError(
+                        f"Action[{idx}].args must be an object.",
+                        raw_response=text,
+                    )
+
+                parsed_actions.append(
+                    ParsedAction(
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        action_id=f"act_{idx}",
+                    )
+                )
+
+            return AgentResponse(
+                decision=AgentDecision.EXECUTE_ACTIONS,
+                title=title,
+                thought=thought,
+                actions=parsed_actions,
+                final_answer=None,
+            )
+
         if decision_type in {
             AgentDecision.NOTIFY_USER.value,
             AgentDecision.YIELD.value,
@@ -217,7 +328,7 @@ class SchemaValidator(BaseSchemaValidator):
 
         raise SchemaValidationError(
             "Unknown decision.type. Allowed values: "
-            "reflect, execute_action, notify_user, yield.",
+            "reflect, execute_action, execute_actions, notify_user, yield.",
             raw_response=text,
         )
 

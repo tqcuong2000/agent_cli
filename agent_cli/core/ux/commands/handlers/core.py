@@ -228,6 +228,15 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
             except Exception:
                 pass
 
+    # Reset effort on model switches to avoid carrying unsupported levels forward.
+    await _set_desired_effort(
+        ctx,
+        desired=EffortLevel.AUTO.value,
+        source="cmd_model",
+        create_session_if_missing=False,
+        return_message=False,
+    )
+
     # Emit event so reactive components can update when model changes.
     if ctx.event_bus:
         await ctx.event_bus.publish(
@@ -276,16 +285,54 @@ async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
             message=f"Invalid effort value. Allowed: {allowed}",
         )
 
+    return await _set_desired_effort(ctx, desired=desired, source="cmd_effort")
+
+
+async def cycle_effort(ctx: CommandContext) -> CommandResult:
+    """Cycle desired effort through active-model supported levels."""
+    levels = _get_supported_effort_levels(ctx)
+    if not levels:
+        return CommandResult(success=False, message="No effort levels are configured.")
+
+    current = _get_desired_effort(ctx)
+    try:
+        idx = levels.index(current)
+    except ValueError:
+        idx = -1
+    desired = levels[(idx + 1) % len(levels)]
+    result = await _set_desired_effort(
+        ctx,
+        desired=desired,
+        source="shortcut_ctrl_e",
+    )
+    if result.success:
+        return CommandResult(success=True, message=f"Effort: {desired}")
+    return result
+
+
+async def _set_desired_effort(
+    ctx: CommandContext,
+    *,
+    desired: str,
+    source: str,
+    create_session_if_missing: bool = True,
+    return_message: bool = True,
+) -> CommandResult:
+    desired = normalize_effort(desired).value
+
     saved_to_session = False
     app_ctx = ctx.app_context
     session_manager = getattr(app_ctx, "session_manager", None) if app_ctx else None
     if session_manager is not None:
         session = session_manager.get_active()
-        if session is None:
+        if session is None and create_session_if_missing:
             session = session_manager.create_session()
-        session.desired_effort = desired
-        session_manager.save(session)
-        saved_to_session = True
+        if session is not None:
+            session.desired_effort = desired
+            session_manager.save(session)
+            saved_to_session = True
+        else:
+            ctx.settings.default_effort = desired
     else:
         ctx.settings.default_effort = desired
 
@@ -294,9 +341,14 @@ async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
             SettingsChangedEvent(
                 setting_name="effort",
                 new_value=desired,
-                source="cmd_effort",
+                source=source,
             )
         )
+
+    _update_status_bar(ctx, effort=desired)
+
+    if not return_message:
+        return CommandResult(success=True, message="")
 
     scope = "session" if saved_to_session else "settings default"
     message = (
@@ -377,21 +429,27 @@ def _update_status_bar(
     *,
     model: str | None = None,
     active_agent: str | None = None,
+    effort: str | None = None,
 ) -> None:
     """Update the TUI status bar if app is available."""
     if ctx.app is None:
         return
     try:
         from agent_cli.core.ux.tui.views.header.agent_badge import AgentBadgeComponent
-        from agent_cli.core.ux.tui.views.header.status import StatusContainer
+        from agent_cli.core.ux.tui.views.footer.status import StatusContainer
 
         status = ctx.app.query_one(StatusContainer)
         if model is not None:
             status.update_model(model)
+        if effort is not None:
+            status.update_effort(effort)
         if active_agent is not None:
             status.update_active_agent(active_agent)
-            badge = ctx.app.query_one(AgentBadgeComponent)
-            badge.update(active_agent)
+            try:
+                badge = ctx.app.query_one(AgentBadgeComponent)
+                badge.update(active_agent)
+            except Exception:
+                pass
     except Exception:
         pass  # Status bar may not be mounted in test environments
 
@@ -427,6 +485,83 @@ def _get_desired_effort(ctx: CommandContext) -> str:
         return normalize_effort(getattr(ctx.settings, "default_effort", None)).value
     except Exception:
         return EffortLevel.AUTO.value
+
+
+def _get_supported_effort_levels(ctx: CommandContext) -> list[str]:
+    """Return effort levels supported by the active model deployment."""
+    fallback = [EffortLevel.AUTO.value]
+    app_ctx = ctx.app_context
+    data_registry = getattr(app_ctx, "data_registry", None) if app_ctx else None
+    if data_registry is None:
+        return fallback
+
+    provider = None
+    orchestrator = getattr(app_ctx, "orchestrator", None) if app_ctx else None
+    if orchestrator is not None:
+        agent = getattr(orchestrator, "active_agent", None)
+        if agent is not None:
+            provider = getattr(agent, "provider", None)
+
+    if provider is None:
+        model_name = str(getattr(ctx.settings, "default_model", "")).strip()
+        if not model_name:
+            return fallback
+        capabilities = data_registry.get_model_capabilities(model_name)
+        if capabilities is None:
+            return fallback
+        effort_spec = getattr(capabilities, "effort", None)
+        if effort_spec is None or not bool(getattr(effort_spec, "supported", False)):
+            return fallback
+        return _normalize_effort_levels(getattr(effort_spec, "levels", ()), fallback)
+
+    provider_name = str(getattr(provider, "provider_name", "")).strip()
+    model_name = str(getattr(provider, "model_name", "")).strip()
+    base_url = str(getattr(provider, "base_url", "") or "").strip()
+    if not provider_name or not model_name:
+        return fallback
+
+    deployment_id = _build_deployment_id(
+        provider_name=provider_name,
+        model_name=model_name,
+        base_url=base_url,
+    )
+    try:
+        snapshot = data_registry.get_capability_snapshot(
+            provider=provider_name,
+            model=model_name,
+            deployment_id=deployment_id,
+        )
+    except Exception:
+        return fallback
+
+    observation = snapshot.effective.get("effort")
+    status = str(getattr(observation, "status", "unknown")).strip().lower()
+    if status != "supported":
+        return fallback
+
+    effort_spec = getattr(snapshot.declared, "effort", None)
+    levels = getattr(effort_spec, "levels", ()) if effort_spec is not None else ()
+    return _normalize_effort_levels(levels, fallback)
+
+
+def _normalize_effort_levels(levels: Any, fallback: list[str]) -> list[str]:
+    """Normalize arbitrary effort-level payload into ordered canonical values."""
+    if not isinstance(levels, (list, tuple)):
+        return list(fallback)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in levels:
+        try:
+            value = normalize_effort(raw).value
+        except Exception:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+
+    return normalized or list(fallback)
 
 
 def _format_effort_status(ctx: CommandContext, desired: str) -> str:

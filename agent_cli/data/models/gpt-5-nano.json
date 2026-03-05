@@ -1,0 +1,51 @@
+{
+  "offerings": {
+    "gpt-5-nano": {
+      "provider": "openai",
+      "api_model": "gpt-5-nano",
+      "aliases": ["openai:gpt-5-nano", "gpt-5-nano-2025-08-07"],
+      "context_window": 400000,
+      "tokenizer": "o200k_base",
+      "pricing_input": 0.05,
+      "pricing_output": 0.4,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": ["auto"]
+        },
+        "web_search": {
+          "supported": false,
+          "mode": "none"
+        }
+      }
+    },
+    "openrouter-gpt-5-nano": {
+      "provider": "openrouter",
+      "api_model": "openai/gpt-5-nano",
+      "aliases": [
+        "openrouter/openai/gpt-5-nano",
+        "openrouter:openai/gpt-5-nano"
+      ],
+      "context_window": 400000,
+      "tokenizer": "o200k_base",
+      "pricing_input": 0.05,
+      "pricing_output": 0.4,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": ["auto"]
+        },
+        "web_search": {
+          "supported": false,
+          "mode": "none"
+        }
+      }
+    }
+  }
+}

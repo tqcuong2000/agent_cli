@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from typing import List, Optional, Set
 
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widgets import Static
 
+from agent_cli.core.infra.config.config_models import EffortLevel, normalize_effort
 from agent_cli.core.infra.events.events import (
     BaseEvent,
     SettingsChangedEvent,
@@ -16,21 +18,15 @@ from agent_cli.core.infra.events.events import (
 
 
 class StatusContainer(Container):
-    """A container to display status information.
-
-    Active agent and model are **reactive** — changing them
-    automatically updates the corresponding ``Static`` widget.
-    """
+    """A container to display reactive runtime status information."""
 
     DEFAULT_CSS = ""
 
-    # ── Reactive state ───────────────────────────────────────────
-
     active_agent: reactive[str] = reactive("default")
     model: reactive[str] = reactive("gemini-3.1-pro-preview")
+    effort: reactive[str] = reactive(EffortLevel.AUTO.value)
     agent_state: reactive[str] = reactive("Idle")
     agent_indicator: reactive[str] = reactive(".")
-    
 
     SPINNER_FRAMES = ["|", "/", "-", "\\"]
 
@@ -47,22 +43,32 @@ class StatusContainer(Container):
     def compose(self) -> ComposeResult:
         with Horizontal():
             yield Static(
-                self.agent_indicator, id="agent_indicator", classes="agent_indicator"
+                self.agent_indicator,
+                id="agent_indicator",
+                classes="agent_indicator -hidden",
             )
-            yield Static(" ", classes="shortcut_separator")
+            yield Static(" ", id="agent_sep_1", classes="shortcut_separator -hidden")
+            yield Static(
+                self.agent_state, id="agent_state", classes="agent_state -hidden"
+            )
+            yield Static(" ", id="agent_sep_2", classes="shortcut_separator -hidden")
+
             yield Static(self.active_agent, id="active_agent", classes="active_agent")
             yield Static(" ● ", classes="shortcut_separator")
             yield Static(self.model, id="model", classes="model")
-            yield Static(" ● ", classes="shortcut_separator")
-            yield Static(self.agent_state, id="agent_state", classes="agent_state")
-            yield Static(" ● ", classes="shortcut_separator")
-            yield Static(id="effort_values", classes="effort_values")
+
+            yield Static(" ● ", id="effort_sep", classes="shortcut_separator -hidden")
+            yield Static("", id="effort_values", classes="effort_values -hidden")
+
             yield Static(" ", id="spacer", classes="spacer")
             yield Static("tab ", classes="shortcut_key")
             yield Static("agent", classes="shortcut_action")
             yield Static(" | ", classes="shortcut_separator")
             yield Static("ctrl+p ", classes="shortcut_key")
             yield Static("commands", classes="shortcut_action")
+            yield Static(" | ", classes="shortcut_separator")
+            yield Static("ctrl+e ", classes="shortcut_key")
+            yield Static("effort", classes="shortcut_action")
 
     def on_mount(self) -> None:
         app_context = getattr(self.app, "app_context", None)
@@ -82,6 +88,7 @@ class StatusContainer(Container):
         )
         self.call_after_refresh(self._sync_agent_status)
         self.call_after_refresh(self._sync_active_agent)
+        self.call_after_refresh(self._sync_effort)
 
     def on_unmount(self) -> None:
         self._stop_spinner()
@@ -95,7 +102,20 @@ class StatusContainer(Container):
             event_bus.unsubscribe(subscription_id)
         self._subscriptions.clear()
 
-    # ── Watchers ─────────────────────────────────────────────────
+    async def on_click(self, event: events.Click) -> None:
+        widget_id = getattr(event.widget, "id", "") if event.widget is not None else ""
+        if widget_id not in {"effort_values", "effort_sep"}:
+            return
+        event.stop()
+
+        app_context = getattr(self.app, "app_context", None)
+        command_parser = getattr(app_context, "command_parser", None)
+        if command_parser is None:
+            return
+
+        from agent_cli.core.ux.commands.handlers.core import cycle_effort
+
+        await cycle_effort(command_parser.context)
 
     def watch_model(self, value: str) -> None:
         try:
@@ -106,6 +126,22 @@ class StatusContainer(Container):
     def watch_active_agent(self, value: str) -> None:
         try:
             self.query_one("#active_agent", Static).update(value)
+        except Exception:
+            pass
+
+    def watch_effort(self, value: str) -> None:
+        try:
+            normalized = normalize_effort(value).value
+        except Exception:
+            normalized = EffortLevel.AUTO.value
+
+        hidden = normalized == EffortLevel.AUTO.value
+        display_value = "" if hidden else f"{normalized}"
+        try:
+            effort_widget = self.query_one("#effort_values", Static)
+            effort_widget.update(display_value)
+            effort_widget.set_class(hidden, "-hidden")
+            self.query_one("#effort_sep", Static).set_class(hidden, "-hidden")
         except Exception:
             pass
 
@@ -121,8 +157,6 @@ class StatusContainer(Container):
         except Exception:
             pass
 
-    # ── Public API (called by command handlers) ──────────────────
-
     def update_model(self, value: str) -> None:
         """Update the displayed model name."""
         self.model = value
@@ -131,7 +165,12 @@ class StatusContainer(Container):
         """Update the displayed active agent name."""
         self.active_agent = value
 
-    # ── Event handlers ───────────────────────────────────────────
+    def update_effort(self, value: str | EffortLevel | None) -> None:
+        """Update the displayed desired effort value."""
+        try:
+            self.effort = normalize_effort(value).value
+        except Exception:
+            self.effort = EffortLevel.AUTO.value
 
     async def _on_state_change(self, event: BaseEvent) -> None:
         if not isinstance(event, StateChangeEvent):
@@ -155,18 +194,24 @@ class StatusContainer(Container):
     async def _on_settings_changed(self, event: BaseEvent) -> None:
         if not isinstance(event, SettingsChangedEvent):
             return
+        if event.setting_name == "default_model":
+            self.update_model(str(event.new_value))
+            return
+        if event.setting_name in {"effort", "default_effort"}:
+            self.update_effort(str(event.new_value))
+            return
         if event.setting_name == "active_agent":
             agent_name = str(event.new_value)
             self.update_active_agent(agent_name)
 
-            # Sync model name from the new active agent
             app_context = getattr(self.app, "app_context", None)
             orchestrator = getattr(app_context, "orchestrator", None)
             if orchestrator is not None:
                 agent = orchestrator.active_agent
                 if agent is not None:
-                    # Use the model name from the agent's provider for the most accurate display
-                    model_name = getattr(agent.provider, "model_name", agent.config.model)
+                    model_name = getattr(
+                        agent.provider, "model_name", agent.config.model
+                    )
                     self.update_model(str(model_name))
 
     def _sync_active_agent(self) -> None:
@@ -177,14 +222,33 @@ class StatusContainer(Container):
         try:
             agent = orchestrator.active_agent
             self.update_active_agent(agent.name)
-
-            # Sync model name from the active agent's provider
-            # This ensures that even if we initialize with a non-default agent,
-            # we show the correct model name.
             model_name = getattr(agent.provider, "model_name", agent.config.model)
             self.update_model(str(model_name))
         except Exception:
             return
+
+    def _sync_effort(self) -> None:
+        app_context = getattr(self.app, "app_context", None)
+        if app_context is None:
+            self.update_effort(EffortLevel.AUTO.value)
+            return
+
+        session_manager = getattr(app_context, "session_manager", None)
+        if session_manager is not None:
+            try:
+                active = session_manager.get_active()
+                if active is not None:
+                    self.update_effort(getattr(active, "desired_effort", None))
+                    return
+            except Exception:
+                pass
+
+        settings = getattr(app_context, "settings", None)
+        if settings is not None:
+            self.update_effort(getattr(settings, "default_effort", None))
+            return
+
+        self.update_effort(EffortLevel.AUTO.value)
 
     def _sync_agent_status(self) -> None:
         working_count = len(self._working_task_ids)

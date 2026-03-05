@@ -37,6 +37,7 @@ class StuckDetector:
         self.threshold = threshold
         self.history_cap = max(int(history_cap), 1)
         self._recent: List[tuple[str, int]] = []
+        self._recent_batches: List[int] = []
 
     def is_stuck(self, tool_name: str, result: str) -> bool:
         """Check if the agent is repeating the same action.
@@ -76,6 +77,37 @@ class StuckDetector:
     def reset(self) -> None:
         """Clear the history."""
         self._recent.clear()
+        self._recent_batches.clear()
+
+    def is_stuck_batch(self, action_results: List[tuple[str, str]]) -> bool:
+        """Check if the agent is repeating the same action batch."""
+        if not action_results:
+            return False
+
+        fingerprint_parts: List[tuple[str, int]] = []
+        for tool_name, result in sorted(action_results, key=lambda item: item[0]):
+            normalized_result = self._normalize_result_for_stuck_check(result)
+            fingerprint_parts.append((tool_name, hash(normalized_result)))
+        batch_fingerprint = hash(tuple(fingerprint_parts))
+        self._recent_batches.append(batch_fingerprint)
+
+        if len(self._recent_batches) < self.threshold:
+            return False
+
+        last_n = self._recent_batches[-self.threshold :]
+        if all(fp == last_n[0] for fp in last_n):
+            self._recent_batches.clear()
+            logger.warning(
+                "Batch stuck detected: same %d-action batch repeated %d times",
+                len(action_results),
+                self.threshold,
+            )
+            return True
+
+        if len(self._recent_batches) > self.history_cap:
+            self._recent_batches = self._recent_batches[-self.history_cap :]
+
+        return False
 
     @staticmethod
     def _normalize_result_for_stuck_check(result: str) -> str:
@@ -137,6 +169,7 @@ class PromptBuilder:
         workspace_context: str = "",
         extra_instructions: str = "",
         native_tool_mode: bool = False,
+        multi_action: bool = False,
         provider_managed_capabilities: List[str] | None = None,
     ) -> str:
         """Assemble a complete system prompt.
@@ -161,7 +194,12 @@ class PromptBuilder:
         sections.append(f"# Role\n{persona}")
 
         # 2. Output format
-        sections.append(self._output_format_section(native_tool_mode))
+        sections.append(
+            self._output_format_section(
+                native_tool_mode=native_tool_mode,
+                multi_action=multi_action,
+            )
+        )
 
         # 3. Tool descriptions
         if tool_names:
@@ -190,9 +228,22 @@ class PromptBuilder:
 
     # ── Private Section Builders ─────────────────────────────────
 
-    def _output_format_section(self, native_tool_mode: bool = False) -> str:
+    def _output_format_section(
+        self,
+        native_tool_mode: bool = False,
+        multi_action: bool = False,
+    ) -> str:
         """Standard output format instructions for all agents."""
-        template_name = "output_format_native" if native_tool_mode else "output_format"
+        if multi_action:
+            template_name = (
+                "output_format_multi_native"
+                if native_tool_mode
+                else "output_format_multi"
+            )
+        else:
+            template_name = (
+                "output_format_native" if native_tool_mode else "output_format"
+            )
         template = self._data_registry.get_prompt_template(template_name)
         # Avoid str.format because templates intentionally include JSON braces.
         return template.replace("{title_max_words}", str(self._title_max_words))

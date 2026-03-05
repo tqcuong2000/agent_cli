@@ -161,7 +161,8 @@ async def test_tool_executor_uses_interaction_handler_for_approval():
     assert interaction_handler.last_request is not None
     assert interaction_handler.last_request.interaction_type == InteractionType.APPROVAL
     assert interaction_handler.last_request.tool_name == "unsafe_tool"
-    assert "User denied execution." in result
+    assert result.success is False
+    assert "User denied execution." in result.output
 
 
 @pytest.mark.asyncio

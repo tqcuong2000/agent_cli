@@ -411,10 +411,24 @@ def create_app(
     )
 
     # 6. Schema Validator
+    executor_defaults = tool_defaults.get("executor", {})
+    if not isinstance(executor_defaults, dict):
+        executor_defaults = {}
+    multi_action_defaults = executor_defaults.get("multi_action", {})
+    if not isinstance(multi_action_defaults, dict):
+        multi_action_defaults = {}
+    raw_multi_action_enabled = multi_action_defaults.get("enabled", False)
+    if isinstance(raw_multi_action_enabled, bool):
+        schema_multi_action_enabled = raw_multi_action_enabled
+    else:
+        schema_multi_action_enabled = (
+            str(raw_multi_action_enabled).strip().lower() in {"1", "true", "yes", "on"}
+        )
     schema_validator = SchemaValidator(
         registered_tools=tool_registry.get_all_names(),
         protocol_mode=settings.protocol_mode,
         data_registry=data_registry,
+        multi_action_enabled=schema_multi_action_enabled,
     )
 
     # 7. Memory Manager (token-aware)
@@ -489,6 +503,27 @@ def create_app(
     from agent_cli.core.runtime.agents.base import AgentConfig
     from agent_cli.core.runtime.agents.default import DefaultAgent
 
+    def _parse_bool(raw: object, *, default: bool) -> bool:
+        if raw is None:
+            return default
+        if isinstance(raw, bool):
+            return raw
+        value = str(raw).strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off"}:
+            return False
+        return default
+
+    def _parse_positive_int(raw: object, *, default: int) -> int:
+        if raw is None:
+            return default
+        try:
+            parsed = int(raw)
+        except (TypeError, ValueError):
+            return default
+        return parsed if parsed > 0 else default
+
     def _parse_optional_max_iterations(raw: object) -> Optional[int]:
         if raw is None:
             return None
@@ -500,6 +535,21 @@ def create_app(
         except (TypeError, ValueError):
             return None
         return parsed if parsed > 0 else None
+
+    executor_defaults = tool_defaults.get("executor", {})
+    if not isinstance(executor_defaults, dict):
+        executor_defaults = {}
+    multi_action_defaults = executor_defaults.get("multi_action", {})
+    if not isinstance(multi_action_defaults, dict):
+        multi_action_defaults = {}
+    default_multi_action_enabled = _parse_bool(
+        multi_action_defaults.get("enabled"),
+        default=False,
+    )
+    default_max_concurrent_actions = _parse_positive_int(
+        multi_action_defaults.get("max_concurrent_actions"),
+        default=5,
+    )
 
     def _resolve_agent_config(
         *,
@@ -527,6 +577,14 @@ def create_app(
                 override.get("max_iterations")
             ),
             show_thinking=bool(override.get("show_thinking", True)),
+            multi_action_enabled=_parse_bool(
+                override.get("multi_action_enabled"),
+                default=default_multi_action_enabled,
+            ),
+            max_concurrent_actions=_parse_positive_int(
+                override.get("max_concurrent_actions"),
+                default=default_max_concurrent_actions,
+            ),
         )
 
     def _create_agent_instance(
@@ -616,6 +674,14 @@ def create_app(
                 raw.get("max_iterations")
             ),
             show_thinking=bool(raw.get("show_thinking", True)),
+            multi_action_enabled=_parse_bool(
+                raw.get("multi_action_enabled"),
+                default=default_multi_action_enabled,
+            ),
+            max_concurrent_actions=_parse_positive_int(
+                raw.get("max_concurrent_actions"),
+                default=default_max_concurrent_actions,
+            ),
         )
         agent_registry.register(
             _create_agent_instance(config=user_config, agent_cls=DefaultAgent)
@@ -838,7 +904,6 @@ def _build_command_registry() -> CommandRegistry:
         cmd_context,
         cmd_cost,
         cmd_debug,
-        cmd_effort,
         cmd_exit,
         cmd_help,
         cmd_model,
@@ -903,15 +968,6 @@ def _build_command_registry() -> CommandRegistry:
             usage="/model <name>",
             category="Model",
             handler=cmd_model,
-        )
-    )
-    registry.register(
-        CommandDef(
-            name="effort",
-            description="Get or set reasoning effort",
-            usage="/effort [auto|minimal|low|medium|high|max]",
-            category="Model",
-            handler=cmd_effort,
         )
     )
     registry.register(

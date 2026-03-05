@@ -31,6 +31,13 @@ def test_tool_result():
     assert result.output == "Test"
     assert result.error == ""
     assert result.metadata == {"key": "val"}
+    assert result.action_id == ""
+    assert result.tool_name == ""
+
+
+def test_base_tool_parallel_safe_defaults_true():
+    tool = DummyTool()
+    assert tool.parallel_safe is True
 
 
 def test_base_tool_validation():

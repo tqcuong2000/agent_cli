@@ -83,6 +83,35 @@ def test_builtin_agent_capabilities_include_web_search_for_default_and_researche
     assert "web_search" not in coder_agent.config.tools
 
 
+def test_builtin_agents_use_multi_action_defaults_from_data_registry():
+    ctx = create_app()
+    assert ctx.agent_registry is not None
+
+    for agent_name in ("default", "coder", "researcher"):
+        agent = ctx.agent_registry.get(agent_name)
+        assert agent is not None
+        assert agent.config.multi_action_enabled is False
+        assert agent.config.max_concurrent_actions == 5
+
+
+def test_agent_override_can_enable_multi_action_and_concurrency():
+    settings = AgentSettings(
+        agents={
+            "coder": {
+                "multi_action_enabled": True,
+                "max_concurrent_actions": 3,
+            }
+        }
+    )
+    ctx = create_app(settings=settings)
+    assert ctx.agent_registry is not None
+
+    coder = ctx.agent_registry.get("coder")
+    assert coder is not None
+    assert coder.config.multi_action_enabled is True
+    assert coder.config.max_concurrent_actions == 3
+
+
 def test_create_app_wires_configurable_workspace_policy(tmp_path):
     settings = AgentSettings(
         workspace_deny_patterns=["*.key"],

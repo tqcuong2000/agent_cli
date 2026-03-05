@@ -70,6 +70,22 @@ def test_observability_records_metrics_and_writes_summary(tmp_path):
         duration_ms=4,
         result_length=120,
     )
+    obs.record_multi_action_batch(
+        task_id="task-a",
+        batch_size=3,
+        parallel_count=2,
+        sequential_count=1,
+        batch_duration_ms=125,
+        action_ids=["act_0", "act_1", "act_2"],
+        tool_names=["read_file", "search_files", "write_file"],
+    )
+    obs.record_multi_action_ask_user_strip(task_id="task-a", batch_size=2)
+    obs.record_multi_action_stuck_batch(
+        task_id="task-a",
+        batch_size=3,
+        action_ids=["act_0", "act_1", "act_2"],
+        tool_names=["read_file", "search_files", "write_file"],
+    )
     obs.record_task_result(is_success=True)
     obs.log_task_summary("task-a", is_success=True)
     obs.shutdown()
@@ -82,6 +98,9 @@ def test_observability_records_metrics_and_writes_summary(tmp_path):
     assert summary["tokens"]["total"] == 1500
     assert summary["tasks"]["created"] == 1
     assert summary["tasks"]["succeeded"] == 1
+    assert summary["multi_action"]["batches"] == 1
+    assert summary["multi_action"]["ask_user_strip_count"] == 1
+    assert summary["multi_action"]["stuck_batch_count"] == 1
 
     log_lines = obs.log_file.read_text(encoding="utf-8").splitlines()
     llm_entry = next(
@@ -89,3 +108,9 @@ def test_observability_records_metrics_and_writes_summary(tmp_path):
     )
     assert llm_entry["data"]["desired_effort"] == "high"
     assert llm_entry["data"]["effective_effort"] == "auto"
+
+    batch_entry = next(
+        json.loads(line) for line in log_lines if "Multi-action batch executed" in line
+    )
+    assert batch_entry["data"]["batch_size"] == 3
+    assert batch_entry["data"]["action_ids"] == ["act_0", "act_1", "act_2"]

@@ -145,7 +145,7 @@ def _update_agent_ui(ctx: CommandContext, *, active_name: str) -> None:
         return
     try:
         from agent_cli.core.ux.tui.views.header.agent_badge import AgentBadgeComponent
-        from agent_cli.core.ux.tui.views.header.status import StatusContainer
+        from agent_cli.core.ux.tui.views.footer.status import StatusContainer
 
         badge = ctx.app.query_one(AgentBadgeComponent)
         badge.update(active_name or "No Agent")

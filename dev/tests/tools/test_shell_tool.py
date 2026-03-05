@@ -20,6 +20,11 @@ def workspace(tmp_path: Path):
     return WorkspaceContext(root_path=tmp_path)
 
 
+def test_run_command_parallel_safe_flag(workspace):
+    tool = RunCommandTool(workspace, data_registry=DataRegistry())
+    assert tool.parallel_safe is False
+
+
 def test_is_safe_command():
     patterns = compile_safe_command_patterns(DataRegistry())
     assert is_safe_command("ls -la", patterns)
