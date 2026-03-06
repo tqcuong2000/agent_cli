@@ -154,5 +154,5 @@ cython_debug/
 
 # Project specific
 .agents/
-temp/
+tmp/
 dev/

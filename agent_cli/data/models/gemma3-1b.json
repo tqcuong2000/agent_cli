@@ -4,13 +4,6 @@
       "provider": "ollama",
       "api_model": "gemma3:1b",
       "plain_text": true,
-      "aliases": [
-        "ollama:gemma3:1b",
-        "local:gemma3:1b",
-        "ollama/gemma3:1b",
-        "gemma3-1b",
-        "gemma3:1b"
-      ],
       "context_window": 32000,
       "tokenizer": "sentencepiece",
       "pricing_input": 0.0,
@@ -18,4 +11,3 @@
     }
   }
 }
-

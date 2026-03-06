@@ -3,11 +3,6 @@
     "gemini-3.1-flash-lite-preview": {
       "provider": "google",
       "api_model": "gemini-3.1-flash-lite-preview",
-      "aliases": [
-        "google:gemini-3.1-flash-lite-preview",
-        "gemini-3.1-flash-lite",
-        "gemini-3.1-flash-lite-preview"
-      ],
       "context_window": 1048576,
       "tokenizer": "gemini",
       "pricing_input": 0.25,
@@ -34,10 +29,6 @@
     "openrouter-gemini-3.1-flash-lite-preview": {
       "provider": "openrouter",
       "api_model": "google/gemini-3.1-flash-lite-preview",
-      "aliases": [
-        "openrouter:gemini-3.1-flash-lite",
-        "openrouter/gemini-3.1-flash-lite"
-      ],
       "context_window": 1048576,
       "tokenizer": "gemini",
       "pricing_input": 0.25,

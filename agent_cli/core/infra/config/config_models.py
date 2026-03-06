@@ -125,10 +125,10 @@ class ModelSpec:
 
     model_id: str
     provider: str
+    model_ref: str
     api_model: str
     api_surface: str = ""
     plain_text: bool = False
-    aliases: List[str] = field(default_factory=list)
     context_window: int = 128_000
     tokenizer: str = "cl100k_base"
     pricing_input: float = 0.0

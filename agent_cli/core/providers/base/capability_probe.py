@@ -152,39 +152,81 @@ class CapabilityProbeService:
         trigger: str,
     ) -> CapabilityObservation:
         if provider_name == "azure":
-            if self._provider_api_surface(provider) != "responses_api":
-                return CapabilityObservation(
-                    status="unsupported",
-                    reason=f"azure_api_surface_not_responses_api:{trigger}",
-                    checked_at=now,
-                    source=source,
-                )
-            cached_support = getattr(
-                provider, "_azure_responses_web_search_supported", None
-            )
-            if cached_support is False:
-                return CapabilityObservation(
-                    status="unsupported",
-                    reason=f"azure_responses_api_previously_rejected:{trigger}",
-                    checked_at=now,
-                    source=source,
-                )
+            api_surface = self._provider_api_surface(provider)
             client = getattr(provider, "client", None)
-            responses_api_available = bool(
-                client is not None
-                and hasattr(client, "responses")
-                and hasattr(client.responses, "create")
-            )
-            if not responses_api_available:
+
+            if api_surface == "responses_api":
+                cached_support = getattr(
+                    provider, "_azure_responses_web_search_supported", None
+                )
+                if cached_support is False:
+                    return CapabilityObservation(
+                        status="unsupported",
+                        reason=f"azure_responses_api_previously_rejected:{trigger}",
+                        checked_at=now,
+                        source=source,
+                    )
+                responses_api_available = bool(
+                    client is not None
+                    and hasattr(client, "responses")
+                    and hasattr(client.responses, "create")
+                )
+                if not responses_api_available:
+                    return CapabilityObservation(
+                        status="unsupported",
+                        reason=f"azure_responses_api_unavailable_in_sdk_client:{trigger}",
+                        checked_at=now,
+                        source=source,
+                    )
                 return CapabilityObservation(
-                    status="unsupported",
-                    reason=f"azure_responses_api_unavailable_in_sdk_client:{trigger}",
+                    status="supported",
+                    reason=f"azure_responses_api_available_runtime:{trigger}",
                     checked_at=now,
                     source=source,
                 )
+
+            if api_surface == "chat_completions":
+                cached_support = getattr(provider, "_azure_chat_web_search_supported", None)
+                if cached_support is False:
+                    return CapabilityObservation(
+                        status="unsupported",
+                        reason=f"azure_chat_completions_web_search_previously_rejected:{trigger}",
+                        checked_at=now,
+                        source=source,
+                    )
+                chat_contract_available = self._azure_chat_web_search_contract_available(
+                    provider
+                )
+                if not chat_contract_available:
+                    return CapabilityObservation(
+                        status="unsupported",
+                        reason=f"azure_chat_completions_web_search_contract_unavailable:{trigger}",
+                        checked_at=now,
+                        source=source,
+                    )
+                chat_api_available = bool(
+                    client is not None
+                    and hasattr(client, "chat")
+                    and hasattr(client.chat, "completions")
+                    and hasattr(client.chat.completions, "create")
+                )
+                if not chat_api_available:
+                    return CapabilityObservation(
+                        status="unsupported",
+                        reason=f"azure_chat_completions_unavailable_in_sdk_client:{trigger}",
+                        checked_at=now,
+                        source=source,
+                    )
+                return CapabilityObservation(
+                    status="supported",
+                    reason=f"azure_chat_completions_web_search_available_runtime:{trigger}",
+                    checked_at=now,
+                    source=source,
+                )
+
             return CapabilityObservation(
-                status="supported",
-                reason=f"azure_responses_api_available_runtime:{trigger}",
+                status="unsupported",
+                reason=f"azure_api_surface_not_supported_for_web_search:{api_surface}:{trigger}",
                 checked_at=now,
                 source=source,
             )
@@ -215,6 +257,16 @@ class CapabilityProbeService:
         if raw in {"responses_api", "responses"}:
             return "responses_api"
         return "chat_completions"
+
+    @staticmethod
+    def _azure_chat_web_search_contract_available(provider: BaseLLMProvider) -> bool:
+        checker = getattr(provider, "_azure_chat_web_search_contract_available", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:
+                return False
+        return False
 
     def _record_unknown_fallbacks(self, snapshot: CapabilitySnapshot) -> None:
         unknown_count = sum(

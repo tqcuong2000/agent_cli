@@ -1,0 +1,74 @@
+{
+  "offerings": {
+    "gpt-4.1": {
+      "provider": "openai",
+      "api_model": "gpt-4.1",
+      "context_window": 1047576,
+      "api_surface": "chat_completions",
+      "tokenizer": "o200k_base",
+      "pricing_input": 2.0,
+      "pricing_output": 8.0,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": [
+            "auto"
+          ]
+        },
+        "web_search": {
+          "supported": true,
+          "mode": "responses_api",
+          "tool_type": "web_search_preview"
+        }
+      }
+    },
+    "azure-gpt-4.1": {
+      "provider": "azure",
+      "api_model": "gpt-4.1",
+      "context_window": 1048576,
+      "tokenizer": "o200k_base",
+      "api_surface": "chat_completions",
+      "pricing_input": 2.0,
+      "pricing_output": 8.0,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": [
+            "auto"
+          ]
+        },
+        "web_search": {
+          "supported": true
+        }
+      }
+    },
+    "openrouter-gpt-4.1": {
+      "provider": "openrouter",
+      "api_model": "openai/gpt-4.1",
+      "context_window": 1047576,
+      "tokenizer": "o200k_base",
+      "pricing_input": 2.0,
+      "pricing_output": 8.0,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": [
+            "auto"
+          ]
+        },
+        "web_search": {
+          "supported": true
+        }
+      }
+    }
+  }
+}

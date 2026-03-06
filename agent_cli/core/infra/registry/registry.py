@@ -165,7 +165,7 @@ class DataRegistry:
         return deepcopy(self._get_model_specs_cached())
 
     def resolve_model_spec(self, model_name: str) -> ModelSpec | None:
-        """Resolve a model identifier against model ID/API model/aliases."""
+        """Resolve a model identifier against canonical and legacy lookup keys."""
         raw_name = str(model_name or "").strip()
         if not raw_name:
             logger.debug(
@@ -546,12 +546,28 @@ class DataRegistry:
         allowed_api_surfaces = {"", "chat_completions", "responses_api"}
 
         for key, raw in models_data.items():
-            model_id = str(key).strip()
-            if not model_id:
+            source_model_id = str(key).strip()
+            if not source_model_id:
                 continue
             data = self._mapping(raw)
             if not data:
                 continue
+            provider_name = str(data.get("provider", "")).strip().lower()
+            canonical_model_id, model_ref = self._canonicalize_model_id(
+                provider_name=provider_name,
+                raw_model_id=source_model_id,
+            )
+            api_model_value = str(data.get("api_model", "")).strip() or model_ref
+            # For legacy IDs like "ollama-gemma3-1b", prefer a colon-bearing
+            # provider-scoped model_ref when api_model clearly encodes it.
+            if ":" in api_model_value and model_ref == api_model_value.replace(":", "-"):
+                model_ref = api_model_value
+                canonical_model_id = f"{provider_name}:{model_ref}"
+            if canonical_model_id in parsed:
+                raise RuntimeError(
+                    "Duplicate canonical model id detected in model offerings: "
+                    f"'{canonical_model_id}'."
+                )
 
             capabilities_raw = self._mapping(data.get("capabilities"))
 
@@ -579,7 +595,7 @@ class DataRegistry:
                     allowed = ", ".join(sorted(allowed_efforts))
                     raise RuntimeError(
                         "Invalid typed payload in offerings."
-                        f"{model_id}.capabilities.effort.levels: "
+                        f"{source_model_id}.capabilities.effort.levels: "
                         f"unsupported level '{level}'. Allowed: {allowed}"
                     )
 
@@ -588,23 +604,19 @@ class DataRegistry:
                 allowed = ", ".join(sorted(item for item in allowed_api_surfaces if item))
                 raise RuntimeError(
                     "Invalid typed payload in offerings."
-                    f"{model_id}.api_surface: "
+                    f"{source_model_id}.api_surface: "
                     f"unsupported value '{api_surface}'. Allowed: {allowed}"
                 )
 
-            aliases_raw = data.get("aliases", [])
-            aliases: list[str] = []
-            if isinstance(aliases_raw, list):
-                aliases = [str(alias).strip() for alias in aliases_raw if str(alias)]
             plain_text = self._to_bool(data.get("plain_text"), default=False)
 
             spec = ModelSpec(
-                model_id=model_id,
-                provider=str(data.get("provider", "")).strip(),
-                api_model=str(data.get("api_model", "")).strip() or model_id,
+                model_id=canonical_model_id,
+                provider=provider_name,
+                model_ref=model_ref,
+                api_model=api_model_value,
                 api_surface=api_surface,
                 plain_text=plain_text,
-                aliases=aliases,
                 context_window=max(
                     self._to_int(data.get("context_window"), 128_000), 1
                 ),
@@ -625,23 +637,56 @@ class DataRegistry:
                 ),
             )
 
-            parsed[model_id] = spec
+            parsed[canonical_model_id] = spec
 
-            for alias in [model_id, spec.api_model, *spec.aliases]:
+            for alias in [canonical_model_id, source_model_id]:
                 normalized = str(alias).strip().lower()
                 if not normalized:
                     continue
                 existing = lookup.get(normalized)
-                if existing is not None and existing != model_id:
+                if existing is not None and existing != canonical_model_id:
                     raise RuntimeError(
-                        "Duplicate offering alias detected in model offerings: "
-                        f"'{alias}' is used by both '{existing}' and '{model_id}'."
+                        "Duplicate offering lookup key detected in model offerings: "
+                        f"'{alias}' is used by both '{existing}' and '{canonical_model_id}'."
                     )
-                lookup[normalized] = model_id
+                lookup[normalized] = canonical_model_id
 
         self._model_specs_cache = parsed
         self._model_lookup_cache = lookup
         return parsed
+
+    @staticmethod
+    def _canonicalize_model_id(
+        *,
+        provider_name: str,
+        raw_model_id: str,
+    ) -> tuple[str, str]:
+        provider = str(provider_name or "").strip().lower()
+        if not provider:
+            raise RuntimeError(
+                f"Model offering '{raw_model_id}' is missing a valid provider field."
+            )
+
+        raw = str(raw_model_id or "").strip()
+        if not raw:
+            raise RuntimeError("Model offering id cannot be empty.")
+
+        provider_colon_prefix = f"{provider}:"
+        if raw.lower().startswith(provider_colon_prefix):
+            model_ref = raw[len(provider_colon_prefix) :].strip()
+            if not model_ref:
+                raise RuntimeError(
+                    f"Model offering '{raw_model_id}' has invalid canonical id format."
+                )
+            return f"{provider}:{model_ref}", model_ref
+
+        provider_dash_prefix = f"{provider}-"
+        if raw.lower().startswith(provider_dash_prefix):
+            model_ref = raw[len(provider_dash_prefix) :].strip()
+            if model_ref:
+                return f"{provider}:{model_ref}", model_ref
+
+        return f"{provider}:{raw}", raw
 
     def _get_model_lookup_cached(self) -> dict[str, str]:
         lookup = self._model_lookup_cache

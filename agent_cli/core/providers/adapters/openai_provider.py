@@ -11,6 +11,7 @@ import importlib
 import json
 import logging
 import re
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -74,10 +75,12 @@ class OpenAIProvider(BaseLLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         api_surface: str = "chat_completions",
+        api_profile: Optional[Dict[str, Any]] = None,
         *,
         data_registry: DataRegistry,
     ) -> None:
         self._api_surface = self._normalize_api_surface(api_surface)
+        self._api_profile = deepcopy(api_profile) if isinstance(api_profile, dict) else {}
         super().__init__(
             model_name,
             api_key,
@@ -102,6 +105,7 @@ class OpenAIProvider(BaseLLMProvider):
         self._buffered_usage: Dict[str, int] = {"input": 0, "output": 0}
         self._buffered_stop_reason: StopReason = StopReason.END_TURN
         self._azure_responses_web_search_supported: bool | None = None
+        self._azure_chat_web_search_supported: bool | None = None
 
     @property
     def provider_name(self) -> str:
@@ -119,9 +123,24 @@ class OpenAIProvider(BaseLLMProvider):
     def supports_web_search(self) -> bool:
         if self.provider_name != "azure":
             return False
-        if self._azure_responses_web_search_supported is False:
-            return False
-        return self._api_surface == "responses_api"
+        if self._api_surface == "responses_api":
+            if self._azure_responses_web_search_supported is False:
+                return False
+            return bool(
+                hasattr(self.client, "responses")
+                and hasattr(self.client.responses, "create")
+            )
+        if self._api_surface == "chat_completions":
+            if self._azure_chat_web_search_supported is False:
+                return False
+            if not self._azure_chat_web_search_contract_available():
+                return False
+            return bool(
+                hasattr(self.client, "chat")
+                and hasattr(self.client.chat, "completions")
+                and hasattr(self.client.chat.completions, "create")
+            )
+        return False
 
     # ── generate() ───────────────────────────────────────────────
 
@@ -134,19 +153,33 @@ class OpenAIProvider(BaseLLMProvider):
         request_options: ProviderRequestOptions | None = None,
     ) -> LLMResponse:
         _ = effort
-        if self._web_search_enabled(request_options):
+        azure_web_search_contract = self._resolve_azure_web_search_contract(
+            request_options=request_options
+        )
+        if azure_web_search_contract:
             try:
-                response = await self._generate_with_azure_web_search(
-                    context=context,
-                    max_tokens=max_tokens,
-                )
+                if azure_web_search_contract == "responses_api":
+                    response = await self._generate_with_azure_web_search(
+                        context=context,
+                        max_tokens=max_tokens,
+                    )
+                    success_reason = "azure_responses_api_runtime_success"
+                else:
+                    response = await self._generate_with_azure_chat_web_search(
+                        context=context,
+                        max_tokens=max_tokens,
+                    )
+                    success_reason = "azure_chat_completions_web_search_runtime_success"
                 self._save_runtime_web_search_observation(
                     status="supported",
-                    reason="azure_responses_api_runtime_success",
+                    reason=success_reason,
                 )
                 return response
             except Exception as exc:
-                if self._is_responses_api_unsupported_error(exc):
+                if (
+                    azure_web_search_contract == "responses_api"
+                    and self._is_responses_api_unsupported_error(exc)
+                ):
                     self._azure_responses_web_search_supported = False
                     self._save_runtime_web_search_observation(
                         status="unsupported",
@@ -157,10 +190,24 @@ class OpenAIProvider(BaseLLMProvider):
                         "falling back to chat.completions.",
                         self.model_name,
                     )
-                    if self._user_requested_web_search(context):
-                        return self._build_web_search_unavailable_response(exc)
+                elif (
+                    azure_web_search_contract == "chat_completions"
+                    and self._is_chat_completions_web_search_unsupported_error(exc)
+                ):
+                    self._azure_chat_web_search_supported = False
+                    self._save_runtime_web_search_observation(
+                        status="unsupported",
+                        reason="azure_chat_completions_web_search_runtime_rejected",
+                    )
+                    logger.warning(
+                        "Azure model '%s' does not support chat.completions web search; "
+                        "falling back to regular chat.completions.",
+                        self.model_name,
+                    )
                 else:
                     raise
+                if self._user_requested_web_search(context):
+                    return self._build_web_search_unavailable_response(exc)
 
         chat_context = context
         kwargs: Dict[str, Any] = {
@@ -219,17 +266,28 @@ class OpenAIProvider(BaseLLMProvider):
         request_options: ProviderRequestOptions | None = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         _ = effort
-        if self._web_search_enabled(request_options):
+        azure_web_search_contract = self._resolve_azure_web_search_contract(
+            request_options=request_options
+        )
+        if azure_web_search_contract:
             try:
                 # Keep implementation simple and stable: non-stream responses API call,
                 # then emit as one text chunk followed by final usage.
-                response = await self._generate_with_azure_web_search(
-                    context=context,
-                    max_tokens=max_tokens,
-                )
+                if azure_web_search_contract == "responses_api":
+                    response = await self._generate_with_azure_web_search(
+                        context=context,
+                        max_tokens=max_tokens,
+                    )
+                    success_reason = "azure_responses_api_runtime_success"
+                else:
+                    response = await self._generate_with_azure_chat_web_search(
+                        context=context,
+                        max_tokens=max_tokens,
+                    )
+                    success_reason = "azure_chat_completions_web_search_runtime_success"
                 self._save_runtime_web_search_observation(
                     status="supported",
-                    reason="azure_responses_api_runtime_success",
+                    reason=success_reason,
                 )
                 self._buffered_text = (
                     [response.text_content] if response.text_content else []
@@ -251,7 +309,10 @@ class OpenAIProvider(BaseLLMProvider):
                 )
                 return
             except Exception as exc:
-                if self._is_responses_api_unsupported_error(exc):
+                if (
+                    azure_web_search_contract == "responses_api"
+                    and self._is_responses_api_unsupported_error(exc)
+                ):
                     self._azure_responses_web_search_supported = False
                     self._save_runtime_web_search_observation(
                         status="unsupported",
@@ -262,23 +323,37 @@ class OpenAIProvider(BaseLLMProvider):
                         "falling back to chat.completions stream.",
                         self.model_name,
                     )
-                    if self._user_requested_web_search(context):
-                        response = self._build_web_search_unavailable_response(exc)
-                        self._buffered_text = (
-                            [response.text_content] if response.text_content else []
-                        )
-                        self._buffered_tool_calls = []
-                        self._buffered_usage = {"input": 0, "output": 0}
-                        self._buffered_stop_reason = response.stop_reason
-                        if response.text_content:
-                            yield StreamChunk(text=response.text_content)
-                        yield StreamChunk(
-                            is_final=True,
-                            usage={"input_tokens": 0, "output_tokens": 0},
-                        )
-                        return
+                elif (
+                    azure_web_search_contract == "chat_completions"
+                    and self._is_chat_completions_web_search_unsupported_error(exc)
+                ):
+                    self._azure_chat_web_search_supported = False
+                    self._save_runtime_web_search_observation(
+                        status="unsupported",
+                        reason="azure_chat_completions_web_search_runtime_rejected",
+                    )
+                    logger.warning(
+                        "Azure model '%s' does not support chat.completions web search; "
+                        "falling back to regular chat.completions stream.",
+                        self.model_name,
+                    )
                 else:
                     raise
+                if self._user_requested_web_search(context):
+                    response = self._build_web_search_unavailable_response(exc)
+                    self._buffered_text = (
+                        [response.text_content] if response.text_content else []
+                    )
+                    self._buffered_tool_calls = []
+                    self._buffered_usage = {"input": 0, "output": 0}
+                    self._buffered_stop_reason = response.stop_reason
+                    if response.text_content:
+                        yield StreamChunk(text=response.text_content)
+                    yield StreamChunk(
+                        is_final=True,
+                        usage={"input_tokens": 0, "output_tokens": 0},
+                    )
+                    return
 
         self._buffered_text = []
         self._buffered_tool_calls = []
@@ -404,34 +479,58 @@ class OpenAIProvider(BaseLLMProvider):
             return {"max_completion_tokens": max_tokens}
         return {"max_tokens": max_tokens}
 
-    def _web_search_enabled(
+    def _resolve_azure_web_search_contract(
         self,
+        *,
         request_options: ProviderRequestOptions | None,
-    ) -> bool:
+    ) -> str:
         if request_options is None or not request_options.web_search_enabled:
-            return False
+            return ""
         if self.provider_name != "azure":
-            return False
-        if self._azure_responses_web_search_supported is False:
-            return False
-        if self._api_surface != "responses_api":
-            self._save_runtime_web_search_observation(
-                status="unsupported",
-                reason="azure_api_surface_not_responses_api",
-            )
-            return False
-        if not hasattr(self.client, "responses") or not hasattr(
-            self.client.responses, "create"
-        ):
-            self._save_runtime_web_search_observation(
-                status="unsupported",
-                reason="azure_responses_api_unavailable_in_sdk_client",
-            )
-            logger.warning(
-                "Azure web_search requested but responses API is unavailable in SDK client."
-            )
-            return False
-        return True
+            return ""
+
+        if self._api_surface == "responses_api":
+            if self._azure_responses_web_search_supported is False:
+                return ""
+            if not hasattr(self.client, "responses") or not hasattr(
+                self.client.responses, "create"
+            ):
+                self._save_runtime_web_search_observation(
+                    status="unsupported",
+                    reason="azure_responses_api_unavailable_in_sdk_client",
+                )
+                logger.warning(
+                    "Azure web_search requested but responses API is unavailable in SDK client."
+                )
+                return ""
+            return "responses_api"
+
+        if self._api_surface == "chat_completions":
+            if self._azure_chat_web_search_supported is False:
+                return ""
+            if not (
+                hasattr(self.client, "chat")
+                and hasattr(self.client.chat, "completions")
+                and hasattr(self.client.chat.completions, "create")
+            ):
+                self._save_runtime_web_search_observation(
+                    status="unsupported",
+                    reason="azure_chat_completions_unavailable_in_sdk_client",
+                )
+                return ""
+            if not self._azure_chat_web_search_contract_available():
+                self._save_runtime_web_search_observation(
+                    status="unsupported",
+                    reason="azure_chat_completions_web_search_contract_unavailable",
+                )
+                return ""
+            return "chat_completions"
+
+        self._save_runtime_web_search_observation(
+            status="unsupported",
+            reason=f"azure_api_surface_not_supported_for_web_search:{self._api_surface}",
+        )
+        return ""
 
     async def _generate_with_azure_web_search(
         self,
@@ -476,6 +575,57 @@ class OpenAIProvider(BaseLLMProvider):
             stop_reason=StopReason.END_TURN,
         )
 
+    async def _generate_with_azure_chat_web_search(
+        self,
+        *,
+        context: List[Dict[str, Any]],
+        max_tokens: int,
+    ) -> LLMResponse:
+        kwargs = self._build_azure_chat_web_search_payload(
+            context=context,
+            max_tokens=max_tokens,
+        )
+        response = await self.client.chat.completions.create(**kwargs)
+        return self._normalize(response)
+
+    def _azure_chat_web_search_contract_available(self) -> bool:
+        capabilities = self._data_registry.get_model_capabilities(self.model_name)
+        if capabilities is None or not capabilities.web_search.supported:
+            return False
+        chat_profile = self._azure_chat_web_search_profile()
+        profile_tool_type = str(chat_profile.get("tool_type", "")).strip()
+        if capabilities.web_search.tool_type or profile_tool_type:
+            return True
+        mutations = chat_profile.get("mutations")
+        return bool(isinstance(mutations, list) and mutations)
+
+    def _build_azure_chat_web_search_payload(
+        self,
+        *,
+        context: List[Dict[str, Any]],
+        max_tokens: int,
+    ) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {
+            "model": self.model_name,
+            "messages": context,
+        }
+        kwargs.update(self._max_tokens_kwargs(max_tokens))
+
+        chat_profile = self._azure_chat_web_search_profile()
+        capabilities = self._data_registry.get_model_capabilities(self.model_name)
+        tool_type = ""
+        if capabilities is not None and capabilities.web_search.tool_type:
+            tool_type = str(capabilities.web_search.tool_type).strip()
+        if not tool_type:
+            tool_type = str(chat_profile.get("tool_type", "")).strip()
+        if tool_type:
+            kwargs["extra_body"] = {"tools": [{"type": tool_type}]}
+
+        mutations = chat_profile.get("mutations")
+        if isinstance(mutations, list):
+            kwargs = self._apply_chat_web_search_mutations(kwargs, mutations)
+        return kwargs
+
     def _build_azure_web_search_tool(self) -> Dict[str, Any]:
         tool_type = "web_search_preview"
         caps = self._data_registry.get_model_capabilities(self.model_name)
@@ -517,6 +667,78 @@ class OpenAIProvider(BaseLLMProvider):
             normalized.append({"role": role, "content": content})
         return instructions, normalized
 
+    def _azure_chat_web_search_profile(self) -> Dict[str, Any]:
+        profile = self._resolve_api_profile()
+        web_search = profile.get("web_search")
+        if not isinstance(web_search, dict):
+            return {}
+        chat_profile = web_search.get("chat_completions")
+        if isinstance(chat_profile, dict):
+            return chat_profile
+        if "mutations" in web_search or "tool_type" in web_search:
+            return web_search
+        return {}
+
+    def _resolve_api_profile(self) -> Dict[str, Any]:
+        if self._api_profile:
+            return deepcopy(self._api_profile)
+        provider_profile = self._data_registry.get_provider_api_profile(self.provider_name)
+        if isinstance(provider_profile, dict):
+            return provider_profile
+        return {}
+
+    def _apply_chat_web_search_mutations(
+        self,
+        payload: Dict[str, Any],
+        mutations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if not mutations:
+            return payload
+
+        mutated = deepcopy(payload)
+        for mutation in mutations:
+            if not isinstance(mutation, dict):
+                continue
+            op = str(mutation.get("op", "")).strip().lower()
+            value = mutation.get("value")
+            if op == "append_model_suffix":
+                if not isinstance(value, str):
+                    continue
+                suffix = value.strip()
+                if not suffix:
+                    continue
+                model = str(mutated.get("model", "")).strip()
+                if model and not model.endswith(suffix):
+                    mutated["model"] = f"{model}{suffix}"
+                continue
+            if op == "merge_body":
+                if not isinstance(value, dict):
+                    continue
+                extra_body = mutated.get("extra_body")
+                if not isinstance(extra_body, dict):
+                    extra_body = {}
+                    mutated["extra_body"] = extra_body
+                self._deep_merge(extra_body, value)
+                continue
+            logger.debug(
+                "Unsupported azure chat web_search mutation op '%s' for provider '%s'",
+                op,
+                self.provider_name,
+            )
+        return mutated
+
+    @staticmethod
+    def _deep_merge(target: Dict[str, Any], patch: Dict[str, Any]) -> None:
+        for key, value in patch.items():
+            if (
+                key in target
+                and isinstance(target[key], dict)
+                and isinstance(value, dict)
+            ):
+                OpenAIProvider._deep_merge(target[key], value)
+            else:
+                target[key] = deepcopy(value)
+
     @staticmethod
     def _is_responses_api_unsupported_error(error: Exception) -> bool:
         def _to_lower_text(value: Any) -> str:
@@ -538,6 +760,50 @@ class OpenAIProvider(BaseLLMProvider):
         if "responses api" in combined and "not supported" in combined:
             return True
         if "responses api" in combined and "invalid_request_error" in combined:
+            return True
+        return False
+
+    @staticmethod
+    def _is_chat_completions_web_search_unsupported_error(error: Exception) -> bool:
+        def _to_lower_text(value: Any) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, str):
+                return value.lower()
+            try:
+                return json.dumps(value, ensure_ascii=False).lower()
+            except Exception:
+                return str(value).lower()
+
+        message = _to_lower_text(str(error))
+        body_text = _to_lower_text(getattr(error, "body", None))
+        combined = f"{message} {body_text}".strip()
+
+        unsupported_signals = (
+            "not supported",
+            "unsupported",
+            "not available",
+            "unknown parameter",
+            "unrecognized",
+            "invalid_request_error",
+            "invalid value",
+        )
+        web_search_markers = (
+            "web_search",
+            "web search",
+            "web_search_preview",
+            "search_preview",
+            "tools",
+            "extensions",
+        )
+
+        if any(marker in combined for marker in web_search_markers) and any(
+            signal in combined for signal in unsupported_signals
+        ):
+            return True
+        if "this model is not supported" in combined and (
+            "chat completion" in combined or "chat.completions" in combined
+        ):
             return True
         return False
 
