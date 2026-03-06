@@ -25,51 +25,30 @@ TEST_DATA_REGISTRY = DataRegistry()
 
 
 def _parse_tool_envelope(content: str) -> Dict[str, Any]:
-    if content.startswith("[tool_result "):
-        header, body = content.split("\n", 1)
-        body = body.rsplit("\n[/tool_result]", 1)[0]
-        attrs: Dict[str, str] = {}
-        for part in header[len("[tool_result ") : -1].split():
-            key, value = part.split("=", 1)
-            attrs[key] = value
-        return {
-            "payload": {
-                "tool": attrs.get("tool", ""),
-                "status": attrs.get("status", ""),
-                "truncated": attrs.get("truncated", "false") == "true",
-                "truncated_chars": int(attrs.get("truncated_chars", "0")),
-                "total_chars": int(attrs.get("total_chars", "0"))
-                if "total_chars" in attrs
-                else 0,
-                "total_lines": int(attrs.get("total_lines", "0"))
-                if "total_lines" in attrs
-                else 0,
-                "output": body,
-            },
-            "metadata": {
-                "content_ref": attrs.get("content_ref", ""),
-                "batch_id": attrs.get("batch_id", ""),
-                "action_id": attrs.get("action_id", ""),
-            },
-        }
-
-    parsed = json.loads(content)
-    payload = parsed.get("payload", {})
-    metadata = parsed.get("metadata", {})
+    header, body = content.split("\n", 1)
+    body = body.rsplit("\n[/tool_result]", 1)[0]
+    attrs: Dict[str, str] = {}
+    for part in header[len("[tool_result ") : -1].split():
+        key, value = part.split("=", 1)
+        attrs[key] = value
     return {
         "payload": {
-            "tool": str(payload.get("tool", "")),
-            "status": str(payload.get("status", "")),
-            "truncated": bool(payload.get("truncated", False)),
-            "truncated_chars": int(payload.get("truncated_chars", 0)),
-            "total_chars": int(payload.get("total_chars", 0)),
-            "total_lines": int(payload.get("total_lines", 0)),
-            "output": str(payload.get("output", "")),
+            "tool": attrs.get("tool", ""),
+            "status": attrs.get("status", ""),
+            "truncated": attrs.get("truncated", "false") == "true",
+            "truncated_chars": int(attrs.get("truncated_chars", "0")),
+            "total_chars": int(attrs.get("total_chars", "0"))
+            if "total_chars" in attrs
+            else 0,
+            "total_lines": int(attrs.get("total_lines", "0"))
+            if "total_lines" in attrs
+            else 0,
+            "output": body,
         },
         "metadata": {
-            "content_ref": str(metadata.get("content_ref", "")),
-            "batch_id": str(metadata.get("batch_id", "")),
-            "action_id": str(metadata.get("action_id", "")),
+            "content_ref": attrs.get("content_ref", ""),
+            "batch_id": attrs.get("batch_id", ""),
+            "action_id": attrs.get("action_id", ""),
         },
     }
 
@@ -283,73 +262,6 @@ class _ScenarioProvider(BaseLLMProvider):
         return ""
 
 
-class _ReplayProvider(BaseLLMProvider):
-    def __init__(self) -> None:
-        super().__init__("mock-model", data_registry=TEST_DATA_REGISTRY)
-        self.context_calls: List[List[Dict[str, Any]]] = []
-
-    @property
-    def provider_name(self) -> str:
-        return "mock"
-
-    @property
-    def supports_native_tools(self) -> bool:
-        return False
-
-    def _create_tool_formatter(self) -> BaseToolFormatter:
-        return _NoopToolFormatter()
-
-    async def generate(
-        self,
-        context: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        max_tokens: int = 4096,
-        effort: str | None = None,
-        request_options: ProviderRequestOptions | None = None,
-    ) -> LLMResponse:
-        _ = tools, max_tokens, effort, request_options
-        self.context_calls.append([dict(msg) for msg in context])
-        payload = {
-            "title": "Continue session",
-            "thought": "Legacy history replay loaded successfully.",
-            "decision": {"type": "notify_user", "message": "Replay ok."},
-        }
-        return LLMResponse(
-            text_content=json.dumps(payload),
-            tool_mode=ToolCallMode.PROMPT_JSON,
-            input_tokens=50,
-            output_tokens=15,
-            cost_usd=0.005,
-        )
-
-    async def safe_generate(
-        self,
-        context: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        max_tokens: int = 4096,
-        max_retries: int = 3,
-        task_id: str = "",
-        event_bus: Optional[AbstractEventBus] = None,
-        **kwargs: Any,
-    ) -> LLMResponse:
-        _ = max_retries, task_id, event_bus, kwargs
-        return await self.generate(context=context, tools=tools, max_tokens=max_tokens)
-
-    async def stream(
-        self,
-        context: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        max_tokens: int = 4096,
-        effort: str | None = None,
-        request_options: ProviderRequestOptions | None = None,
-    ):
-        _ = context, tools, max_tokens, effort, request_options
-        yield None
-
-    def get_buffered_response(self) -> LLMResponse:
-        return LLMResponse(text_content="", tool_mode=ToolCallMode.PROMPT_JSON)
-
-
 class _IntegrationAgent(BaseAgent):
     async def build_system_prompt(self, task_context: str) -> str:
         _ = task_context
@@ -375,7 +287,6 @@ def _build_agent(
     event_bus = AsyncEventBus()
     state_manager = TaskStateManager(event_bus)
     output_formatter = ToolOutputFormatter(max_output_length=120, data_registry=TEST_DATA_REGISTRY)
-    output_formatter.lean_envelope = True
 
     tool_executor = ToolExecutor(
         registry=registry,
@@ -475,57 +386,3 @@ async def test_protocol_full_session_integration_with_all_improvements() -> None
 
     assert agent.get_last_task_title().startswith("Completed protocol verification with all")
     assert agent.get_last_task_title().endswith("...")
-
-
-@pytest.mark.asyncio
-async def test_legacy_json_tool_result_replay_remains_compatible() -> None:
-    registry = ToolRegistry()
-    provider = _ReplayProvider()
-    agent, state_manager = _build_agent(
-        provider=provider,
-        registry=registry,
-        multi_action_enabled=False,
-    )
-
-    legacy_tool_result = json.dumps(
-        {
-            "id": "msg_old_1",
-            "type": "tool_result",
-            "version": "1.0",
-            "timestamp": "2026-03-01T00:00:00Z",
-            "payload": {
-                "tool": "read_file",
-                "status": "success",
-                "truncated": False,
-                "truncated_chars": 0,
-                "output": "legacy output text",
-            },
-            "metadata": {"task_id": "old_task"},
-        },
-        separators=(",", ":"),
-    )
-    prior_session = [
-        {"role": "system", "content": "old system prompt"},
-        {"role": "user", "content": "initial question"},
-        {"role": "assistant", "content": "initial answer"},
-        {"role": "tool", "content": legacy_tool_result},
-    ]
-
-    task = await state_manager.create_task("resume legacy replay")
-    await state_manager.transition(task.task_id, TaskState.ROUTING)
-    await state_manager.transition(task.task_id, TaskState.WORKING)
-    final = await agent.handle_task(
-        task_id=task.task_id,
-        task_description="resume legacy replay",
-        session_messages=prior_session,
-    )
-
-    assert final == "Replay ok."
-    assert provider.context_calls, "provider did not receive context"
-    replay_context = provider.context_calls[0]
-    assert replay_context[0]["role"] == "system"
-    assert replay_context[0]["content"] != "old system prompt"
-    assert any(
-        msg.get("role") == "tool" and msg.get("content") == legacy_tool_result
-        for msg in replay_context
-    )

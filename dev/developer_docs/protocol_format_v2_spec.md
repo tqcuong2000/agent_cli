@@ -18,43 +18,15 @@ Protocol Format v2 defines runtime and prompt-side contracts for:
 
 ## 2. Compatibility Model
 
-Backward compatibility is required by default.
+Protocol v2 is now the single supported runtime format.
 
-- Output mode toggle:
-  - `tools.json` -> `output_formatter.lean_envelope`
-  - `false` (default in current staged rollout): emit legacy JSON envelope
-  - `true`: emit lean tag envelope
-- Stuck detection and normalization parse both formats.
-- Session replay remains compatible with historical JSON envelopes.
+- Tool outputs always emit the lean tag envelope.
+- Legacy JSON tool envelopes are no longer produced or normalized.
+- Session replay should be migrated to lean envelopes.
 
 ## 3. Tool Result Envelope Contract
 
-## 3.1 Legacy JSON Envelope
-
-```json
-{
-  "id": "msg_xxx",
-  "type": "tool_result",
-  "version": "1.0",
-  "timestamp": "2026-03-06T00:00:00Z",
-  "payload": {
-    "tool": "read_file",
-    "status": "success|error",
-    "truncated": false,
-    "truncated_chars": 0,
-    "output": "..."
-  },
-  "metadata": {
-    "task_id": "task_123",
-    "native_call_id": "call_abc",
-    "action_id": "act_0",
-    "batch_id": "batch_ab12cd34",
-    "content_ref": "sha256:abcd1234abcd1234"
-  }
-}
-```
-
-## 3.2 Lean Envelope
+## 3.1 Lean Envelope
 
 ```text
 [tool_result tool=read_file status=success truncated=false truncated_chars=0 action_id=act_0 batch_id=batch_ab12cd34 content_ref=sha256:abcd1234abcd1234]
@@ -164,7 +136,6 @@ Templates:
 
 Primary toggles and defaults:
 - `tools.json`:
-  - `output_formatter.lean_envelope = true` (default-on)
   - `output_formatter.error_truncation_chars = 2000`
   - `executor.multi_action.enabled = false`
   - `executor.multi_action.max_concurrent_actions = 5`

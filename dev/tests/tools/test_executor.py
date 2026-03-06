@@ -1,5 +1,4 @@
 import asyncio
-import json
 from typing import Any
 
 import pytest
@@ -28,39 +27,34 @@ from agent_cli.core.runtime.tools.registry import ToolRegistry
 
 
 def _parse_tool_result(result: ToolResult) -> dict[str, Any]:
-    if result.output.startswith("[tool_result "):
-        header, body = result.output.split("\n", 1)
-        body = body.rsplit("\n[/tool_result]", 1)[0]
-        attrs: dict[str, str] = {}
-        for part in header[len("[tool_result ") : -1].split():
-            key, value = part.split("=", 1)
-            attrs[key] = value
+    header, body = result.output.split("\n", 1)
+    body = body.rsplit("\n[/tool_result]", 1)[0]
+    attrs: dict[str, str] = {}
+    for part in header[len("[tool_result ") : -1].split():
+        key, value = part.split("=", 1)
+        attrs[key] = value
 
-        return {
-            "type": "tool_result",
-            "payload": {
-                "tool": attrs.get("tool", ""),
-                "status": attrs.get("status", ""),
-                "truncated": attrs.get("truncated", "false") == "true",
-                "truncated_chars": int(attrs.get("truncated_chars", "0")),
-                "output": body,
-                "error_code": attrs.get("error_code", ""),
-                "retryable": attrs.get("retryable", "") == "true"
-                if "retryable" in attrs
-                else None,
-            },
-            "metadata": {
-                "task_id": attrs.get("task_id", ""),
-                "native_call_id": attrs.get("native_call_id", ""),
-                "action_id": attrs.get("action_id", ""),
-                "batch_id": attrs.get("batch_id", ""),
-                "content_ref": attrs.get("content_ref", ""),
-            },
-        }
-
-    parsed = json.loads(result.output)
-    assert parsed["type"] == "tool_result"
-    return parsed
+    return {
+        "type": "tool_result",
+        "payload": {
+            "tool": attrs.get("tool", ""),
+            "status": attrs.get("status", ""),
+            "truncated": attrs.get("truncated", "false") == "true",
+            "truncated_chars": int(attrs.get("truncated_chars", "0")),
+            "output": body,
+            "error_code": attrs.get("error_code", ""),
+            "retryable": attrs.get("retryable", "") == "true"
+            if "retryable" in attrs
+            else None,
+        },
+        "metadata": {
+            "task_id": attrs.get("task_id", ""),
+            "native_call_id": attrs.get("native_call_id", ""),
+            "action_id": attrs.get("action_id", ""),
+            "batch_id": attrs.get("batch_id", ""),
+            "content_ref": attrs.get("content_ref", ""),
+        },
+    }
 
 
 class DummyArgs(BaseModel):

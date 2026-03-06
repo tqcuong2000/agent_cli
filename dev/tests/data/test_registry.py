@@ -66,10 +66,10 @@ def test_safe_command_patterns_and_tool_defaults(registry: DataRegistry) -> None
     assert defaults["shell"]["default_timeout"] == 30
     assert defaults["shell"]["max_timeout"] == 120
     assert defaults["output_formatter"]["error_truncation_chars"] == 2000
-    assert defaults["output_formatter"]["lean_envelope"] is True
+    assert set(defaults["output_formatter"].keys()) == {"error_truncation_chars"}
     assert defaults["file_tools"]["diff_context_lines"] == 2
     assert defaults["executor"]["approval_timeout_seconds"] == 300.0
-    assert defaults["executor"]["multi_action"]["enabled"] is False
+    assert defaults["executor"]["multi_action"]["enabled"] is True
     assert defaults["executor"]["multi_action"]["max_concurrent_actions"] == 5
     assert defaults["workspace"]["index_max_files"] == 5000
 

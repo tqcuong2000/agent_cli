@@ -122,28 +122,7 @@ class StuckDetector:
                 "output": lean.get("output"),
             }
             return json.dumps(stable, sort_keys=True, separators=(",", ":"))
-
-        try:
-            parsed = json.loads(result)
-        except json.JSONDecodeError:
-            return result
-
-        if not isinstance(parsed, dict):
-            return result
-        if parsed.get("type") != "tool_result":
-            return result
-
-        payload = parsed.get("payload", {})
-        if not isinstance(payload, dict):
-            return result
-
-        stable = {
-            "status": payload.get("status"),
-            "truncated": payload.get("truncated"),
-            "truncated_chars": payload.get("truncated_chars"),
-            "output": payload.get("output"),
-        }
-        return json.dumps(stable, sort_keys=True, separators=(",", ":"))
+        return result
 
     @staticmethod
     def _parse_lean_tool_result(result: str) -> Dict[str, Any] | None:

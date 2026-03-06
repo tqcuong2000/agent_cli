@@ -1,6 +1,4 @@
 """Tests for ToolRegistry and ToolOutputFormatter."""
-
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -43,44 +41,41 @@ class DummyExecTool(BaseTool):
 
 
 def _parse_tool_output(output: str) -> dict:
-    if output.startswith("[tool_result "):
-        header, body = output.split("\n", 1)
-        body = body.rsplit("\n[/tool_result]", 1)[0]
-        attrs: dict[str, str] = {}
-        for part in header[len("[tool_result ") : -1].split():
-            key, value = part.split("=", 1)
-            attrs[key] = value
+    header, body = output.split("\n", 1)
+    body = body.rsplit("\n[/tool_result]", 1)[0]
+    attrs: dict[str, str] = {}
+    for part in header[len("[tool_result ") : -1].split():
+        key, value = part.split("=", 1)
+        attrs[key] = value
 
-        return {
-            "type": "tool_result",
-            "version": "1.0",
-            "payload": {
-                "tool": attrs.get("tool", ""),
-                "status": attrs.get("status", ""),
-                "output": body,
-                "truncated": attrs.get("truncated", "false") == "true",
-                "truncated_chars": int(attrs.get("truncated_chars", "0")),
-                "error_code": attrs.get("error_code", ""),
-                "retryable": attrs.get("retryable", "") == "true"
-                if "retryable" in attrs
-                else None,
-                "total_chars": int(attrs.get("total_chars", "0"))
-                if "total_chars" in attrs
-                else None,
-                "total_lines": int(attrs.get("total_lines", "0"))
-                if "total_lines" in attrs
-                else None,
-            },
-            "metadata": {
-                "task_id": attrs.get("task_id", ""),
-                "native_call_id": attrs.get("native_call_id", ""),
-                "action_id": attrs.get("action_id", ""),
-                "batch_id": attrs.get("batch_id", ""),
-                "content_ref": attrs.get("content_ref", ""),
-            },
-        }
-
-    return json.loads(output)
+    return {
+        "type": "tool_result",
+        "version": "1.0",
+        "payload": {
+            "tool": attrs.get("tool", ""),
+            "status": attrs.get("status", ""),
+            "output": body,
+            "truncated": attrs.get("truncated", "false") == "true",
+            "truncated_chars": int(attrs.get("truncated_chars", "0")),
+            "error_code": attrs.get("error_code", ""),
+            "retryable": attrs.get("retryable", "") == "true"
+            if "retryable" in attrs
+            else None,
+            "total_chars": int(attrs.get("total_chars", "0"))
+            if "total_chars" in attrs
+            else None,
+            "total_lines": int(attrs.get("total_lines", "0"))
+            if "total_lines" in attrs
+            else None,
+        },
+        "metadata": {
+            "task_id": attrs.get("task_id", ""),
+            "native_call_id": attrs.get("native_call_id", ""),
+            "action_id": attrs.get("action_id", ""),
+            "batch_id": attrs.get("batch_id", ""),
+            "content_ref": attrs.get("content_ref", ""),
+        },
+    }
 
 
 def test_tool_registry_register_and_get():
@@ -223,12 +218,11 @@ def test_tool_output_formatter():
     assert long_res[-10:] in parsed["payload"]["output"]
 
 
-def test_tool_output_formatter_lean_envelope() -> None:
+def test_tool_output_formatter_emits_lean_envelope() -> None:
     formatter = ToolOutputFormatter(
         max_output_length=20,
         data_registry=DataRegistry(),
     )
-    formatter.lean_envelope = True
 
     res = formatter.format("test_tool", "short result", task_id="task_1", action_id="act_1")
     parsed = _parse_tool_output(res)
@@ -242,7 +236,6 @@ def test_tool_output_formatter_lean_envelope() -> None:
 
 def test_tool_output_formatter_includes_error_code_metadata() -> None:
     formatter = ToolOutputFormatter(data_registry=DataRegistry())
-    formatter.lean_envelope = False
 
     res = formatter.format(
         "read_file",

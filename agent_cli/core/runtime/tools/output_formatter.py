@@ -8,10 +8,6 @@ consistent formatting across all tools.
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from uuid import uuid4
-
 from agent_cli.core.infra.registry.registry import DataRegistry
 
 # ══════════════════════════════════════════════════════════════════════
@@ -40,7 +36,6 @@ class ToolOutputFormatter:
             if error_truncation_chars is not None
             else defaults.get("error_truncation_chars", 2000)
         )
-        self.lean_envelope = self._coerce_bool(defaults.get("lean_envelope", False))
 
     def format(
         self,
@@ -151,24 +146,7 @@ class ToolOutputFormatter:
         content_ref: str,
         batch_id: str,
     ) -> str:
-        if self.lean_envelope:
-            return self._to_lean_envelope(
-                tool_name=tool_name,
-                status=status,
-                output=output,
-                truncated=truncated,
-                truncated_chars=truncated_chars,
-                task_id=task_id,
-                native_call_id=native_call_id,
-                action_id=action_id,
-                error_code=error_code,
-                retryable=retryable,
-                total_chars=total_chars,
-                total_lines=total_lines,
-                content_ref=content_ref,
-                batch_id=batch_id,
-            )
-        return self._to_json_envelope_legacy(
+        return self._to_lean_envelope(
             tool_name=tool_name,
             status=status,
             output=output,
@@ -230,111 +208,6 @@ class ToolOutputFormatter:
             parts.append(f"batch_id={batch_id}")
         header = f"[tool_result {' '.join(parts)}]"
         return f"{header}\n{output}\n[/tool_result]"
-
-    @staticmethod
-    def _to_json_envelope(
-        *,
-        tool_name: str,
-        status: str,
-        output: str,
-        truncated: bool,
-        truncated_chars: int,
-        task_id: str,
-        native_call_id: str,
-        action_id: str,
-        error_code: str,
-        retryable: bool | None,
-        total_chars: int,
-        total_lines: int,
-        content_ref: str,
-        batch_id: str,
-    ) -> str:
-        """Backward-compatible alias for legacy envelope rendering."""
-        return ToolOutputFormatter._to_json_envelope_legacy(
-            tool_name=tool_name,
-            status=status,
-            output=output,
-            truncated=truncated,
-            truncated_chars=truncated_chars,
-            task_id=task_id,
-            native_call_id=native_call_id,
-            action_id=action_id,
-            error_code=error_code,
-            retryable=retryable,
-            total_chars=total_chars,
-            total_lines=total_lines,
-            content_ref=content_ref,
-            batch_id=batch_id,
-        )
-
-    @staticmethod
-    def _to_json_envelope_legacy(
-        *,
-        tool_name: str,
-        status: str,
-        output: str,
-        truncated: bool,
-        truncated_chars: int,
-        task_id: str,
-        native_call_id: str,
-        action_id: str,
-        error_code: str,
-        retryable: bool | None,
-        total_chars: int,
-        total_lines: int,
-        content_ref: str,
-        batch_id: str,
-    ) -> str:
-        """Render a tool result envelope as compact JSON for working memory."""
-        metadata: dict[str, str] = {}
-        if task_id:
-            metadata["task_id"] = task_id
-        if native_call_id:
-            metadata["native_call_id"] = native_call_id
-        if action_id:
-            metadata["action_id"] = action_id
-        if batch_id:
-            metadata["batch_id"] = batch_id
-        if content_ref:
-            metadata["content_ref"] = content_ref
-
-        envelope = {
-            "id": f"msg_{uuid4().hex}",
-            "type": "tool_result",
-            "version": "1.0",
-            "timestamp": datetime.now(timezone.utc)
-            .isoformat(timespec="seconds")
-            .replace("+00:00", "Z"),
-            "payload": {
-                "tool": str(tool_name),
-                "status": status,
-                "truncated": truncated,
-                "truncated_chars": truncated_chars,
-                "output": output,
-            },
-            "metadata": metadata,
-        }
-        if error_code:
-            envelope["payload"]["error_code"] = str(error_code)
-        if retryable is not None:
-            envelope["payload"]["retryable"] = bool(retryable)
-        if truncated and total_chars > 0:
-            envelope["payload"]["total_chars"] = int(total_chars)
-        if truncated and total_lines > 0:
-            envelope["payload"]["total_lines"] = int(total_lines)
-        return json.dumps(
-            envelope,
-            ensure_ascii=True,
-            separators=(",", ":"),
-        )
-
-    @staticmethod
-    def _coerce_bool(value: object) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return bool(value)
 
     @staticmethod
     def _count_lines(value: str) -> int:

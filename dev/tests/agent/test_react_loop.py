@@ -877,25 +877,12 @@ def test_stuck_detector_batch_reset_clears_batch_history():
     assert detector.is_stuck_batch(batch) is False
 
 
-def test_stuck_detector_normalizes_lean_and_json_tool_result_equally() -> None:
-    legacy = json.dumps(
-        {
-            "type": "tool_result",
-            "payload": {
-                "tool": "read_file",
-                "status": "success",
-                "truncated": False,
-                "truncated_chars": 0,
-                "output": "hello",
-            },
-        }
-    )
+def test_stuck_detector_normalizes_lean_tool_result() -> None:
     lean = "[tool_result tool=read_file status=success truncated=false truncated_chars=0]\nhello\n[/tool_result]"
-
-    assert (
-        StuckDetector._normalize_result_for_stuck_check(legacy)
-        == StuckDetector._normalize_result_for_stuck_check(lean)
+    expected = (
+        '{"output":"hello","status":"success","truncated":false,"truncated_chars":0}'
     )
+    assert StuckDetector._normalize_result_for_stuck_check(lean) == expected
 
 
 def test_prompt_builder_adds_ask_user_policy_when_tool_available():

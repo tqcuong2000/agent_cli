@@ -13,7 +13,7 @@ Use this guide if you maintain:
 
 ## 2. Migration Summary
 
-Protocol v2 is additive and compatibility-first.
+Protocol v2 is now the only supported runtime format.
 
 What changed:
 - Optional lean tool envelope mode
@@ -22,19 +22,17 @@ What changed:
 - Optional `title` (auto-generated when absent)
 - Single-item `execute_actions` normalized to `execute_action`
 
-What did not break:
-- Legacy JSON tool envelopes still parse
-- Session replay for old tool results remains valid
+Supported behavior:
+- Lean tag tool envelopes are required
 - Existing `execute_action` paths remain valid
 
 ## 3. Configuration Rollout Steps
 
-## Step 1: Confirm default-on and dual-parser safety
+## Step 1: Confirm lean-envelope only behavior
 
 `agent_cli/data/tools.json`:
-- `output_formatter.lean_envelope: true`
-
-Runtime still parses both lean and legacy JSON envelopes, so replay compatibility remains intact.
+- `output_formatter.error_truncation_chars` configured
+- no legacy envelope toggle
 
 ## Step 2: Validate compatibility in your environment
 
@@ -115,27 +113,25 @@ Required templates:
 ## 7. Replay Migration (Old Sessions)
 
 Replay requirement:
-- historical JSON `tool_result` strings must remain processable without mutation.
+- historical JSON `tool_result` strings should be migrated to lean envelopes.
 
 Verification:
 - include a replay fixture with legacy JSON tool content in `session_messages`.
 - assert runtime hydrates and continues task execution normally.
 
 Reference test:
-- `dev/tests/agent/test_protocol_format_integration.py::test_legacy_json_tool_result_replay_remains_compatible`
+- `dev/tests/agent/test_protocol_format_integration.py::test_protocol_full_session_integration_with_all_improvements`
 
 ## 8. Rollback Strategy
 
-If issues appear after enabling lean envelope:
-1. Set `output_formatter.lean_envelope` back to `false`.
+If issues appear:
+1. Revert the runtime commit set.
 2. Re-run gate suite.
-3. Keep dual parser support active.
-
-No data migration rollback is required because replay accepts legacy envelopes.
+3. Keep session fixtures aligned to lean envelopes.
 
 ## 9. Acceptance Criteria for Complete Migration
 
 - Gate tests pass in CI.
 - Replay test passes with legacy sessions.
-- Canary metrics stable after lean-envelope enablement.
+- Canary metrics stable after lean-envelope migration.
 - No increase in schema/tool failure rates attributable to format changes.

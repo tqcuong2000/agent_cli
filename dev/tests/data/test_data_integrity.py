@@ -79,7 +79,7 @@ def test_tools_json_structure() -> None:
 
     output_formatter = data["output_formatter"]
     assert output_formatter["error_truncation_chars"] == 2000
-    assert output_formatter["lean_envelope"] is True
+    assert set(output_formatter.keys()) == {"error_truncation_chars"}
 
     file_tools = data["file_tools"]
     assert set(file_tools.keys()) == {
