@@ -151,23 +151,6 @@ class CapabilityProbeService:
         source: str,
         trigger: str,
     ) -> CapabilityObservation:
-        defaults = self._data_registry.get_web_search_provider_defaults(provider_name)
-        if defaults and not bool(defaults.get("enabled", True)):
-            return CapabilityObservation(
-                status="unsupported",
-                reason=f"provider_web_search_disabled_by_config:{trigger}",
-                checked_at=now,
-                source=source,
-            )
-
-        if provider_name in {"openai_compatible", "ollama"}:
-            return CapabilityObservation(
-                status="unknown",
-                reason=f"provider_web_search_not_reliably_probeable:{trigger}",
-                checked_at=now,
-                source=source,
-            )
-
         if provider_name == "azure":
             if self._provider_api_surface(provider) != "responses_api":
                 return CapabilityObservation(

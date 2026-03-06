@@ -431,8 +431,7 @@ class OpenAIProvider(BaseLLMProvider):
                 "Azure web_search requested but responses API is unavailable in SDK client."
             )
             return False
-        defaults = self._data_registry.get_web_search_provider_defaults("azure")
-        return bool(defaults.get("enabled", True))
+        return True
 
     async def _generate_with_azure_web_search(
         self,
@@ -440,8 +439,7 @@ class OpenAIProvider(BaseLLMProvider):
         context: List[Dict[str, Any]],
         max_tokens: int,
     ) -> LLMResponse:
-        defaults = self._data_registry.get_web_search_provider_defaults("azure")
-        tool = self._build_azure_web_search_tool(defaults)
+        tool = self._build_azure_web_search_tool()
         instructions, response_input = self._build_responses_input(context)
 
         kwargs: Dict[str, Any] = {
@@ -478,9 +476,15 @@ class OpenAIProvider(BaseLLMProvider):
             stop_reason=StopReason.END_TURN,
         )
 
-    @staticmethod
-    def _build_azure_web_search_tool(defaults: Dict[str, Any]) -> Dict[str, Any]:
-        tool_type = str(defaults.get("tool_type", "web_search_preview")).strip()
+    def _build_azure_web_search_tool(self) -> Dict[str, Any]:
+        tool_type = "web_search_preview"
+        caps = self._data_registry.get_model_capabilities(self.model_name)
+        if caps and caps.web_search and caps.web_search.tool_type:
+            tool_type = str(caps.web_search.tool_type).strip() or tool_type
+
+        defaults = self._data_registry.get_web_search_defaults()
+
+        tool_type = str(tool_type).strip()
         if not tool_type:
             tool_type = "web_search_preview"
 

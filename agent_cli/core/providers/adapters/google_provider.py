@@ -329,10 +329,7 @@ class GoogleProvider(BaseLLMProvider):
         self,
         request_options: ProviderRequestOptions | None,
     ) -> bool:
-        if request_options is None or not request_options.web_search_enabled:
-            return False
-        defaults = self._data_registry.get_web_search_provider_defaults("google")
-        return bool(defaults.get("enabled", True))
+        return bool(request_options is not None and request_options.web_search_enabled)
 
     @staticmethod
     def _build_web_search_tool(types: Any) -> Any | None:

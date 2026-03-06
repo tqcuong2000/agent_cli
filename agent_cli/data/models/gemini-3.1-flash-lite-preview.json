@@ -18,7 +18,12 @@
         },
         "effort": {
           "supported": true,
-          "levels": ["minimal", "low", "medium", "high"]
+          "levels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
         },
         "web_search": {
           "supported": true,
@@ -43,12 +48,17 @@
         },
         "effort": {
           "supported": true,
-          "levels": ["minimal", "low", "medium", "high"]
+          "levels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
         },
         "web_search": {
-          "supported": false}
+          "supported": false
+        }
       }
     }
   }
 }
-

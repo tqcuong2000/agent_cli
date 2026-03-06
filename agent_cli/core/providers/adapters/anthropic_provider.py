@@ -315,24 +315,18 @@ class AnthropicProvider(BaseLLMProvider):
         self,
         request_options: ProviderRequestOptions | None,
     ) -> bool:
-        if request_options is None or not request_options.web_search_enabled:
-            return False
-        defaults = self._data_registry.get_web_search_provider_defaults("anthropic")
-        return bool(defaults.get("enabled", True))
+        return bool(request_options is not None and request_options.web_search_enabled)
 
     def _build_web_search_tool(self) -> Dict[str, Any]:
-        defaults = self._data_registry.get_web_search_provider_defaults("anthropic")
+        defaults = self._data_registry.get_web_search_defaults()
 
-        # Resolve tool_type: Model-specific > Provider-default > Hardcoded Fallback (2026)
+        # Resolve tool_type: Model-specific > Hardcoded Fallback.
         tool_type = "web_search_20260209"
 
         # 1. Try model capabilities
         caps = self._data_registry.get_model_capabilities(self.model_name)
         if caps and caps.web_search and caps.web_search.tool_type:
             tool_type = caps.web_search.tool_type
-        # 2. Try provider defaults (merged from tools.json + providers.json)
-        elif defaults.get("tool_type"):
-            tool_type = str(defaults["tool_type"]).strip()
 
         max_uses_raw = defaults.get("max_uses", 10)
         try:

@@ -202,6 +202,8 @@ class ProviderManager:
             if model_spec is not None and hasattr(model_spec, "api_surface"):
                 model_surface = str(getattr(model_spec, "api_surface", "")).strip()
             kwargs["api_surface"] = model_surface or "chat_completions"
+        if config.adapter_type == "openai_compatible":
+            kwargs["api_profile"] = dict(config.api_profile)
         if config.adapter_type in ["openai_compatible", "ollama"]:
             # Intersection of provider config (user toggle) and model-specific capability
             model_allows_native = True

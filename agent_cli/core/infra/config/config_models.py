@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class ProtocolMode(str, Enum):
@@ -71,6 +71,7 @@ class ProviderConfig:
     default_model: Optional[str] = None
     supports_native_tools: bool = True
     max_context_tokens: Optional[int] = None  # Override default context window
+    api_profile: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -115,7 +116,7 @@ class ProviderSpec:
     api_key_env: Optional[str] = None
     default_model: Optional[str] = None
     max_context_tokens: Optional[int] = None
-    web_search: Dict[str, str | int | bool | List[str]] = field(default_factory=dict)
+    api_profile: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

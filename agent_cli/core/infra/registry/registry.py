@@ -112,6 +112,7 @@ class DataRegistry:
                 default_model=spec.default_model,
                 supports_native_tools=True,
                 max_context_tokens=spec.max_context_tokens,
+                api_profile=deepcopy(spec.api_profile),
             )
 
         return providers
@@ -147,17 +148,13 @@ class DataRegistry:
         defaults = self._mapping(web_search.get("defaults"))
         return deepcopy(defaults)
 
-    def get_web_search_provider_defaults(self, provider_name: str) -> dict[str, Any]:
-        """Return merged global + provider-specific web-search defaults."""
-        provider_defaults = {}
+    def get_provider_api_profile(self, provider_name: str) -> dict[str, Any]:
+        """Return provider API profile contract payload."""
         provider_specs = self._get_provider_specs_cached()
         provider_spec = provider_specs.get(str(provider_name).strip())
-        if provider_spec is not None:
-            provider_defaults = deepcopy(provider_spec.web_search)
-
-        merged = self.get_web_search_defaults()
-        merged.update(provider_defaults)
-        return merged
+        if provider_spec is None:
+            return {}
+        return deepcopy(provider_spec.api_profile)
 
     def get_provider_specs(self) -> dict[str, ProviderSpec]:
         """Return typed provider specifications."""
@@ -530,7 +527,7 @@ class DataRegistry:
                 max_context_tokens=self._to_optional_int(
                     data.get("max_context_tokens")
                 ),
-                web_search=self._mapping(data.get("web_search")),
+                api_profile=self._mapping(data.get("api_profile")),
             )
 
         self._provider_specs_cache = parsed

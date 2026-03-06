@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+from copy import deepcopy
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agent_cli.core.infra.config.config_models import EffortLevel
@@ -51,11 +52,13 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         base_url: str = "http://localhost:11434/v1",
         native_tools: bool = False,
         api_surface: str = "chat_completions",
+        api_profile: Optional[Dict[str, Any]] = None,
         *,
         data_registry: DataRegistry,
     ) -> None:
         self._native_tools = native_tools
         self._api_surface = self._normalize_api_surface(api_surface)
+        self._api_profile = deepcopy(api_profile) if isinstance(api_profile, dict) else {}
         super().__init__(
             model_name,
             api_key,
@@ -87,6 +90,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def api_surface(self) -> str:
         return self._api_surface
 
+    @property
+    def supports_web_search(self) -> bool:
+        profile = self._get_web_search_profile()
+        return bool(profile)
+
     # ── generate() ───────────────────────────────────────────────
 
     async def generate(
@@ -98,7 +106,6 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         request_options: ProviderRequestOptions | None = None,
     ) -> LLMResponse:
         _ = effort
-        _ = request_options
         # For prompt-mode JSON: inject tools into the system prompt.
         if tools and not self._native_tools:
             tool_text = self._tool_formatter.format_for_prompt_injection(tools)
@@ -115,6 +122,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             from agent_cli.core.providers.adapters.openai_provider import OpenAIToolFormatter
 
             kwargs["tools"] = OpenAIToolFormatter().format_for_native_fc(tools)
+        if request_options is not None and request_options.web_search_enabled:
+            kwargs = self._apply_web_search_mutations(kwargs)
 
         response = await self.client.chat.completions.create(**kwargs)
         choice = response.choices[0]
@@ -162,7 +171,6 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         request_options: ProviderRequestOptions | None = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         _ = effort
-        _ = request_options
         self._buffered_text = []
         self._buffered_usage = {"input": 0, "output": 0}
 
@@ -177,6 +185,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if request_options is not None and request_options.web_search_enabled:
+            kwargs = self._apply_web_search_mutations(kwargs)
 
         response = await self.client.chat.completions.create(**kwargs)
         async for chunk in response:
@@ -218,6 +228,74 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         return 0.0  # Local models are typically free
+
+    def _apply_web_search_mutations(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        profile = self._get_web_search_profile()
+        if not profile:
+            return payload
+
+        mutations = profile.get("mutations")
+        if not isinstance(mutations, list) or not mutations:
+            return payload
+
+        mutated = deepcopy(payload)
+        for mutation in mutations:
+            if not isinstance(mutation, dict):
+                continue
+            op = str(mutation.get("op", "")).strip().lower()
+            value = mutation.get("value")
+            if op == "append_model_suffix":
+                if not isinstance(value, str):
+                    continue
+                suffix = value.strip()
+                if not suffix:
+                    continue
+                model = str(mutated.get("model", "")).strip()
+                if model and not model.endswith(suffix):
+                    mutated["model"] = f"{model}{suffix}"
+                continue
+            if op == "merge_body":
+                if not isinstance(value, dict):
+                    continue
+                extra_body = mutated.get("extra_body")
+                if not isinstance(extra_body, dict):
+                    extra_body = {}
+                    mutated["extra_body"] = extra_body
+                self._deep_merge(extra_body, value)
+                continue
+            logger.debug(
+                "Unsupported api_profile web_search mutation op '%s' for provider '%s'",
+                op,
+                self.provider_name,
+            )
+        return mutated
+
+    def _get_web_search_profile(self) -> Dict[str, Any]:
+        profile = self._resolve_api_profile()
+        web_search = profile.get("web_search")
+        if isinstance(web_search, dict):
+            return web_search
+        return {}
+
+    def _resolve_api_profile(self) -> Dict[str, Any]:
+        if self._api_profile:
+            return deepcopy(self._api_profile)
+        provider_profile = self._data_registry.get_provider_api_profile(self.provider_name)
+        if isinstance(provider_profile, dict):
+            return provider_profile
+        return {}
+
+    @staticmethod
+    def _deep_merge(target: Dict[str, Any], patch: Dict[str, Any]) -> None:
+        for key, value in patch.items():
+            if (
+                key in target
+                and isinstance(target[key], dict)
+                and isinstance(value, dict)
+            ):
+                OpenAICompatibleProvider._deep_merge(target[key], value)
+            else:
+                target[key] = deepcopy(value)
 
     @staticmethod
     def _normalize_api_surface(value: str | None) -> str:

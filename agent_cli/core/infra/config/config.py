@@ -14,6 +14,7 @@ Loading order (lowest → highest precedence):
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 
@@ -396,6 +397,11 @@ def load_providers(
         default_native_tools = (
             existing.supports_native_tools if existing is not None else False
         )
+        default_api_profile = deepcopy(existing.api_profile) if existing else {}
+        raw_api_profile = pdata.get("api_profile")
+        api_profile = deepcopy(default_api_profile)
+        if isinstance(raw_api_profile, dict):
+            api_profile = _deep_merge(api_profile, raw_api_profile)
 
         providers[name] = ProviderConfig(
             adapter_type=pdata.get("adapter_type", default_adapter),
@@ -407,6 +413,7 @@ def load_providers(
                 default_native_tools,
             ),
             max_context_tokens=pdata.get("max_context_tokens", default_max_ctx),
+            api_profile=api_profile,
         )
 
     return providers
