@@ -713,8 +713,7 @@ SessionOverlay {
     }
 
     SessionOverlay .session-popup {
-        width: 70;
-        min-width: 40;
+        max-width: 70;
         height: 24;
         background: $panel 40%;
         border: solid $panel;
@@ -797,4 +796,65 @@ SessionOverlay {
 
     SessionOverlay .empty-state {
         color: $text-muted;
+    }
+
+    ProviderOverlay {
+        width: 100%;
+        height: 100%;
+        layer: overlay;
+        dock: bottom;
+        background: transparent;
+        align: center middle;
+    }
+
+    ProviderOverlay .provider-panel {
+        max-width: 70;
+        height: 24;
+        background: $surface;
+        border: solid $panel;
+        layout: grid;
+        grid-size: 1 3;
+        grid-rows: 3 auto 1;
+    }
+    ProviderOverlay .header {
+        layout: grid;
+        width: 100%;
+        align: center middle;
+        grid-size: 2 1;
+        grid-columns: 1fr auto;
+        padding: 0 1;
+    }
+
+    ProviderOverlay .body {
+        padding: 1;
+    }
+
+    ProviderOverlay .footer {
+
+    }
+
+    ProviderOverlay .title {
+        text-style: bold;
+        color: $primary;
+    }
+
+    ProviderOverlay .key {
+        color: $text-muted 40%;
+    }
+
+    ProviderOverlay .item {
+        border: solid $panel;
+        layout: grid;
+        grid-size: 2 1;
+        grid-columns: 1fr auto;
+        height: 3;
+        padding: 0 1;
+    }
+
+    ProviderOverlay .provider-name {
+        color: $text;
+    }
+
+    ProviderOverlay .provider-status {
+
     }
