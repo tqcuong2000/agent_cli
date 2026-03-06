@@ -232,7 +232,7 @@ class AgentCLIApp(App):
         if interrupted:
             self.notify("Stopping current task...")
 
-    # ── Legacy actions ───────────────────────────────────────────
+    # ── UI actions ───────────────────────────────────────────
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""

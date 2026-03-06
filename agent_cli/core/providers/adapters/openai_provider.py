@@ -73,9 +73,11 @@ class OpenAIProvider(BaseLLMProvider):
         model_name: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        api_surface: str = "chat_completions",
         *,
         data_registry: DataRegistry,
     ) -> None:
+        self._api_surface = self._normalize_api_surface(api_surface)
         super().__init__(
             model_name,
             api_key,
@@ -110,11 +112,16 @@ class OpenAIProvider(BaseLLMProvider):
         return True
 
     @property
+    def api_surface(self) -> str:
+        return self._api_surface
+
+    @property
     def supports_web_search(self) -> bool:
-        # Implemented for Azure path first (Responses API + web_search_preview).
         if self.provider_name != "azure":
             return False
-        return self._azure_responses_web_search_supported is not False
+        if self._azure_responses_web_search_supported is False:
+            return False
+        return self._api_surface == "responses_api"
 
     # ── generate() ───────────────────────────────────────────────
 
@@ -407,6 +414,12 @@ class OpenAIProvider(BaseLLMProvider):
             return False
         if self._azure_responses_web_search_supported is False:
             return False
+        if self._api_surface != "responses_api":
+            self._save_runtime_web_search_observation(
+                status="unsupported",
+                reason="azure_api_surface_not_responses_api",
+            )
+            return False
         if not hasattr(self.client, "responses") or not hasattr(
             self.client.responses, "create"
         ):
@@ -621,6 +634,13 @@ class OpenAIProvider(BaseLLMProvider):
         if base:
             return f"{provider}:{model}@{base}"
         return f"{provider}:{model}"
+
+    @staticmethod
+    def _normalize_api_surface(value: str | None) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in {"responses_api", "responses"}:
+            return "responses_api"
+        return "chat_completions"
 
     @staticmethod
     def _extract_responses_output_text(response: Any) -> str:

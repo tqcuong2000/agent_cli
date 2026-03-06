@@ -23,8 +23,8 @@
         },
         "web_search": {
             "supported": true,
-            "mode": "provider_native",
             "tool_type": "web_search_20260209"
         }
     }
 }
+

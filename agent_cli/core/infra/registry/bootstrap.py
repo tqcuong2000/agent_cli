@@ -42,7 +42,6 @@ from agent_cli.core.runtime.orchestrator.state_manager import AbstractStateManag
 from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.adapter_registry import AdapterRegistry
 from agent_cli.core.providers.adapters.anthropic_provider import AnthropicProvider
-from agent_cli.core.providers.adapters.azure_provider import AzureProvider
 from agent_cli.core.providers.adapters.google_provider import GoogleProvider
 from agent_cli.core.providers.adapters.ollama_provider import OllamaProvider
 from agent_cli.core.providers.adapters.openai_compat import OpenAICompatibleProvider
@@ -562,6 +561,8 @@ def create_app(
         override = override_raw if isinstance(override_raw, dict) else {}
 
         model_name = str(override.get("model") or settings.default_model)
+        model_spec = data_registry.resolve_model_spec(model_name)
+        plain_text = model_spec.plain_text if model_spec is not None else False
         baseline_tools = default_tools if default_tools is not None else all_tools
         tools = override.get("tools", baseline_tools)
         if not isinstance(tools, list):
@@ -585,6 +586,7 @@ def create_app(
                 override.get("max_concurrent_actions"),
                 default=default_max_concurrent_actions,
             ),
+            plain_text=plain_text,
         )
 
     def _create_agent_instance(
@@ -660,6 +662,8 @@ def create_app(
             continue
 
         model_name = str(raw.get("model") or settings.default_model)
+        model_spec = data_registry.resolve_model_spec(model_name)
+        plain_text = model_spec.plain_text if model_spec is not None else False
         tools = raw.get("tools", all_tools)
         if not isinstance(tools, list):
             tools = all_tools
@@ -682,6 +686,7 @@ def create_app(
                 raw.get("max_concurrent_actions"),
                 default=default_max_concurrent_actions,
             ),
+            plain_text=plain_text,
         )
         agent_registry.register(
             _create_agent_instance(config=user_config, agent_cls=DefaultAgent)
@@ -822,7 +827,7 @@ def _build_adapter_registry() -> AdapterRegistry:
     )
     registry.register(
         "azure",
-        adapter_cls=AzureProvider,
+        adapter_cls=OpenAIProvider,
         token_counter_factory=_tiktoken_counter,
     )
     registry.register(

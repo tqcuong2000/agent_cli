@@ -1,6 +1,6 @@
 {
   "internal_models": {
-    "routing_model": "gemini-2.5-flash-lite",
-    "summarization_model": "gemini-2.5-flash-lite"
+    "routing_model": "gemini-3.1-flash-lite",
+    "summarization_model": "gemini-3.1-flash-lite"
   }
 }

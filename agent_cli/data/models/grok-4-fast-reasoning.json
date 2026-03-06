@@ -1,0 +1,49 @@
+{
+  "offerings": {
+    "azure-grok-4-fast-reasoning": {
+      "provider": "azure",
+      "api_model": "grok-4-fast-reasoning",
+      "aliases": ["azure:grok-4-fast-reasoning", "azure/grok-4-fast-reasoning"],
+      "context_window": 128000,
+      "tokenizer": "cl100k_base",
+      "pricing_input": 0.2,
+      "pricing_output": 0.5,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": ["auto"]
+        },
+        "web_search": {
+          "supported": true}
+      }
+    },
+    "openrouter-grok-4-fast-reasoning": {
+      "provider": "openrouter",
+      "api_model": "x-ai/grok-4-fast",
+      "aliases": [
+        "openrouter/x-ai/grok-4-fast",
+        "openrouter:x-ai/grok-4-fast",
+        "openrouter/grok-4-fast-reasoning"
+      ],
+      "context_window": 2000000,
+      "tokenizer": "cl100k_base",
+      "pricing_input": 0.2,
+      "pricing_output": 0.5,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": ["auto"]
+        },
+        "web_search": {
+          "supported": true}
+      }
+    }
+  }
+}
+

@@ -17,9 +17,7 @@
           "levels": ["auto"]
         },
         "web_search": {
-          "supported": false,
-          "mode": "none"
-        }
+          "supported": false}
       }
     },
     "openrouter-gpt-5-nano": {
@@ -42,10 +40,9 @@
           "levels": ["auto"]
         },
         "web_search": {
-          "supported": false,
-          "mode": "none"
-        }
+          "supported": false}
       }
     }
   }
 }
+

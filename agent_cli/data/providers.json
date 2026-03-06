@@ -8,7 +8,7 @@
       }
     },
     "azure": {
-      "adapter_type": "azure",
+      "adapter_type": "openai",
       "base_url": "https://YOUR-RESOURCE.openai.azure.com/openai/v1",
       "api_key_env": "AZURE_OPENAI_API_KEY",
       "default_model": "default-deployment",
@@ -43,6 +43,11 @@
       "adapter_type": "openai_compatible",
       "base_url": "https://openrouter.ai/api/v1",
       "default_model": "anthropic/claude-3.5-sonnet"
+    },
+    "ollama": {
+      "adapter_type": "openai_compatible",
+      "base_url": "http://localhost:11434/v1",
+      "default_model": "gemma3:1b"
     }
   }
 }

@@ -64,7 +64,7 @@ class ProviderConfig:
     """
 
     adapter_type: (
-        str  # "openai" | "azure" | "anthropic" | "google" | "openai_compatible"
+        str  # "openai" | "anthropic" | "google" | "openai_compatible" | "ollama"
     )
     base_url: Optional[str] = None  # Required for openai_compatible
     api_key_env: Optional[str] = None  # Custom env var name for API key
@@ -93,7 +93,6 @@ class WebSearchCapabilitySpec:
     """Typed capability payload for provider-managed web search."""
 
     supported: bool
-    mode: str = "none"  # provider_native | responses_api | none
     tool_type: str = ""
 
 
@@ -126,6 +125,8 @@ class ModelSpec:
     model_id: str
     provider: str
     api_model: str
+    api_surface: str = ""
+    plain_text: bool = False
     aliases: List[str] = field(default_factory=list)
     context_window: int = 128_000
     tokenizer: str = "cl100k_base"
@@ -135,7 +136,7 @@ class ModelSpec:
         default_factory=lambda: CapabilitySpec(
             native_tools=NativeToolsCapabilitySpec(supported=False),
             effort=EffortCapabilitySpec(supported=False),
-            web_search=WebSearchCapabilitySpec(supported=False, mode="none"),
+            web_search=WebSearchCapabilitySpec(supported=False),
         )
     )
 

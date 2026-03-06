@@ -169,6 +169,13 @@ class CapabilityProbeService:
             )
 
         if provider_name == "azure":
+            if self._provider_api_surface(provider) != "responses_api":
+                return CapabilityObservation(
+                    status="unsupported",
+                    reason=f"azure_api_surface_not_responses_api:{trigger}",
+                    checked_at=now,
+                    source=source,
+                )
             cached_support = getattr(
                 provider, "_azure_responses_web_search_supported", None
             )
@@ -218,6 +225,13 @@ class CapabilityProbeService:
             checked_at=now,
             source=source,
         )
+
+    @staticmethod
+    def _provider_api_surface(provider: BaseLLMProvider) -> str:
+        raw = str(getattr(provider, "api_surface", "chat_completions")).strip().lower()
+        if raw in {"responses_api", "responses"}:
+            return "responses_api"
+        return "chat_completions"
 
     def _record_unknown_fallbacks(self, snapshot: CapabilitySnapshot) -> None:
         unknown_count = sum(

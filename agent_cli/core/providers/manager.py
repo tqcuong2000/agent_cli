@@ -166,10 +166,15 @@ class ProviderManager:
             )
 
         resolved_model = str(spec.api_model or spec.model_id).strip()
-        return self._create_provider(provider_name, config, resolved_model)
+        return self._create_provider(provider_name, config, resolved_model, model_spec=spec)
 
     def _create_provider(
-        self, provider_name: str, config: ProviderConfig, model_name: str
+        self,
+        provider_name: str,
+        config: ProviderConfig,
+        model_name: str,
+        *,
+        model_spec: Optional[Any] = None,
     ) -> BaseLLMProvider:
         """Instantiate the adapter class defined in the config."""
         adapter_cls = self._adapter_registry.get_adapter_class(config.adapter_type)
@@ -192,8 +197,18 @@ class ProviderManager:
             "base_url": config.base_url,
             "data_registry": self._data_registry,
         }
+        if config.adapter_type in ["openai", "openai_compatible"]:
+            model_surface = ""
+            if model_spec is not None and hasattr(model_spec, "api_surface"):
+                model_surface = str(getattr(model_spec, "api_surface", "")).strip()
+            kwargs["api_surface"] = model_surface or "chat_completions"
         if config.adapter_type in ["openai_compatible", "ollama"]:
-            kwargs["native_tools"] = config.supports_native_tools
+            # Intersection of provider config (user toggle) and model-specific capability
+            model_allows_native = True
+            if model_spec is not None and hasattr(model_spec, "capabilities"):
+                model_allows_native = model_spec.capabilities.native_tools.supported
+
+            kwargs["native_tools"] = config.supports_native_tools and model_allows_native
 
         provider = adapter_cls(**kwargs)
         # Inject the logical runtime name for better error reporting

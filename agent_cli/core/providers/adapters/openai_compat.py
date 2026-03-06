@@ -50,10 +50,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         api_key: Optional[str] = None,
         base_url: str = "http://localhost:11434/v1",
         native_tools: bool = False,
+        api_surface: str = "chat_completions",
         *,
         data_registry: DataRegistry,
     ) -> None:
         self._native_tools = native_tools
+        self._api_surface = self._normalize_api_surface(api_surface)
         super().__init__(
             model_name,
             api_key,
@@ -80,6 +82,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     @property
     def supports_native_tools(self) -> bool:
         return self._native_tools
+
+    @property
+    def api_surface(self) -> str:
+        return self._api_surface
 
     # ── generate() ───────────────────────────────────────────────
 
@@ -212,3 +218,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         return 0.0  # Local models are typically free
+
+    @staticmethod
+    def _normalize_api_surface(value: str | None) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in {"responses_api", "responses"}:
+            return "responses_api"
+        return "chat_completions"

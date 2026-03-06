@@ -77,6 +77,7 @@ class AgentConfig:
         show_thinking:            Whether to stream reasoning to TUI.
         multi_action_enabled:     Enable multi-action planning/dispatch.
         max_concurrent_actions:   Maximum concurrent actions in a batch.
+        plain_text:               Bypass ReAct loop and run raw text generation.
     """
 
     name: str = ""
@@ -88,6 +89,7 @@ class AgentConfig:
     show_thinking: bool = True
     multi_action_enabled: bool = False
     max_concurrent_actions: int = 5
+    plain_text: bool = False
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -222,6 +224,104 @@ class BaseAgent(ABC):
         """Hook called after all actions in a multi-action batch complete."""
         _ = actions, results  # Default no-op hook
 
+    async def _handle_plain_text_task(
+        self,
+        task_id: str,
+        task_description: str,
+        *,
+        prior_context: str = "",
+        session_messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
+        """Run a single plain-text generation turn without schema/tool loop."""
+        task_delta: List[Dict[str, Any]] = []
+        self._last_task_title = ""
+
+        def _append_message(
+            message: Dict[str, Any], *, track_for_session: bool
+        ) -> None:
+            self.memory.add_working_event(message)
+            if track_for_session:
+                task_delta.append(dict(message))
+
+        try:
+            self.memory.reset_working()
+            system_prompt = self._build_plain_text_system_prompt()
+
+            if session_messages is not None:
+                for msg in self._hydrate_session_messages(
+                    session_messages=session_messages,
+                    system_prompt=system_prompt,
+                ):
+                    _append_message(msg, track_for_session=False)
+            else:
+                _append_message(
+                    {"role": "system", "content": system_prompt},
+                    track_for_session=False,
+                )
+
+            if prior_context:
+                _append_message(
+                    {
+                        "role": "user",
+                        "content": f"Context from previous steps:\n{prior_context}",
+                    },
+                    track_for_session=True,
+                )
+
+            _append_message(
+                {"role": "user", "content": task_description},
+                track_for_session=True,
+            )
+
+            if self.memory.should_compact():
+                await self.event_bus.emit(
+                    AgentMessageEvent(
+                        source=self.name,
+                        agent_name=self.name,
+                        content="Context budget threshold reached, compacting memory...",
+                        is_monologue=True,
+                    )
+                )
+                await self.memory.summarize_and_compact()
+
+            llm_response = await self.provider.safe_generate(
+                context=self.memory.get_working_context(),
+                tools=None,
+                max_retries=int(self._retry_defaults.get("llm_max_retries", 3)),
+                base_delay=float(self._retry_defaults.get("llm_retry_base_delay", 1.0)),
+                max_delay=float(self._retry_defaults.get("llm_retry_max_delay", 30.0)),
+                task_id=task_id,
+                event_bus=self.event_bus,
+            )
+            response_text = getattr(llm_response, "text_content", "") or ""
+            self._on_llm_response(llm_response)
+            self._debug_intercept_response(task_id, 1, response_text)
+
+            _append_message(
+                {"role": "assistant", "content": response_text},
+                track_for_session=True,
+            )
+
+            await self.event_bus.emit(
+                AgentMessageEvent(
+                    source=self.name,
+                    agent_name=self.name,
+                    content=response_text,
+                    is_monologue=False,
+                )
+            )
+            return response_text
+        finally:
+            self._last_task_messages = list(task_delta)
+            self._cached_capability_snapshot = None
+
+    def _build_plain_text_system_prompt(self) -> str:
+        """Build the plain text mode system prompt without tool/schema contract."""
+        persona = str(self.config.persona or "").strip()
+        if persona:
+            return persona
+        return "You are a helpful assistant."
+
     # The Core ReAct Loop
     async def handle_task(
         self,
@@ -251,6 +351,19 @@ class BaseAgent(ABC):
             MaxIterationsExceededError: Loop exhausted all iterations.
             AgentCLIError: On fatal errors (propagated to Orchestrator).
         """
+        if self.config.plain_text:
+            logger.error(
+                "DEBUG: Entering _handle_plain_text_task for agent '%s' (model=%s)",
+                self.name,
+                self.config.model,
+            )
+            return await self._handle_plain_text_task(
+                task_id=task_id,
+                task_description=task_description,
+                prior_context=prior_context,
+                session_messages=session_messages,
+            )
+
         max_iterations = int(
             self.config.max_iterations_override
             or getattr(self.settings, "max_iterations", 100)

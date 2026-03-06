@@ -16,6 +16,7 @@ from agent_cli.core.infra.config.config_models import (
     CapabilitySnapshot,
     CapabilitySpec,
     EffortCapabilitySpec,
+    EffortLevel,
     ModelSpec,
     NativeToolsCapabilitySpec,
     ProviderConfig,
@@ -545,7 +546,7 @@ class DataRegistry:
         lookup: dict[str, str] = {}
 
         allowed_efforts = set(effort_values())
-        allowed_web_modes = {"provider_native", "responses_api", "none"}
+        allowed_api_surfaces = {"", "chat_completions", "responses_api"}
 
         for key, raw in models_data.items():
             model_id = str(key).strip()
@@ -556,55 +557,26 @@ class DataRegistry:
                 continue
 
             capabilities_raw = self._mapping(data.get("capabilities"))
-            if not capabilities_raw:
-                raise RuntimeError(
-                    f"Missing required capabilities block for offering: {model_id}"
-                )
 
             native_raw = self._mapping(capabilities_raw.get("native_tools"))
             effort_raw = self._mapping(capabilities_raw.get("effort"))
             web_raw = self._mapping(capabilities_raw.get("web_search"))
 
-            if not native_raw:
-                raise RuntimeError(
-                    f"Missing required capabilities.native_tools for offering: {model_id}"
-                )
-            if not effort_raw:
-                raise RuntimeError(
-                    f"Missing required capabilities.effort for offering: {model_id}"
-                )
-            if not web_raw:
-                raise RuntimeError(
-                    f"Missing required capabilities.web_search for offering: {model_id}"
-                )
-
-            native_supported = self._to_required_bool(
-                native_raw.get("supported"),
-                f"offerings.{model_id}.capabilities.native_tools.supported",
-            )
-            effort_supported = self._to_required_bool(
-                effort_raw.get("supported"),
-                f"offerings.{model_id}.capabilities.effort.supported",
-            )
-            web_supported = self._to_required_bool(
-                web_raw.get("supported"),
-                f"offerings.{model_id}.capabilities.web_search.supported",
-            )
+            native_supported = self._to_bool(native_raw.get("supported"), default=False)
+            effort_supported = self._to_bool(effort_raw.get("supported"), default=False)
+            web_supported = self._to_bool(web_raw.get("supported"), default=False)
 
             levels_raw = effort_raw.get("levels")
-            if not isinstance(levels_raw, list) or not levels_raw:
-                raise RuntimeError(
-                    "Invalid typed payload in offerings."
-                    f"{model_id}.capabilities.effort.levels: "
-                    "must be a non-empty list of effort levels."
-                )
-            levels = [str(level).strip().lower() for level in levels_raw if str(level)]
+            if isinstance(levels_raw, list) and levels_raw:
+                levels = [
+                    str(level).strip().lower() for level in levels_raw if str(level)
+                ]
+            else:
+                levels = [EffortLevel.AUTO.value]
+
             if not levels:
-                raise RuntimeError(
-                    "Invalid typed payload in offerings."
-                    f"{model_id}.capabilities.effort.levels: "
-                    "must include at least one non-empty value."
-                )
+                levels = [EffortLevel.AUTO.value]
+
             for level in levels:
                 if level not in allowed_efforts:
                     allowed = ", ".join(sorted(allowed_efforts))
@@ -614,24 +586,27 @@ class DataRegistry:
                         f"unsupported level '{level}'. Allowed: {allowed}"
                     )
 
-            web_mode = str(web_raw.get("mode", "none")).strip().lower()
-            if web_mode not in allowed_web_modes:
-                allowed = ", ".join(sorted(allowed_web_modes))
+            api_surface = str(data.get("api_surface", "")).strip().lower()
+            if api_surface not in allowed_api_surfaces:
+                allowed = ", ".join(sorted(item for item in allowed_api_surfaces if item))
                 raise RuntimeError(
                     "Invalid typed payload in offerings."
-                    f"{model_id}.capabilities.web_search.mode: "
-                    f"unsupported mode '{web_mode}'. Allowed: {allowed}"
+                    f"{model_id}.api_surface: "
+                    f"unsupported value '{api_surface}'. Allowed: {allowed}"
                 )
 
             aliases_raw = data.get("aliases", [])
             aliases: list[str] = []
             if isinstance(aliases_raw, list):
                 aliases = [str(alias).strip() for alias in aliases_raw if str(alias)]
+            plain_text = self._to_bool(data.get("plain_text"), default=False)
 
             spec = ModelSpec(
                 model_id=model_id,
                 provider=str(data.get("provider", "")).strip(),
                 api_model=str(data.get("api_model", "")).strip() or model_id,
+                api_surface=api_surface,
+                plain_text=plain_text,
                 aliases=aliases,
                 context_window=max(
                     self._to_int(data.get("context_window"), 128_000), 1
@@ -648,7 +623,6 @@ class DataRegistry:
                     ),
                     web_search=WebSearchCapabilitySpec(
                         supported=web_supported,
-                        mode=web_mode,
                         tool_type=str(web_raw.get("tool_type", "")).strip(),
                     ),
                 ),
@@ -696,10 +670,10 @@ class DataRegistry:
             return None
 
     @staticmethod
-    def _to_required_bool(value: Any, path: str) -> bool:
+    def _to_bool(value: Any, default: bool) -> bool:
         if isinstance(value, bool):
             return value
-        raise RuntimeError(f"Invalid typed payload in {path}: must be boolean.")
+        return default
 
     @staticmethod
     def _capability_names() -> tuple[str, str, str]:
@@ -710,7 +684,7 @@ class DataRegistry:
         return CapabilitySpec(
             native_tools=NativeToolsCapabilitySpec(supported=False),
             effort=EffortCapabilitySpec(supported=False, levels=["auto"]),
-            web_search=WebSearchCapabilitySpec(supported=False, mode="none"),
+            web_search=WebSearchCapabilitySpec(supported=False),
         )
 
     @staticmethod

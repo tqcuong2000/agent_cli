@@ -22,7 +22,6 @@
         },
         "web_search": {
           "supported": true,
-          "mode": "provider_native",
           "tool_type": "google_search"
         }
       }
@@ -31,8 +30,8 @@
       "provider": "openrouter",
       "api_model": "google/gemini-3.1-flash-lite-preview",
       "aliases": [
-        "openrouter/google/gemini-3.1-flash-lite-preview",
-        "openrouter:google/gemini-3.1-flash-lite-preview"
+        "openrouter:gemini-3.1-flash-lite",
+        "openrouter/gemini-3.1-flash-lite"
       ],
       "context_window": 1048576,
       "tokenizer": "gemini",
@@ -47,10 +46,9 @@
           "levels": ["minimal", "low", "medium", "high"]
         },
         "web_search": {
-          "supported": false,
-          "mode": "none"
-        }
+          "supported": false}
       }
     }
   }
 }
+

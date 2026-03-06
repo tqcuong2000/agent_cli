@@ -18,9 +18,10 @@ task lifecycle:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Optional, cast
 
 from agent_cli.core.infra.events.errors import AgentCLIError
 from agent_cli.core.infra.events.event_bus import AbstractEventBus

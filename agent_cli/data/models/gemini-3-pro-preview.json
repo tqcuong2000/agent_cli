@@ -24,8 +24,7 @@
       ]
     },
     "web_search": {
-      "supported": true,
-      "mode": "provider_native"
-    }
+      "supported": true}
   }
 }
+

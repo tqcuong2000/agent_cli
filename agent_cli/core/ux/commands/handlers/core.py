@@ -169,6 +169,10 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
             new_provider = ctx.app_context.providers.get_provider(model_name)
             agent.provider = new_provider
             agent.config.model = model_name
+            model_spec = ctx.app_context.data_registry.resolve_model_spec(model_name)
+            agent.config.plain_text = (
+                model_spec.plain_text if model_spec is not None else False
+            )
             target_agent_name = agent.name
             target_memory = agent.memory
             _persist_agent_model_override(ctx, agent.name, model_name)

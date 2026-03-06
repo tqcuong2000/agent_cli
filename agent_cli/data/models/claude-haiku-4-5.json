@@ -1,27 +1,52 @@
 {
-  "provider": "anthropic",
-  "api_model": "claude-haiku-4-5-20251001",
-  "aliases": [
-    "claude-haiku-4-5"
-  ],
-  "context_window": 200000,
-  "tokenizer": "cl200k_base",
-  "pricing_input": 0.5,
-  "pricing_output": 2.5,
-  "capabilities": {
-    "native_tools": {
-      "supported": true
+  "offerings": {
+    "claude-haiku-4-5": {
+      "provider": "anthropic",
+      "api_model": "claude-haiku-4-5-20251001",
+      "aliases": ["claude-haiku-4-5"],
+      "context_window": 200000,
+      "tokenizer": "cl200k_base",
+      "pricing_input": 0.5,
+      "pricing_output": 2.5,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": ["auto"]
+        },
+        "web_search": {
+          "supported": true,
+          "tool_type": "web_search_20260209"
+        }
+      }
     },
-    "effort": {
-      "supported": false,
-      "levels": [
-        "auto"
-      ]
-    },
-    "web_search": {
-      "supported": true,
-      "mode": "provider_native",
-      "tool_type": "web_search_20260209"
+    "openrouter-claude-haiku-4-5": {
+      "provider": "openrouter",
+      "api_model": "anthropic/claude-haiku-4.5",
+      "aliases": [
+        "openrouter/anthropic/claude-haiku-4.5",
+        "openrouter:anthropic/claude-haiku-4.5"
+      ],
+      "context_window": 200000,
+      "tokenizer": "cl200k_base",
+      "pricing_input": 1.0,
+      "pricing_output": 5.0,
+      "capabilities": {
+        "native_tools": {
+          "supported": true
+        },
+        "effort": {
+          "supported": false,
+          "levels": ["auto"]
+        },
+        "web_search": {
+          "supported": true,
+          "tool_type": "web_search_20260209"
+        }
+      }
     }
   }
 }
+
