@@ -18,10 +18,9 @@ task lifecycle:
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 from agent_cli.core.infra.events.errors import AgentCLIError
 from agent_cli.core.infra.events.event_bus import AbstractEventBus
@@ -50,9 +49,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ── Type alias for slash-command handlers ────────────────────────────
-
-CommandHandler = Callable[[str], Awaitable[Optional[str]]]
-
 
 # ══════════════════════════════════════════════════════════════════════
 # Orchestrator
@@ -98,9 +94,6 @@ class Orchestrator:
         self._active_request_task: Optional[asyncio.Task[Any]] = None
         self._active_task_id: Optional[str] = None
 
-        # Legacy slash-command registry (kept for backward compat)
-        self._commands: Dict[str, CommandHandler] = {}
-
         # Subscribe to UserRequestEvent
         self._subscription_id = self._event_bus.subscribe(
             "UserRequestEvent",
@@ -130,18 +123,6 @@ class Orchestrator:
     @property
     def agent_registry(self) -> Optional[AgentRegistry]:
         return self._agent_registry
-
-    def register_command(self, name: str, handler: CommandHandler) -> None:
-        """Register a slash-command handler.
-
-        Args:
-            name:     Command name without the ``/`` prefix
-                      (e.g. ``"exit"``).
-            handler:  Async function receiving the full input text
-                      and returning an optional response string.
-        """
-        self._commands[name.lower()] = handler
-        logger.debug("Registered command: /%s", name)
 
     async def interrupt_active_task(self) -> bool:
         """Cancel the currently running request, if any.
@@ -190,21 +171,21 @@ class Orchestrator:
 
             # ── Slash-command interception ────────────────────────
             if text.startswith("/"):
-                # Prefer the new CommandParser if available
-                if self._command_parser is not None:
-                    result = await self._command_parser.execute(text)
-                    if result.message:
-                        await self._event_bus.publish(
-                            AgentMessageEvent(
-                                source="command_system",
-                                content=result.message,
-                                is_monologue=False,
-                            )
+                if self._command_parser is None:
+                    msg = "Command system is not configured."
+                    logger.error(msg)
+                    await self._emit_error(msg)
+                    return msg
+                result = await self._command_parser.execute(text)
+                if result.message:
+                    await self._event_bus.publish(
+                        AgentMessageEvent(
+                            source="command_system",
+                            content=result.message,
+                            is_monologue=False,
                         )
-                    return result.message
-
-                # Fallback to legacy dict-based commands
-                return await self._handle_command(text)
+                    )
+                return result.message
 
             if self._request_lock.locked():
                 await self._emit_error(
@@ -275,31 +256,6 @@ class Orchestrator:
                 self._running_callbacks.discard(callback_task)
 
     # ── Command Handling ─────────────────────────────────────────
-
-    async def _handle_command(self, text: str) -> Optional[str]:
-        """Intercept and dispatch slash-commands.
-
-        Returns:
-            Response string from the command handler, or an error
-            message if the command is unknown.
-        """
-        # Parse: "/exit foo bar" → name="exit", rest="foo bar"
-        parts = text[1:].split(maxsplit=1)
-        name = parts[0].lower() if parts else ""
-        # rest = parts[1] if len(parts) > 1 else ""
-
-        handler = self._commands.get(name)
-        if handler:
-            logger.info("Executing command: /%s", name)
-            maybe_awaitable = handler(text)
-            if not inspect.isawaitable(maybe_awaitable):
-                raise TypeError(
-                    f"Command handler '/{name}' returned a non-awaitable result."
-                )
-            return await cast(Awaitable[Optional[str]], maybe_awaitable)
-
-        logger.warning("Unknown command: /%s", name)
-        return f"Unknown command: /{name}. Type /help for available commands."
 
     # ── Agent Routing ────────────────────────────────────────────
 

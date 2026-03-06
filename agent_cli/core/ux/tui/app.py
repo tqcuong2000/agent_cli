@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 
+from agent_cli.core.ux.commands.base import CommandRegistry
 from agent_cli.core.infra.config.config_models import normalize_effort
 from agent_cli.core.infra.registry.bootstrap import create_app
 from agent_cli.core.infra.events.events import BaseEvent, SettingsChangedEvent
@@ -31,7 +32,6 @@ class AgentCLIApp(App):
         Binding("escape", "interrupt_agent", "Stop", show=False),
         Binding("ctrl+l", "clear_context", "Clear", show=False),
         Binding("ctrl+q", "quit_app", "Quit", show=False),
-        ("shift+up", "show_error_popup", "Show Error Popup (Temp)"),
     ]
 
     CSS_PATH = "../../../assets/app.tcss"
@@ -49,6 +49,8 @@ class AgentCLIApp(App):
 
         # Build popups — use live CommandRegistry if available
         registry = getattr(self.app_context, "command_registry", None)
+        if registry is None:
+            registry = CommandRegistry()
         self.command_popup = CommandPopup(registry=registry)
         self.file_popup = FileDiscoveryPopup(app_context=self.app_context)
         self.error_popup = ErrorPopup(id="error_popup")
@@ -238,17 +240,6 @@ class AgentCLIApp(App):
             self.theme = "textual-light"
         else:
             self.theme = "textual-dark"
-
-    def action_show_error_popup(self) -> None:
-        """Temporary debug action to preview the error popup UI."""
-        self.error_popup.show_error(
-            title="Temporary Popup Test",
-            message=(
-                "This is a temporary trigger for validating ErrorPopup position, "
-                "style, and auto-dismiss behavior."
-            ),
-            error_type="error",
-        )
 
     async def on_unmount(self) -> None:
         """Flush and release app context resources on TUI shutdown."""

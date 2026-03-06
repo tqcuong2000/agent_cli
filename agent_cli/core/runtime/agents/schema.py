@@ -307,21 +307,6 @@ class SchemaValidator(BaseSchemaValidator):
                 )
 
             raw_actions = decision.get("actions")
-            if isinstance(raw_actions, dict):
-                logger.warning(
-                    "Repairing execute_actions payload: wrapped object into actions list"
-                )
-                raw_actions = [raw_actions]
-            elif raw_actions is None:
-                legacy_tool = str(decision.get("tool", "")).strip()
-                legacy_args = decision.get("args", {})
-                if legacy_args is None:
-                    legacy_args = {}
-                if legacy_tool and isinstance(legacy_args, dict):
-                    logger.warning(
-                        "Repairing execute_actions payload: using legacy tool/args fields as single action"
-                    )
-                    raw_actions = [{"tool": legacy_tool, "args": legacy_args}]
             if not isinstance(raw_actions, list) or len(raw_actions) == 0:
                 raise SchemaValidationError(
                     "decision.actions must be a non-empty list for execute_actions.",

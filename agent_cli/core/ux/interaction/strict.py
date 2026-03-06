@@ -80,11 +80,6 @@ class StrictWorkspaceManager(BaseWorkspaceManager):
     def get_root(self) -> Path:
         return self._root
 
-    @property
-    def root_path(self) -> Path:
-        """Backward-compatible alias used by legacy tool code/tests."""
-        return self._root
-
     def _resolve_within_root(self, path: str | Path) -> Path | None:
         p = Path(path)
         candidate = p if p.is_absolute() else (self._root / p)

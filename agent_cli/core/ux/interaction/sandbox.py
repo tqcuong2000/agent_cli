@@ -64,11 +64,6 @@ class SandboxWorkspaceManager(BaseWorkspaceManager):
     def get_root(self) -> Path:
         return self._base.get_root()
 
-    @property
-    def root_path(self) -> Path:
-        """Backward-compatible alias used by legacy tool code/tests."""
-        return self.get_root()
-
     def status(self) -> SandboxStatus:
         return SandboxStatus(
             active=self._active,

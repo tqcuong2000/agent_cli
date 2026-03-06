@@ -238,11 +238,8 @@ def _coerce_messages(value: Any) -> List[Dict[str, Any]]:
 
 
 def _coerce_effort(value: Any) -> str:
-    """Parse persisted effort values with backward-compatible fallback."""
-    try:
-        return normalize_effort(value).value
-    except Exception:
-        return EffortLevel.AUTO.value
+    """Parse persisted effort values."""
+    return normalize_effort(value).value
 
 
 def _derive_last_message_preview(messages: List[Dict[str, Any]]) -> str:
