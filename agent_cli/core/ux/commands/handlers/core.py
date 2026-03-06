@@ -264,6 +264,70 @@ async def cmd_model(args: List[str], ctx: CommandContext) -> CommandResult:
     )
 
 
+async def cmd_connect(args: List[str], ctx: CommandContext) -> CommandResult:
+    """Open the provider overlay or set a provider API key directly."""
+    if not args:
+        if ctx.app is None:
+            return CommandResult(success=False, message="/connect is TUI-only.")
+
+        overlay = getattr(ctx.app, "provider_overlay", None)
+        if overlay is None:
+            return CommandResult(
+                success=False,
+                message="Provider overlay unavailable.",
+            )
+
+        overlay.show_overlay()
+        return CommandResult(success=True, message="")
+
+    if len(args) != 2:
+        return CommandResult(
+            success=False,
+            message="Usage: /connect or /connect <provider> <key>",
+        )
+
+    app_ctx = ctx.app_context
+    if app_ctx is None or getattr(app_ctx, "key_manager", None) is None:
+        return CommandResult(success=False, message="Key manager unavailable.")
+
+    provider_name = str(args[0]).strip().lower()
+    key_value = str(args[1]).strip()
+    if not provider_name or not key_value:
+        return CommandResult(
+            success=False,
+            message="Usage: /connect or /connect <provider> <key>",
+        )
+
+    specs = app_ctx.data_registry.get_provider_specs()
+    spec = specs.get(provider_name)
+    if spec is None:
+        return CommandResult(
+            success=False,
+            message=f"Unknown provider: {provider_name}",
+        )
+    if not spec.require_verification:
+        return CommandResult(
+            success=False,
+            message=f"{provider_name} does not require an API key.",
+        )
+    if not spec.api_key_env:
+        return CommandResult(
+            success=False,
+            message=f"{provider_name} has no env var configured.",
+        )
+
+    if app_ctx.key_manager.set_key(provider_name, spec.api_key_env, key_value):
+        return CommandResult(
+            success=True,
+            message=f"API key set for {provider_name}.",
+        )
+
+    return CommandResult(
+        success=False,
+        message=f"Failed to set key for {provider_name}.",
+    )
+
+
 async def cmd_effort(args: List[str], ctx: CommandContext) -> CommandResult:
     """Get or set reasoning effort for the active session/runtime."""
     if not args:

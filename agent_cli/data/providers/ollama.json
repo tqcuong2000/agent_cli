@@ -1,0 +1,6 @@
+{
+  "adapter_type": "openai_compatible",
+  "base_url": "http://localhost:11434/v1",
+  "require_verification": false,
+  "api_profile": {}
+}

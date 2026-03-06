@@ -1,0 +1,26 @@
+{
+  "adapter_type": "openai_compatible",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_env": "OPENROUTER_API_KEY",
+  "require_verification": true,
+  "api_profile": {
+    "web_search": {
+      "mutations": [
+        {
+          "op": "append_model_suffix",
+          "value": ":online"
+        },
+        {
+          "op": "merge_body",
+          "value": {
+            "plugins": [
+              {
+                "id": "web"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

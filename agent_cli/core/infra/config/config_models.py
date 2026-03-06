@@ -68,10 +68,10 @@ class ProviderConfig:
     )
     base_url: Optional[str] = None  # Required for openai_compatible
     api_key_env: Optional[str] = None  # Custom env var name for API key
-    default_model: Optional[str] = None
     supports_native_tools: bool = True
     max_context_tokens: Optional[int] = None  # Override default context window
     api_profile: Dict[str, Any] = field(default_factory=dict)
+    require_verification: bool = True
 
 
 @dataclass
@@ -114,9 +114,9 @@ class ProviderSpec:
     adapter_type: str
     base_url: Optional[str] = None
     api_key_env: Optional[str] = None
-    default_model: Optional[str] = None
     max_context_tokens: Optional[int] = None
     api_profile: Dict[str, Any] = field(default_factory=dict)
+    require_verification: bool = True
 
 
 @dataclass

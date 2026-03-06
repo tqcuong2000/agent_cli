@@ -1,0 +1,7 @@
+{
+  "adapter_type": "openai",
+  "base_url": "https://YOUR-RESOURCE.openai.azure.com/openai/v1",
+  "api_key_env": "AZURE_OPENAI_API_KEY",
+  "require_verification": true,
+  "api_profile": {}
+}

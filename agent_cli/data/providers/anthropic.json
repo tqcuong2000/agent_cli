@@ -1,0 +1,7 @@
+{
+  "adapter_type": "anthropic",
+  "base_url": "https://api.anthropic.com",
+  "api_key_env": "ANTHROPIC_API_KEY",
+  "require_verification": true,
+  "api_profile": {}
+}

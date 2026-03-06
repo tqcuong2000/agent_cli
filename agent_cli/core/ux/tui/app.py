@@ -58,6 +58,7 @@ class AgentCLIApp(App):
         self.file_popup = FileDiscoveryPopup(app_context=self.app_context)
         self.error_popup = ErrorPopup(id="error_popup")
         self.session_overlay = SessionOverlay()
+        self.provider_overlay = ProviderOverlay()
         self._settings_subscription_id: Optional[str] = None
         self._bind_command_parser_context()
 
@@ -71,7 +72,7 @@ class AgentCLIApp(App):
         yield self.file_popup
         yield self.error_popup
         yield self.session_overlay
-        yield ProviderOverlay()
+        yield self.provider_overlay
 
     async def on_mount(self) -> None:
         await self.app_context.startup()

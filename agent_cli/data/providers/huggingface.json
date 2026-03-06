@@ -1,0 +1,7 @@
+{
+  "adapter_type": "openai_compatible",
+  "base_url": "https://router.huggingface.co/v1",
+  "api_key_env": "HF_TOKEN",
+  "require_verification": true,
+  "api_profile": {}
+}

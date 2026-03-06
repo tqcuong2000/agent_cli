@@ -58,7 +58,7 @@ class DataRegistry:
         self._data_root = resources.files("agent_cli.data")
         self._models = self._load_json("models.json")
         self._offerings = self._load_offerings("models")
-        self._providers = self._load_json("providers.json")
+        self._providers = self._load_providers_dir("providers")
         self._tools = self._load_json("tools.json")
         self._memory = self._load_json("memory.json")
         self._schema = self._load_json("schema.json")
@@ -78,9 +78,7 @@ class DataRegistry:
                 "source": "data_registry",
                 "data": {
                     "offerings": len(self._offerings),
-                    "providers": len(
-                        self._mapping(self._providers.get("providers"))
-                    ),
+                    "providers": len(self._providers),
                 },
             },
         )
@@ -109,10 +107,10 @@ class DataRegistry:
                 adapter_type=spec.adapter_type,
                 base_url=spec.base_url,
                 api_key_env=spec.api_key_env,
-                default_model=spec.default_model,
                 supports_native_tools=True,
                 max_context_tokens=spec.max_context_tokens,
                 api_profile=deepcopy(spec.api_profile),
+                require_verification=spec.require_verification,
             )
 
         return providers
@@ -474,6 +472,53 @@ class DataRegistry:
             raise RuntimeError(f"No offering files found in directory: {directory}")
         return offerings
 
+    def _load_providers_dir(self, directory: str) -> dict[str, dict[str, Any]]:
+        """Load provider definitions from `data/<directory>/*.json`."""
+        dir_path = self._data_root.joinpath(directory)
+        if not dir_path.is_dir():
+            raise RuntimeError(f"Missing providers directory: {directory}")
+
+        providers: dict[str, dict[str, Any]] = {}
+        for file_path in sorted(dir_path.iterdir(), key=lambda path: path.name):
+            if not file_path.is_file():
+                continue
+            file_name = str(file_path.name)
+            if not file_name.lower().endswith(".json"):
+                continue
+
+            provider_name = file_name[:-5].strip()
+            if not provider_name:
+                raise RuntimeError(
+                    f"Invalid provider file name in directory: {directory}/{file_name}"
+                )
+            if provider_name in providers:
+                raise RuntimeError(
+                    f"Duplicate provider id '{provider_name}' in {directory}/{file_name}."
+                )
+
+            try:
+                with file_path.open("r", encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"Malformed JSON in providers file: {directory}/{file_name}"
+                ) from exc
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Failed to load providers file: {directory}/{file_name}"
+                ) from exc
+
+            if not isinstance(loaded, dict):
+                raise RuntimeError(
+                    f"Providers file did not parse to a mapping: {directory}/{file_name}"
+                )
+
+            providers[provider_name] = loaded
+
+        if not providers:
+            raise RuntimeError(f"No provider files found in directory: {directory}")
+        return providers
+
     @staticmethod
     def _register_offering(
         offerings: dict[str, dict[str, Any]],
@@ -497,10 +542,8 @@ class DataRegistry:
         if cached is not None:
             return cached
 
-        providers_data = self._mapping(self._providers.get("providers"))
-
         parsed: dict[str, ProviderSpec] = {}
-        for name, raw in providers_data.items():
+        for name, raw in self._providers.items():
             data = self._mapping(raw)
             if not data:
                 continue
@@ -519,15 +562,14 @@ class DataRegistry:
                     if data.get("api_key_env")
                     else None
                 ),
-                default_model=(
-                    str(data.get("default_model")).strip()
-                    if data.get("default_model")
-                    else None
-                ),
                 max_context_tokens=self._to_optional_int(
                     data.get("max_context_tokens")
                 ),
                 api_profile=self._mapping(data.get("api_profile")),
+                require_verification=self._to_bool(
+                    data.get("require_verification"),
+                    default=True,
+                ),
             )
 
         self._provider_specs_cache = parsed

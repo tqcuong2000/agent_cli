@@ -392,10 +392,12 @@ def load_providers(
         )
         default_url = existing.base_url if existing is not None else None
         default_key_env = existing.api_key_env if existing is not None else None
-        default_model = existing.default_model if existing is not None else None
         default_max_ctx = existing.max_context_tokens if existing is not None else None
         default_native_tools = (
             existing.supports_native_tools if existing is not None else False
+        )
+        default_require_verification = (
+            existing.require_verification if existing is not None else True
         )
         default_api_profile = deepcopy(existing.api_profile) if existing else {}
         raw_api_profile = pdata.get("api_profile")
@@ -407,13 +409,16 @@ def load_providers(
             adapter_type=pdata.get("adapter_type", default_adapter),
             base_url=pdata.get("base_url", default_url),
             api_key_env=pdata.get("api_key_env", default_key_env),
-            default_model=pdata.get("default_model", default_model),
             supports_native_tools=pdata.get(
                 "supports_native_tools",
                 default_native_tools,
             ),
             max_context_tokens=pdata.get("max_context_tokens", default_max_ctx),
             api_profile=api_profile,
+            require_verification=pdata.get(
+                "require_verification",
+                default_require_verification,
+            ),
         )
 
     return providers

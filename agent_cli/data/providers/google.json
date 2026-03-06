@@ -1,0 +1,6 @@
+{
+  "adapter_type": "google",
+  "api_key_env": "GOOGLE_API_KEY",
+  "require_verification": true,
+  "api_profile": {}
+}

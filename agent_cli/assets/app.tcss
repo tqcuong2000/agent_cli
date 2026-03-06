@@ -801,54 +801,102 @@ SessionOverlay {
     ProviderOverlay {
         width: 100%;
         height: 100%;
-        layer: overlay;
         dock: bottom;
         background: transparent;
         align: center middle;
+        layer: overlay;
+        display: none;
     }
 
-    ProviderOverlay .provider-panel {
-        max-width: 70;
-        height: 24;
-        background: $surface;
-        border: solid $panel;
-        layout: grid;
-        grid-size: 1 3;
-        grid-rows: 3 auto 1;
+    ProviderOverlay.visible {
+        display: block;
     }
-    ProviderOverlay .header {
+
+    ProviderOverlay .provider-popup {
+        max-width: 76;
+        height: 26;
+        background: $panel 40%;
+        border: solid $panel;
+        padding: 1 2;
+    }
+
+    ProviderOverlay .title-row {
         layout: grid;
-        width: 100%;
-        align: center middle;
         grid-size: 2 1;
         grid-columns: 1fr auto;
-        padding: 0 1;
+        height: 1;
     }
 
-    ProviderOverlay .body {
-        padding: 1;
+    ProviderOverlay .provider-area {
+        margin-top: 1;
+        height: 1fr;
+        overflow-y: auto;
+        scrollbar-size: 0 0;
     }
 
-    ProviderOverlay .footer {
-
-    }
-
-    ProviderOverlay .title {
-        text-style: bold;
-        color: $primary;
-    }
-
-    ProviderOverlay .key {
-        color: $text-muted 40%;
-    }
-
-    ProviderOverlay .item {
-        border: solid $panel;
+    ProviderOverlay .provider-row {
         layout: grid;
         grid-size: 2 1;
         grid-columns: 1fr auto;
         height: 3;
+        border: solid $panel;
         padding: 0 1;
+    }
+
+    ProviderOverlay .provider-row:hover {
+        border: solid $primary;
+    }
+
+    ProviderOverlay .provider-row.-selected {
+        border: solid $primary;
+        background: $boost;
+    }
+
+    ProviderOverlay .provider-row.-locked {
+        color: $text-muted;
+        opacity: 0.85;
+    }
+
+    ProviderOverlay .provider-row.-locked:hover {
+        border: solid $panel;
+    }
+
+    ProviderOverlay .provider-row.-locked.-selected {
+        border: solid $panel-lighten-1;
+        background: $surface 25%;
+    }
+
+    ProviderOverlay .provider-row.-no-key {
+        color: $text-muted;
+        opacity: 0.8;
+    }
+
+    ProviderOverlay .provider-row.-no-key:hover {
+        border: solid $panel;
+    }
+
+    ProviderOverlay .provider-row.-no-key.-selected {
+        border: solid $panel-lighten-1;
+        background: $surface 20%;
+    }
+
+    ProviderOverlay .provider-row.-external {
+        border: solid $accent-darken-2;
+    }
+
+    ProviderOverlay .title-left {
+        text-style: bold;
+        color: $primary;
+    }
+
+    ProviderOverlay .title-right {
+        text-align: right;
+        color: $text-muted;
+    }
+
+    ProviderOverlay .title-right:hover {
+        color: $warning;
+        text-style: bold;
     }
 
     ProviderOverlay .provider-name {
@@ -856,5 +904,33 @@ SessionOverlay {
     }
 
     ProviderOverlay .provider-status {
+        color: $text;
+        text-align: right;
+        content-align: right middle;
+    }
 
+    ProviderOverlay .provider-row.-locked .provider-status {
+        color: $warning;
+    }
+
+    ProviderOverlay .provider-row.-no-key .provider-status {
+        color: $text-muted;
+    }
+
+    ProviderOverlay #provider-key-input {
+        margin-top: 1;
+        display: none;
+    }
+
+    ProviderOverlay #provider-key-input.visible {
+        display: block;
+    }
+
+    ProviderOverlay .footer-hint {
+        margin-top: 1;
+        color: $text-muted;
+    }
+
+    ProviderOverlay .empty-state {
+        color: $text-muted;
     }

@@ -33,6 +33,7 @@ from agent_cli.core.runtime.agents.session_registry import SessionAgentRegistry
 from agent_cli.core.ux.commands.base import CommandContext, CommandDef, CommandRegistry
 from agent_cli.core.ux.commands.parser import CommandParser
 from agent_cli.core.infra.config.config import AgentSettings
+from agent_cli.core.infra.config.key_manager import KeyManager
 from agent_cli.core.infra.events.event_bus import AbstractEventBus, AsyncEventBus
 from agent_cli.core.infra.events.events import BaseEvent, TaskResultEvent
 from agent_cli.core.runtime.orchestrator.file_tracker import FileChangeTracker
@@ -105,6 +106,7 @@ class AppContext:
     schema_validator: BaseSchemaValidator
     memory_manager: BaseMemoryManager
     prompt_builder: PromptBuilder
+    key_manager: Optional[KeyManager] = None
     agent_registry: Optional[AgentRegistry] = None
     session_agents: Optional[SessionAgentRegistry] = None
     workspace_manager: Optional[BaseWorkspaceManager] = None
@@ -372,6 +374,7 @@ def create_app(
         data_registry=data_registry,
         observability=observability,
     )
+    key_manager = KeyManager(settings)
     capability_probe = CapabilityProbeService(
         data_registry=data_registry,
         observability=observability,
@@ -479,6 +482,7 @@ def create_app(
         schema_validator=schema_validator,
         memory_manager=memory_manager,
         prompt_builder=prompt_builder,
+        key_manager=key_manager,
         agent_registry=None,
         session_agents=None,
         workspace_manager=workspace,
@@ -905,6 +909,7 @@ def _build_command_registry() -> CommandRegistry:
     from agent_cli.core.ux.commands.handlers.agent import cmd_agent
     from agent_cli.core.ux.commands.handlers.core import (
         cmd_clear,
+        cmd_connect,
         cmd_config,
         cmd_context,
         cmd_cost,
@@ -991,6 +996,15 @@ def _build_command_registry() -> CommandRegistry:
             usage="/config",
             category="Configuration",
             handler=cmd_config,
+        )
+    )
+    registry.register(
+        CommandDef(
+            name="connect",
+            description="Manage provider API keys",
+            usage="/connect [provider] [key]",
+            category="Configuration",
+            handler=cmd_connect,
         )
     )
     registry.register(

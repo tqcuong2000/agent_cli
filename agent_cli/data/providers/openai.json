@@ -1,0 +1,6 @@
+{
+  "adapter_type": "openai",
+  "api_key_env": "OPENAI_API_KEY",
+  "require_verification": true,
+  "api_profile": {}
+}
