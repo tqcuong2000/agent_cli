@@ -69,7 +69,7 @@ async def cmd_help(args: List[str], ctx: CommandContext) -> CommandResult:
 async def cmd_exit(args: List[str], ctx: CommandContext) -> CommandResult:
     """Exit the application."""
     if ctx.app is not None:
-        ctx.app.exit()
+        await ctx.app.action_quit_app()
     return CommandResult(success=True, message="Shutting down...")
 
 

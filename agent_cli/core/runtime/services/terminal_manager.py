@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 import uuid
@@ -297,14 +298,15 @@ class TerminalManager:
         if terminal.exited:
             return int(terminal.exit_code or 0)
 
+        stdin = terminal.process.stdin
+        if stdin is not None and not stdin.is_closing():
+            stdin.close()
+
         if terminal.reader_task is not None:
             terminal.reader_task.cancel()
 
         if terminal.process.returncode is None:
-            try:
-                terminal.process.terminate()
-            except ProcessLookupError:
-                logger.debug("Terminal %s already stopped before terminate().", terminal_id)
+            await self._terminate_process(terminal)
 
         await self._await_reader_shutdown(terminal)
         return int(terminal.exit_code or 0)
@@ -500,9 +502,51 @@ class TerminalManager:
                 _EXIT_WAIT_TIMEOUT_SECONDS,
             )
             if terminal.process.returncode is None:
-                terminal.process.kill()
+                await self._force_kill_process(terminal)
             await terminal.process.wait()
             await task
+
+    async def _terminate_process(self, terminal: ManagedTerminal) -> None:
+        if terminal.process.returncode is not None:
+            return
+        try:
+            if os.name == "nt":
+                await self._taskkill_process_tree(terminal.process.pid)
+            else:
+                terminal.process.terminate()
+        except ProcessLookupError:
+            logger.debug(
+                "Terminal %s already stopped before terminate().",
+                terminal.terminal_id,
+            )
+
+    async def _force_kill_process(self, terminal: ManagedTerminal) -> None:
+        if terminal.process.returncode is not None:
+            return
+        try:
+            if os.name == "nt":
+                await self._taskkill_process_tree(terminal.process.pid)
+            else:
+                terminal.process.kill()
+        except ProcessLookupError:
+            logger.debug(
+                "Terminal %s already stopped before force kill.",
+                terminal.terminal_id,
+            )
+
+    async def _taskkill_process_tree(self, pid: int) -> None:
+        process = await asyncio.create_subprocess_exec(
+            "taskkill",
+            "/PID",
+            str(pid),
+            "/T",
+            "/F",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await process.wait()
+        if process.returncode not in (0, 128, 255):
+            raise ProcessLookupError(f"taskkill failed for pid={pid}")
 
     async def _mark_terminal_exited(self, terminal: ManagedTerminal) -> None:
         if terminal.exit_event_emitted:

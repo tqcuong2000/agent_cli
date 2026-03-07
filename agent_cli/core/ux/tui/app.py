@@ -60,6 +60,7 @@ class AgentCLIApp(App):
         self.session_overlay = SessionOverlay()
         self.provider_overlay = ProviderOverlay()
         self._settings_subscription_id: Optional[str] = None
+        self._shutdown_started = False
         self._bind_command_parser_context()
 
     def compose(self) -> ComposeResult:
@@ -230,6 +231,7 @@ class AgentCLIApp(App):
 
     async def action_quit_app(self) -> None:
         """Exit the application."""
+        await self._shutdown_app_context()
         self.exit()
 
     async def action_interrupt_agent(self) -> None:
@@ -252,6 +254,13 @@ class AgentCLIApp(App):
 
     async def on_unmount(self) -> None:
         """Flush and release app context resources on TUI shutdown."""
+        await self._shutdown_app_context()
+
+    async def _shutdown_app_context(self) -> None:
+        """Run app-context cleanup once for all exit paths."""
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
         if self._settings_subscription_id is not None:
             event_bus = getattr(self.app_context, "event_bus", None)
             if event_bus is not None:
