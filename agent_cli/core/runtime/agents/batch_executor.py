@@ -8,6 +8,7 @@ from typing import List
 from uuid import uuid4
 
 from agent_cli.core.runtime.agents.parsers import ParsedAction
+from agent_cli.core.infra.events.error_catalog import ErrorRecord, ErrorRouter
 from agent_cli.core.runtime.tools.base import ToolResult
 from agent_cli.core.runtime.tools.executor import ToolExecutor
 from agent_cli.core.runtime.tools.registry import ToolRegistry
@@ -28,6 +29,7 @@ class BatchExecutor:
         self._tool_executor = tool_executor
         self._tool_registry = tool_registry
         self._max_concurrent = max(int(max_concurrent), 1)
+        self._error_router = ErrorRouter(tool_executor._data_registry)
 
     async def execute_batch(
         self,
@@ -80,21 +82,35 @@ class BatchExecutor:
                 continue
             action = actions[idx]
             action_id = action.action_id or f"act_{idx}"
+            resolved = self._resolve_batch_error(
+                error_id="batch.no_result",
+                tool_name=action.tool_name,
+                message="Batch execution did not produce a result.",
+                task_id=task_id,
+                action_id=action_id,
+                batch_id=batch_id,
+            )
             formatted = self._tool_executor.output_formatter.format(
                 action.tool_name,
-                "Batch execution did not produce a result.",
+                resolved.tool_message,
                 success=False,
                 task_id=task_id,
                 native_call_id=action.native_call_id,
                 action_id=action_id,
+                error_id=resolved.error_id,
+                error_code=resolved.error_code,
+                retryable=resolved.retryable,
                 batch_id=batch_id,
             )
             finalized.append(
                 ToolResult(
                     success=False,
                     output=formatted,
-                    error="Batch execution did not produce a result.",
-                    metadata={"batch_id": batch_id},
+                    error=resolved.technical_detail,
+                    metadata={
+                        "batch_id": batch_id,
+                        "error_id": resolved.error_id,
+                    },
                     action_id=action_id,
                     tool_name=action.tool_name,
                 )
@@ -139,21 +155,61 @@ class BatchExecutor:
                 action.tool_name,
                 action_id,
             )
-            raw_error = f"{type(exc).__name__}: {exc}"
+            resolved = self._resolve_batch_error(
+                error_id="batch.execution_failed",
+                tool_name=action.tool_name,
+                message=str(exc),
+                task_id=task_id,
+                action_id=action_id,
+                batch_id=batch_id,
+                exc=exc,
+            )
             formatted = self._tool_executor.output_formatter.format(
                 action.tool_name,
-                raw_error,
+                resolved.tool_message,
                 success=False,
                 task_id=task_id,
                 native_call_id=action.native_call_id,
                 action_id=action_id,
+                error_id=resolved.error_id,
+                error_code=resolved.error_code,
+                retryable=resolved.retryable,
                 batch_id=batch_id,
             )
             return ToolResult(
                 success=False,
                 output=formatted,
-                error=raw_error,
-                metadata={"batch_id": batch_id},
+                error=resolved.technical_detail,
+                metadata={
+                    "batch_id": batch_id,
+                    "error_id": resolved.error_id,
+                },
                 action_id=action_id,
                 tool_name=action.tool_name,
             )
+
+    def _resolve_batch_error(
+        self,
+        *,
+        error_id: str,
+        tool_name: str,
+        message: str,
+        task_id: str,
+        action_id: str,
+        batch_id: str,
+        exc: Exception | None = None,
+    ):
+        return self._error_router.resolve(
+            ErrorRecord(
+                error_id=error_id,
+                source="batch_executor",
+                message=message,
+                params={"tool_name": tool_name, "message": message},
+                task_id=task_id,
+                tool_name=tool_name,
+                action_id=action_id,
+                batch_id=batch_id,
+                exception_type=type(exc).__name__ if exc is not None else "Error",
+                raw_exception=str(exc) if exc is not None else message,
+            )
+        )

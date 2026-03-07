@@ -15,7 +15,7 @@ a ``tier`` that determines the handling strategy:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 # ══════════════════════════════════════════════════════════════════════
 # Tier Classification
@@ -54,11 +54,15 @@ class AgentCLIError(Exception):
         user_message: Optional[str] = None,
         technical_detail: Optional[str] = None,
         task_id: Optional[str] = None,
+        error_id: Optional[str] = None,
+        details: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(message)
         self.user_message = user_message or message
         self.technical_detail = technical_detail or message
         self.task_id = task_id
+        self.error_id = str(error_id or getattr(self, "default_error_id", "")).strip()
+        self.details = dict(details or {})
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -70,6 +74,7 @@ class LLMTransientError(AgentCLIError):
     """Generic transient LLM API failure (timeout, 5xx, connection reset)."""
 
     tier = ErrorTier.TRANSIENT
+    default_error_id = "provider.transient_error"
 
 
 class LLMRateLimitError(AgentCLIError):
@@ -79,6 +84,7 @@ class LLMRateLimitError(AgentCLIError):
     """
 
     tier = ErrorTier.TRANSIENT
+    default_error_id = "provider.rate_limited"
 
     def __init__(
         self,
@@ -95,6 +101,7 @@ class LLMOverloadError(AgentCLIError):
     """HTTP 529 / 503 — provider overloaded."""
 
     tier = ErrorTier.TRANSIENT
+    default_error_id = "provider.overloaded"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -110,6 +117,7 @@ class ContextLengthExceededError(AgentCLIError):
     """
 
     tier = ErrorTier.RECOVERABLE
+    default_error_id = "provider.context_length_exceeded"
 
 
 class SchemaValidationError(AgentCLIError):
@@ -120,6 +128,7 @@ class SchemaValidationError(AgentCLIError):
     """
 
     tier = ErrorTier.RECOVERABLE
+    default_error_id = "schema.generic_invalid"
 
     def __init__(
         self,
@@ -140,6 +149,7 @@ class ToolExecutionError(AgentCLIError):
     """
 
     tier = ErrorTier.RECOVERABLE
+    default_error_id = "tool.execution_failed"
 
     def __init__(
         self,
@@ -164,6 +174,7 @@ class MaxIterationsExceededError(AgentCLIError):
     """
 
     tier = ErrorTier.FATAL
+    default_error_id = "agent.max_iterations_exceeded"
 
     def __init__(
         self,
@@ -182,12 +193,14 @@ class AuthenticationError(AgentCLIError):
     """API key is missing, invalid, or expired (HTTP 401/403)."""
 
     tier = ErrorTier.FATAL
+    default_error_id = "provider.authentication_failed"
 
 
 class ProviderNotFoundError(AgentCLIError):
     """The requested LLM provider is not registered."""
 
     tier = ErrorTier.FATAL
+    default_error_id = "provider.not_found"
 
 
 class CriticalError(AgentCLIError):
@@ -197,3 +210,4 @@ class CriticalError(AgentCLIError):
     """
 
     tier = ErrorTier.FATAL
+    default_error_id = "system.critical"

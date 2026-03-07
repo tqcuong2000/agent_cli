@@ -1,0 +1,523 @@
+{
+  "definitions": {
+    "generic.unexpected": {
+      "tier": "FATAL",
+      "user_message": "Unexpected error: {message}",
+      "technical_detail": "{exception_type}: {message}",
+      "ui_title": "Unexpected Error",
+      "route": {
+        "emit_task_result": true
+      }
+    },
+    "system.event_bus.subscriber_failure": {
+      "tier": "FATAL",
+      "user_message": "{error_message}",
+      "technical_detail": "{error_message}",
+      "ui_title": "System Error",
+      "route": {
+        "emit_system_error_event": true
+      }
+    },
+    "task.cancelled_by_user": {
+      "tier": "FATAL",
+      "user_message": "Task cancelled by user.",
+      "technical_detail": "Task cancelled by user.",
+      "ui_title": "Task Cancelled",
+      "route": {
+        "emit_task_result": true
+      }
+    },
+    "provider.rate_limited": {
+      "tier": "TRANSIENT",
+      "user_message": "Rate limited by {provider_name}: {message}",
+      "technical_detail": "{exception_type}: {message}",
+      "ui_title": "Provider Rate Limited",
+      "route": {
+        "emit_task_error_event": true
+      }
+    },
+    "provider.overloaded": {
+      "tier": "TRANSIENT",
+      "user_message": "Server error from {provider_name}: {message}",
+      "technical_detail": "{exception_type}: {message}",
+      "ui_title": "Provider Overloaded",
+      "route": {
+        "emit_task_error_event": true
+      }
+    },
+    "provider.authentication_failed": {
+      "tier": "FATAL",
+      "user_message": "API key for {provider_name} is invalid or expired. Check your .env file or keyring.",
+      "technical_detail": "{exception_type}: {message}",
+      "ui_title": "Authentication Error",
+      "route": {
+        "emit_task_result": true
+      }
+    },
+    "provider.not_found": {
+      "tier": "FATAL",
+      "user_message": "Provider '{provider_name}' is not registered.",
+      "technical_detail": "{exception_type}: {message}",
+      "ui_title": "Provider Not Found",
+      "route": {
+        "emit_task_result": true
+      }
+    },
+    "provider.context_length_exceeded": {
+      "tier": "RECOVERABLE",
+      "user_message": "The conversation is too long for this model. Context compaction will be triggered.",
+      "agent_message": "Context budget threshold reached, compacting memory...",
+      "technical_detail": "{exception_type}: {message}",
+      "ui_title": "Context Too Long",
+      "route": {
+        "emit_agent_event": true
+      }
+    },
+    "provider.transient_error": {
+      "tier": "TRANSIENT",
+      "user_message": "Provider error from {provider_name}: {message}",
+      "technical_detail": "{exception_type}: {message}",
+      "ui_title": "Provider Error",
+      "route": {
+        "emit_task_error_event": true
+      }
+    },
+    "tool.tool_not_found": {
+      "tier": "RECOVERABLE",
+      "user_message": "Unknown tool: '{tool_name}'",
+      "tool_message": "Unknown tool: '{tool_name}'",
+      "technical_detail": "Unknown tool: '{tool_name}'",
+      "error_code": "TOOL_NOT_FOUND",
+      "route": {}
+    },
+    "tool.invalid_arguments": {
+      "tier": "RECOVERABLE",
+      "user_message": "Invalid arguments for '{tool_name}': {message}",
+      "tool_message": "Invalid arguments for '{tool_name}': {message}",
+      "technical_detail": "{exception_type}: {message}",
+      "error_code": "INVALID_ARGUMENTS",
+      "route": {}
+    },
+    "tool.approval_denied": {
+      "tier": "RECOVERABLE",
+      "user_message": "User denied execution.",
+      "tool_message": "User denied execution.",
+      "technical_detail": "User denied execution.",
+      "error_code": "APPROVAL_DENIED",
+      "route": {}
+    },
+    "tool.approval_timeout": {
+      "tier": "RECOVERABLE",
+      "user_message": "Approval timed out.",
+      "tool_message": "Approval timed out.",
+      "technical_detail": "Approval timed out.",
+      "error_code": "APPROVAL_TIMEOUT",
+      "retryable": true,
+      "route": {}
+    },
+    "tool.execution_failed": {
+      "tier": "RECOVERABLE",
+      "user_message": "{message}",
+      "tool_message": "{message}",
+      "technical_detail": "{exception_type}: {message}",
+      "error_code": "UNKNOWN",
+      "route": {}
+    },
+    "tool.internal_error": {
+      "tier": "RECOVERABLE",
+      "user_message": "{exception_type}: {message}",
+      "tool_message": "{exception_type}: {message}",
+      "technical_detail": "{exception_type}: {message}",
+      "error_code": "INTERNAL_ERROR",
+      "route": {}
+    },
+    "batch.empty_actions": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "empty_actions",
+        "field": "decision.actions",
+        "expected": "non_empty_list",
+        "received": "empty",
+        "fix_instruction": "Set decision.actions to a non-empty list of {\"tool\":\"...\",\"args\":{...}} items.",
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"search_files\",\"args\":{\"pattern\":\"TODO\"}}]}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "batch.too_many_actions": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "batch_size_exceeded",
+        "field": "decision.actions",
+        "expected": "at_most_{max_allowed}",
+        "received": "{actual_size}",
+        "fix_instruction": "Reduce the batch to at most {max_allowed} actions and try again.",
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Run fewer actions per turn.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"search_files\",\"args\":{\"pattern\":\"TODO\"}}]}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "batch.duplicate_action_id": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "duplicate_action_id",
+        "field": "decision.actions[].action_id",
+        "expected": "unique_values",
+        "received": "{duplicate_action_id}",
+        "fix_instruction": "Ensure every action_id is unique within the batch.",
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Use unique action ids.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"},\"action_id\":\"act_0\"},{\"tool\":\"search_files\",\"args\":{\"pattern\":\"TODO\"},\"action_id\":\"act_1\"}]}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "batch.unknown_tool": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "unknown_tool",
+        "field": "decision.actions[].tool",
+        "expected": "registered_tool_name",
+        "received": "{tool_name}",
+        "fix_instruction": "Use only registered tool names that exist in the current runtime.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"Use an available tool.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "batch.execution_failed": {
+      "tier": "RECOVERABLE",
+      "user_message": "{exception_type}: {message}",
+      "tool_message": "{exception_type}: {message}",
+      "technical_detail": "{exception_type}: {message}",
+      "error_code": "INTERNAL_ERROR",
+      "route": {}
+    },
+    "batch.no_result": {
+      "tier": "RECOVERABLE",
+      "user_message": "Batch execution did not produce a result.",
+      "tool_message": "Batch execution did not produce a result.",
+      "technical_detail": "Batch execution did not produce a result.",
+      "error_code": "INTERNAL_ERROR",
+      "route": {}
+    },
+    "schema.invalid_json": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "invalid_json",
+        "field": "response",
+        "expected": "single_json_object",
+        "received": "malformed",
+        "fix_instruction": "Return one valid JSON object only (no markdown, no prose, no code fences).",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.missing_decision": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "missing_field",
+        "field": "decision",
+        "expected": "object",
+        "received": "missing",
+        "fix_instruction": "Add a top-level decision object with a valid decision.type and required fields.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.missing_decision_type": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "missing_field",
+        "field": "decision.type",
+        "expected": "reflect,execute_action,execute_actions,notify_user,yield",
+        "received": "missing",
+        "fix_instruction": "Add decision.type and choose one allowed value.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.unknown_decision_type": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "enum_unknown",
+        "field": "decision.type",
+        "expected": "reflect,execute_action,execute_actions,notify_user,yield",
+        "received": "unknown",
+        "fix_instruction": "Set decision.type to one allowed value. For tool usage, use decision.type=\"execute_action\" with decision.tool and decision.args.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.missing_decision_tool": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "missing_field",
+        "field": "decision.tool",
+        "expected": "registered_tool_name",
+        "received": "missing",
+        "fix_instruction": "Set decision.tool when decision.type is \"execute_action\".",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.unknown_tool": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "unknown_tool",
+        "field": "decision.tool",
+        "expected": "registered_tool_name",
+        "received": "{tool_name}",
+        "fix_instruction": "Use only registered tool names that exist in the current runtime.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.invalid_decision_args": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "type_mismatch",
+        "field": "decision.args",
+        "expected": "object",
+        "received": "non_object",
+        "fix_instruction": "Set decision.args to a JSON object ({} if no arguments).",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.execute_actions_disabled": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "feature_disabled",
+        "field": "decision.type",
+        "expected": "execute_action",
+        "received": "execute_actions",
+        "fix_instruction": "Use execute_action instead of execute_actions for this agent/runtime.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"Run one tool at a time.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.invalid_actions_list": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "type_mismatch",
+        "field": "decision.actions",
+        "expected": "non_empty_list",
+        "received": "invalid",
+        "fix_instruction": "Set decision.actions to a non-empty list of {\"tool\":\"...\",\"args\":{...}} items when decision.type is \"execute_actions\".",
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"search_files\",\"args\":{\"pattern\":\"TODO\"}}]}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.action_not_object": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "type_mismatch",
+        "field": "decision.actions[]",
+        "expected": "object",
+        "received": "non_object",
+        "fix_instruction": "Each item in decision.actions must be an object with tool and args fields.",
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}]}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.action_missing_tool": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "missing_field",
+        "field": "decision.actions[].tool",
+        "expected": "registered_tool_name",
+        "received": "missing",
+        "fix_instruction": "Every action in decision.actions must include a tool field.",
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}]}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.action_unknown_tool": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "unknown_tool",
+        "field": "decision.actions[].tool",
+        "expected": "registered_tool_name",
+        "received": "{tool_name}",
+        "fix_instruction": "Use only registered tool names that exist in the current runtime.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"Use an available tool.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.action_args_not_object": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "type_mismatch",
+        "field": "decision.actions[].args",
+        "expected": "object",
+        "received": "non_object",
+        "fix_instruction": "Set each action args value to a JSON object.",
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}]}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.missing_decision_message": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "missing_field",
+        "field": "decision.message",
+        "expected": "non_empty_string",
+        "received": "missing",
+        "fix_instruction": "Set decision.message when decision.type is notify_user or yield.",
+        "valid_example": "{\"title\":\"Done\",\"thought\":\"Task complete.\",\"decision\":{\"type\":\"notify_user\",\"message\":\"Completed.\"}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.execute_action_missing_payload": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "missing_payload",
+        "field": "action",
+        "expected": "non_null_payload",
+        "received": "null",
+        "fix_instruction": "When using execute_action, include a non-null action payload with tool and args.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.execute_actions_missing_payload": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "missing_payload",
+        "field": "actions",
+        "expected": "non_empty_payload",
+        "received": "null",
+        "fix_instruction": "When using execute_actions, include a non-empty actions payload.",
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}]}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.multi_action_uninitialized": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "internal_runtime_error",
+        "field": "multi_action_runtime",
+        "expected": "initialized",
+        "received": "missing",
+        "fix_instruction": "Retry with a single action or yield safely if the runtime is unavailable.",
+        "valid_example": "{\"title\":\"Blocked\",\"thought\":\"Schema correction failed safely.\",\"decision\":{\"type\":\"yield\",\"message\":\"I could not produce a valid action format after schema correction. Please retry.\"}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.notify_user_missing_final_answer": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "missing_field",
+        "field": "decision.message",
+        "expected": "non_empty_string",
+        "received": "missing",
+        "fix_instruction": "When using notify_user, include a non-empty final answer message.",
+        "valid_example": "{\"title\":\"Done\",\"thought\":\"Task complete.\",\"decision\":{\"type\":\"notify_user\",\"message\":\"Completed.\"}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "schema.generic_invalid": {
+      "tier": "RECOVERABLE",
+      "technical_detail": "{message}",
+      "metadata": {
+        "code": "schema_invalid",
+        "field": "response",
+        "expected": "valid_schema",
+        "received": "invalid",
+        "fix_instruction": "Use one allowed decision.type value and include all required fields for that type.",
+        "valid_example": "{\"title\":\"Read file\",\"thought\":\"I need file contents.\",\"decision\":{\"type\":\"execute_action\",\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}}}"
+      },
+      "route": {
+        "emit_agent_memory": true
+      }
+    },
+    "agent.max_iterations_exceeded": {
+      "tier": "FATAL",
+      "user_message": "{message}",
+      "technical_detail": "{message}",
+      "ui_title": "Task Failed",
+      "route": {
+        "emit_task_result": true
+      }
+    },
+    "agent.schema_error_limit_exceeded": {
+      "tier": "FATAL",
+      "user_message": "{message}",
+      "technical_detail": "{message}",
+      "ui_title": "Task Failed",
+      "route": {
+        "emit_task_result": true
+      }
+    },
+    "system.critical": {
+      "tier": "FATAL",
+      "user_message": "{message}",
+      "technical_detail": "{exception_type}: {message}",
+      "ui_title": "System Error",
+      "route": {
+        "emit_task_result": true
+      }
+    }
+  }
+}

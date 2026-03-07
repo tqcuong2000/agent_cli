@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from agent_cli.core.runtime.agents.content_store import ContentStore
+from agent_cli.core.infra.events.error_catalog import ErrorRecord, ErrorRouter
 from agent_cli.core.infra.events.errors import ToolExecutionError
 from agent_cli.core.infra.events.event_bus import AbstractEventBus
 from agent_cli.core.infra.events.events import (
@@ -91,6 +92,7 @@ class ToolExecutor:
         self.registry = registry
         self.event_bus = event_bus
         self.output_formatter = output_formatter
+        self._data_registry = data_registry
         self._auto_approve = auto_approve
         self._interaction_handler = interaction_handler
         self._file_tracker = file_tracker
@@ -98,6 +100,7 @@ class ToolExecutor:
         self._content_store = content_store or ContentStore()
         defaults = data_registry.get_tool_defaults().get("executor", {})
         self._safe_command_patterns = compile_safe_command_patterns(data_registry)
+        self._error_router = ErrorRouter(data_registry)
         self._approval_timeout_seconds = float(
             approval_timeout_seconds
             if approval_timeout_seconds is not None
@@ -291,6 +294,7 @@ class ToolExecutor:
 
         content_ref = ""
         error_code = ToolErrorCode.UNKNOWN
+        resolved = None
         if success and tool_name == "read_file" and raw_result:
             content_ref = self.store_content(raw_result)
 
@@ -313,17 +317,31 @@ class ToolExecutor:
                 message=raw_result,
                 exc=captured_exception,
             )
+            resolved = self._resolve_tool_error(
+                error_id=(
+                    "tool.execution_failed"
+                    if isinstance(captured_exception, ToolExecutionError)
+                    else self._error_id_for_tool_error_code(error_code)
+                ),
+                tool_name=tool_name,
+                message=raw_result,
+                task_id=task_id,
+                action_id=action_id,
+                batch_id=batch_id,
+                exc=captured_exception,
+            )
             formatted = self.output_formatter.format(
                 tool_name,
-                raw_result,
+                resolved.tool_message,
                 success=False,
                 task_id=task_id,
                 native_call_id=native_call_id,
                 action_id=action_id,
+                error_id=resolved.error_id,
                 error_code=error_code.value,
                 retryable=error_code.retryable,
-                total_chars=len(raw_result),
-                total_lines=self._count_lines(raw_result),
+                total_chars=len(resolved.tool_message),
+                total_lines=self._count_lines(resolved.tool_message),
                 batch_id=batch_id,
             )
 
@@ -334,6 +352,8 @@ class ToolExecutor:
                 tool_name=tool_name,
                 output=formatted,
                 is_error=not success,
+                error_id=resolved.error_id if not success else "",
+                metadata=resolved.metadata if not success else {},
             )
         )
 
@@ -347,6 +367,7 @@ class ToolExecutor:
         if batch_id:
             metadata["batch_id"] = batch_id
         if not success:
+            metadata["error_id"] = resolved.error_id
             metadata["error_code"] = error_code.value
             metadata["retryable"] = error_code.retryable
 
@@ -444,20 +465,30 @@ class ToolExecutor:
         action_id: str,
         batch_id: str,
     ) -> ToolResult:
+        resolved = self._resolve_tool_error(
+            error_id=self._error_id_for_tool_error_code(error_code),
+            tool_name=tool_name,
+            message=error_message,
+            task_id=task_id,
+            action_id=action_id,
+            batch_id=batch_id,
+        )
         formatted = self.output_formatter.format(
             tool_name,
-            error_message,
+            resolved.tool_message,
             success=False,
             task_id=task_id,
             native_call_id=native_call_id,
             action_id=action_id,
+            error_id=resolved.error_id,
             error_code=error_code.value,
             retryable=error_code.retryable,
-            total_chars=len(error_message),
-            total_lines=self._count_lines(error_message),
+            total_chars=len(resolved.tool_message),
+            total_lines=self._count_lines(resolved.tool_message),
             batch_id=batch_id,
         )
         metadata: Dict[str, Any] = {
+            "error_id": resolved.error_id,
             "error_code": error_code.value,
             "retryable": error_code.retryable,
         }
@@ -470,11 +501,47 @@ class ToolExecutor:
         return ToolResult(
             success=False,
             output=formatted,
-            error=error_message,
+            error=resolved.technical_detail or error_message,
             metadata=metadata,
             action_id=action_id,
             tool_name=tool_name,
         )
+
+    def _resolve_tool_error(
+        self,
+        *,
+        error_id: str,
+        tool_name: str,
+        message: str,
+        task_id: str = "",
+        action_id: str = "",
+        batch_id: str = "",
+        exc: Exception | None = None,
+    ):
+        return self._error_router.resolve(
+            ErrorRecord(
+                error_id=error_id,
+                source="tool_executor",
+                message=message,
+                params={"tool_name": tool_name, "message": message},
+                task_id=task_id,
+                tool_name=tool_name,
+                action_id=action_id,
+                batch_id=batch_id,
+                exception_type=type(exc).__name__ if exc is not None else "Error",
+                raw_exception=str(exc) if exc is not None else message,
+            )
+        )
+
+    @staticmethod
+    def _error_id_for_tool_error_code(error_code: ToolErrorCode) -> str:
+        mapping = {
+            ToolErrorCode.TOOL_NOT_FOUND: "tool.tool_not_found",
+            ToolErrorCode.INVALID_ARGUMENTS: "tool.invalid_arguments",
+            ToolErrorCode.APPROVAL_DENIED: "tool.approval_denied",
+            ToolErrorCode.APPROVAL_TIMEOUT: "tool.approval_timeout",
+        }
+        return mapping.get(error_code, "tool.internal_error")
 
     def _classify_error_code(
         self,

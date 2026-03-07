@@ -52,11 +52,17 @@ class MultiActionValidator:
         if not actions:
             raise SchemaValidationError(
                 "execute_actions requires a non-empty actions list.",
+                error_id="batch.empty_actions",
             )
 
         if len(actions) > self._max_batch_size:
             raise SchemaValidationError(
                 f"Batch size {len(actions)} exceeds maximum of {self._max_batch_size}.",
+                error_id="batch.too_many_actions",
+                details={
+                    "actual_size": len(actions),
+                    "max_allowed": self._max_batch_size,
+                },
             )
 
         seen_ids: set[str] = set()
@@ -66,12 +72,16 @@ class MultiActionValidator:
                 if action_id in seen_ids:
                     raise SchemaValidationError(
                         f"Duplicate action_id '{action_id}' in actions batch.",
+                        error_id="batch.duplicate_action_id",
+                        details={"duplicate_action_id": action_id},
                     )
                 seen_ids.add(action_id)
 
             if not self._registry.get(action.tool_name):
                 raise SchemaValidationError(
                     f"Unknown tool '{action.tool_name}' in action[{idx}].",
+                    error_id="batch.unknown_tool",
+                    details={"tool_name": action.tool_name},
                 )
 
         ask_user_actions = [a for a in actions if a.tool_name == "ask_user"]

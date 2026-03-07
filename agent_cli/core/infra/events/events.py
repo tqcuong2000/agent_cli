@@ -78,6 +78,9 @@ class SystemErrorEvent(BaseEvent):
     error_message: str = ""
     original_event_type: str = ""  # Which event processing caused the failure
     subscriber_id: str = ""  # Which subscriber failed
+    error_id: str = "system.event_bus.subscriber_failure"
+    technical_detail: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -101,6 +104,10 @@ class TaskResultEvent(BaseEvent):
     task_id: str = ""
     result: str = ""
     is_success: bool = True
+    error_id: str = ""
+    ui_title: str = ""
+    technical_detail: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -134,6 +141,8 @@ class ToolExecutionResultEvent(BaseEvent):
     tool_name: str = ""
     output: str = ""
     is_error: bool = False
+    error_id: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -217,8 +226,11 @@ class TaskErrorEvent(BaseEvent):
 
     task_id: str = ""
     tier: str = ""  # "TRANSIENT" | "RECOVERABLE" | "FATAL"
+    error_id: str = ""
     error_message: str = ""  # User-friendly
     technical_detail: str = ""  # Full error string (debug logs only)
+    ui_title: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

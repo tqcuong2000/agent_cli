@@ -170,6 +170,7 @@ class WriteFileTool(BaseTool):
     name = "write_file"
     description = (
         "Create or overwrite a file with the given content. "
+        "If the file already exists, it will be completely overwritten. "
         "Parent directories are created automatically."
     )
     is_safe = False  # Requires approval — modifies filesystem

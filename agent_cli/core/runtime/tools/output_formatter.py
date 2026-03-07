@@ -46,6 +46,7 @@ class ToolOutputFormatter:
         task_id: str = "",
         native_call_id: str = "",
         action_id: str = "",
+        error_id: str = "",
         error_code: str = "",
         retryable: bool | None = None,
         total_chars: int = 0,
@@ -72,6 +73,7 @@ class ToolOutputFormatter:
                 task_id=task_id,
                 native_call_id=native_call_id,
                 action_id=action_id,
+                error_id=error_id,
                 error_code=error_code,
                 retryable=retryable,
                 total_chars=full_chars,
@@ -90,6 +92,7 @@ class ToolOutputFormatter:
                 task_id=task_id,
                 native_call_id=native_call_id,
                 action_id=action_id,
+                error_id=error_id,
                 error_code=error_code,
                 retryable=retryable,
                 total_chars=0,
@@ -120,6 +123,7 @@ class ToolOutputFormatter:
             task_id=task_id,
             native_call_id=native_call_id,
             action_id=action_id,
+            error_id=error_id,
             error_code=error_code,
             retryable=retryable,
             total_chars=full_chars,
@@ -139,6 +143,7 @@ class ToolOutputFormatter:
         task_id: str,
         native_call_id: str,
         action_id: str,
+        error_id: str,
         error_code: str,
         retryable: bool | None,
         total_chars: int,
@@ -155,6 +160,7 @@ class ToolOutputFormatter:
             task_id=task_id,
             native_call_id=native_call_id,
             action_id=action_id,
+            error_id=error_id,
             error_code=error_code,
             retryable=retryable,
             total_chars=total_chars,
@@ -174,6 +180,7 @@ class ToolOutputFormatter:
         task_id: str,
         native_call_id: str,
         action_id: str,
+        error_id: str,
         error_code: str,
         retryable: bool | None,
         total_chars: int,
@@ -190,6 +197,8 @@ class ToolOutputFormatter:
         ]
         if error_code:
             parts.append(f"error_code={error_code}")
+        if error_id:
+            parts.append(f"error_id={error_id}")
         if retryable is not None:
             parts.append(f"retryable={'true' if retryable else 'false'}")
         if truncated and total_chars > 0:

@@ -12,6 +12,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.css.query import NoMatches
 
+from agent_cli.core.infra.events.error_catalog import ErrorRecord, ErrorRouter
 from agent_cli.core.infra.events.events import (
     AgentMessageEvent,
     BaseEvent,
@@ -196,9 +197,16 @@ class TextWindowContainer(Container):
             (event.result or "").strip().lower().startswith("task cancelled by user")
         )
         if not event.is_success and not is_user_cancel:
-            self._show_error(
-                title="Task Failed",
+            resolved = self._resolve_error_event(
+                error_id=event.error_id or "generic.unexpected",
+                source="task_result",
                 message=event.result,
+                technical_detail=event.technical_detail,
+                metadata=event.metadata,
+            )
+            self._show_error(
+                title=event.ui_title or resolved.ui_title or "Task Failed",
+                message=event.result or resolved.user_message,
                 error_type="error",
             )
 
@@ -218,22 +226,41 @@ class TextWindowContainer(Container):
     async def _on_task_error(self, event: BaseEvent) -> None:
         if not isinstance(event, TaskErrorEvent):
             return
+        resolved = self._resolve_error_event(
+            error_id=event.error_id or "generic.unexpected",
+            source="task_error",
+            message=event.error_message,
+            technical_detail=event.technical_detail,
+            metadata=event.metadata,
+        )
         self._show_error(
-            title=f"Task Error ({event.tier or 'UNKNOWN'})",
-            message=event.error_message or event.technical_detail,
+            title=(
+                event.ui_title
+                or resolved.ui_title
+                or f"Task Error ({event.tier or 'UNKNOWN'})"
+            ),
+            message=event.error_message or resolved.user_message or event.technical_detail,
             error_type="error",
         )
 
     async def _on_system_error(self, event: BaseEvent) -> None:
         if not isinstance(event, SystemErrorEvent):
             return
-        message = (
-            f"{event.error_message}\n"
-            f"[{event.original_event_type}] subscriber={event.subscriber_id}"
+        resolved = self._resolve_error_event(
+            error_id=event.error_id or "system.event_bus.subscriber_failure",
+            source="system_error",
+            message=event.error_message,
+            technical_detail=event.technical_detail,
+            metadata={
+                **event.metadata,
+                "original_event_type": event.original_event_type,
+                "subscriber_id": event.subscriber_id,
+                "error_message": event.error_message,
+            },
         )
         self._show_error(
-            title="System Error",
-            message=message,
+            title=resolved.ui_title or "System Error",
+            message=resolved.user_message or event.error_message,
             error_type="error",
         )
 
@@ -436,6 +463,34 @@ class TextWindowContainer(Container):
             popup.show_error(title=title, message=message, error_type=error_type)
         except NoMatches:
             pass
+
+    def _resolve_error_event(
+        self,
+        *,
+        error_id: str,
+        source: str,
+        message: str,
+        technical_detail: str,
+        metadata: dict | None = None,
+    ):
+        if self._app_context is None:
+            class _Fallback:
+                ui_title = ""
+                user_message = message
+
+            return _Fallback()
+        router = ErrorRouter(self._app_context.data_registry)
+        return router.resolve(
+            ErrorRecord(
+                error_id=error_id,
+                source=source,
+                message=message or technical_detail,
+                params=dict(metadata or {}),
+                metadata=dict(metadata or {}),
+                exception_type="Error",
+                raw_exception=technical_detail or message,
+            )
+        )
 
     def _scroll_to_end(self) -> None:
         self._messages.scroll_end(animate=False)

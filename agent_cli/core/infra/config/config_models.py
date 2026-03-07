@@ -173,3 +173,33 @@ class CapabilitySnapshot:
     declared: CapabilitySpec
     observed: Dict[str, CapabilityObservation] = field(default_factory=dict)
     effective: Dict[str, CapabilityObservation] = field(default_factory=dict)
+
+
+@dataclass
+class ErrorRouteConfig:
+    """Typed routing policy loaded from the error catalog."""
+
+    emit_agent_memory: bool = False
+    emit_agent_event: bool = False
+    agent_monologue: bool = False
+    emit_task_result: bool = False
+    emit_task_error_event: bool = False
+    emit_system_error_event: bool = False
+    persist_to_session: bool = False
+
+
+@dataclass
+class ErrorDefinitionConfig:
+    """Typed error definition loaded from data files."""
+
+    error_id: str
+    tier: str
+    user_message: str = ""
+    agent_message: str = ""
+    technical_detail: str = ""
+    tool_message: str = ""
+    ui_title: str = ""
+    error_code: str = ""
+    retryable: Optional[bool] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    route: ErrorRouteConfig = field(default_factory=ErrorRouteConfig)

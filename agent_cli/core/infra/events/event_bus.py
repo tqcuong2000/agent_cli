@@ -271,8 +271,14 @@ class AsyncEventBus(AbstractEventBus):
             if event.event_type != "SystemErrorEvent":
                 error_event = SystemErrorEvent(
                     source="event_bus",
+                    error_id="system.event_bus.subscriber_failure",
                     error_message=str(e),
+                    technical_detail=f"{type(e).__name__}: {e}",
                     original_event_type=event.event_type,
                     subscriber_id=sub.id,
+                    metadata={
+                        "original_event_type": event.event_type,
+                        "subscriber_id": sub.id,
+                    },
                 )
                 await self.emit(error_event)

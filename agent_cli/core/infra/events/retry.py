@@ -23,8 +23,10 @@ from agent_cli.core.infra.events.errors import (
     ErrorTier,
     LLMRateLimitError,
 )
+from agent_cli.core.infra.events.error_catalog import ErrorRecord, ErrorRouter
 from agent_cli.core.infra.events.event_bus import AbstractEventBus
 from agent_cli.core.infra.events.events import RetryAttemptEvent, TaskErrorEvent
+from agent_cli.core.infra.registry.registry import DataRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,7 @@ async def retry_with_backoff(
                        immediately for non-TRANSIENT errors.
     """
     last_error: Optional[Exception] = None
+    error_router = ErrorRouter(DataRegistry()) if event_bus else None
 
     for attempt in range(max_retries + 1):
         try:
@@ -125,13 +128,51 @@ async def retry_with_backoff(
             if isinstance(last_error, AgentCLIError)
             else ErrorTier.FATAL
         )
+        resolved = None
+        if error_router is not None:
+            if isinstance(last_error, AgentCLIError):
+                resolved = error_router.resolve(
+                    ErrorRecord(
+                        error_id=last_error.error_id or "generic.unexpected",
+                        source="retry_engine",
+                        message=str(last_error),
+                        tier=tier.value,
+                        params=getattr(last_error, "details", {}),
+                        task_id=task_id,
+                        exception_type=type(last_error).__name__,
+                        raw_exception=str(last_error),
+                    )
+                )
+            else:
+                resolved = error_router.resolve(
+                    ErrorRecord(
+                        error_id="generic.unexpected",
+                        source="retry_engine",
+                        message=str(last_error),
+                        tier=tier.value,
+                        task_id=task_id,
+                        exception_type=type(last_error).__name__ if last_error else "Error",
+                        raw_exception=str(last_error),
+                    )
+                )
         await event_bus.emit(
             TaskErrorEvent(
                 source="retry_engine",
                 task_id=task_id,
                 tier=tier.value,
-                error_message=getattr(last_error, "user_message", str(last_error)),
-                technical_detail=str(last_error),
+                error_id=resolved.error_id if resolved is not None else "",
+                error_message=(
+                    resolved.user_message
+                    if resolved is not None
+                    else getattr(last_error, "user_message", str(last_error))
+                ),
+                technical_detail=(
+                    resolved.technical_detail
+                    if resolved is not None
+                    else str(last_error)
+                ),
+                ui_title=resolved.ui_title if resolved is not None else "",
+                metadata=resolved.metadata if resolved is not None else {},
             )
         )
 

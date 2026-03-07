@@ -34,6 +34,7 @@ from agent_cli.core.runtime.agents.parsers import (
 from agent_cli.core.runtime.agents.react_loop import PromptBuilder, StuckDetector
 from agent_cli.core.runtime.agents.resource_tracker import ResourceTracker
 from agent_cli.core.runtime.agents.schema import BaseSchemaValidator
+from agent_cli.core.infra.events.error_catalog import ErrorRecord, ErrorRouter
 from agent_cli.core.infra.events.errors import (
     AgentCLIError,
     ContextLengthExceededError,
@@ -151,6 +152,7 @@ class BaseAgent(ABC):
             self.settings = settings
 
         self._data_registry = data_registry
+        self._error_router = ErrorRouter(data_registry)
         self._schema_defaults = self._data_registry.get_schema_defaults()
         self._retry_defaults = self._data_registry.get_retry_defaults()
         self._cached_capability_snapshot: Any = None
@@ -544,6 +546,7 @@ class BaseAgent(ABC):
                         raise SchemaValidationError(
                             "LLM provider returned no response object.",
                             raw_response=llm_response_text,
+                            error_id="schema.generic_invalid",
                         )
                     response: AgentResponse = self.validator.parse_and_validate(
                         llm_response
@@ -562,6 +565,7 @@ class BaseAgent(ABC):
                                 raise SchemaValidationError(
                                     "Invalid agent response: execute_action requires a non-null action payload.",
                                     raw_response=llm_response_text,
+                                    error_id="schema.execute_action_missing_payload",
                                 )
 
                             reflect_count = 0  # Reset on action
@@ -615,16 +619,19 @@ class BaseAgent(ABC):
                                 raise SchemaValidationError(
                                     "Invalid agent response: execute_actions requires a non-empty actions payload.",
                                     raw_response=llm_response_text,
+                                    error_id="schema.execute_actions_missing_payload",
                                 )
                             if not multi_action_enabled:
                                 raise SchemaValidationError(
                                     "Invalid agent response: execute_actions received while multi_action_enabled=False.",
                                     raw_response=llm_response_text,
+                                    error_id="schema.execute_actions_disabled",
                                 )
                             if batch_executor is None or multi_action_validator is None:
                                 raise SchemaValidationError(
                                     "Internal error: multi-action runtime is not initialized.",
                                     raw_response=llm_response_text,
+                                    error_id="schema.multi_action_uninitialized",
                                 )
 
                             reflect_count = 0
@@ -748,6 +755,7 @@ class BaseAgent(ABC):
                                 raise SchemaValidationError(
                                     "Invalid agent response: notify_user requires a non-null final answer message.",
                                     raw_response=llm_response_text,
+                                    error_id="schema.notify_user_missing_final_answer",
                                 )
                             final_answer_text: str = final_answer
 
@@ -864,13 +872,24 @@ class BaseAgent(ABC):
                             return yield_msg
 
                 # ── ERROR HANDLING ───────────────────────────────────
-                except ContextLengthExceededError:
+                except ContextLengthExceededError as e:
                     # RECOVERABLE: Summarize and retry
+                    resolved = self._resolve_runtime_error(
+                        error_id=e.error_id or "provider.context_length_exceeded",
+                        source="agent_loop",
+                        message=str(e),
+                        task_id=task_id,
+                        details=e.details,
+                        exc=e,
+                    )
                     await self.event_bus.emit(
                         AgentMessageEvent(
                             source=self.name,
                             agent_name=self.name,
-                            content=("⚠ Context too long, summarizing older steps..."),
+                            content=(
+                                resolved.agent_message
+                                or "Context budget threshold reached, compacting memory..."
+                            ),
                             is_monologue=True,
                         )
                     )
@@ -888,6 +907,11 @@ class BaseAgent(ABC):
                             iterations=iteration,
                             max_iterations=max_iterations,
                             task_id=task_id,
+                            error_id="agent.schema_error_limit_exceeded",
+                            details={
+                                "agent_name": self.name,
+                                "max_schema_errors": max_schema_errors,
+                            },
                         )
                     if llm_response is not None:
                         _append_message(
@@ -908,10 +932,22 @@ class BaseAgent(ABC):
 
                 except ToolExecutionError as e:
                     # RECOVERABLE: Feed error back to agent as observation
+                    resolved = self._resolve_runtime_error(
+                        error_id=e.error_id or "tool.execution_failed",
+                        source="agent_loop",
+                        message=str(e),
+                        task_id=task_id,
+                        tool_name=e.tool_name,
+                        details=e.details,
+                        exc=e,
+                    )
                     _append_message(
                         {
                             "role": "system",
-                            "content": (f"Tool Error: {e}. Try a different approach."),
+                            "content": (
+                                resolved.agent_message
+                                or f"Tool Error: {e}. Try a different approach."
+                            ),
                         },
                         track_for_session=True,
                     )
@@ -929,6 +965,8 @@ class BaseAgent(ABC):
                 iterations=max_iterations,
                 max_iterations=max_iterations,
                 task_id=task_id,
+                error_id="agent.max_iterations_exceeded",
+                details={"agent_name": self.name, "max_iterations": max_iterations},
             )
         finally:
             self._last_task_messages = list(task_delta)
@@ -1146,9 +1184,47 @@ class BaseAgent(ABC):
 
     def _build_schema_recovery_message(self, error: SchemaValidationError) -> str:
         """Build a short, machine-actionable schema recovery instruction."""
-        code, field, expected, received, fix_instruction, valid_example = (
-            self._classify_schema_error(error)
+        error_id = error.error_id or "schema.generic_invalid"
+        if error_id == "schema.generic_invalid":
+            error_id = self._infer_schema_error_id(error)
+        resolved = self._resolve_runtime_error(
+            error_id=error_id,
+            source="schema_validator",
+            message=str(error),
+            details=error.details,
+            exc=error,
         )
+        metadata = dict(resolved.metadata)
+        code = str(metadata.get("code", "schema_invalid"))
+        field = str(metadata.get("field", "response"))
+        expected = str(metadata.get("expected", "valid_schema"))
+        received = str(metadata.get("received", "invalid"))
+        fix_instruction = str(
+            metadata.get(
+                "fix_instruction",
+                "Use one allowed decision.type value and include all required fields for that type.",
+            )
+        )
+        valid_example = str(
+            metadata.get(
+                "valid_example",
+                '{"title":"Read file","thought":"I need file contents.","decision":{"type":"execute_action","tool":"read_file","args":{"path":"README.md"}}}',
+            )
+        )
+        if resolved.error_id == "schema.unknown_decision_type":
+            inferred = self._extract_decision_type_from_raw_response(error.raw_response)
+            if received in {"", "unknown"} and inferred:
+                received = inferred
+            if received == "ask_user":
+                fix_instruction = (
+                    'Use decision.type="execute_action", decision.tool="ask_user", '
+                    "and put question/options inside decision.args."
+                )
+                valid_example = (
+                    '{"title":"Ask clarification","thought":"Need user choice before proceeding.","decision":'
+                    '{"type":"execute_action","tool":"ask_user","args":{"question":"Which format do you prefer?",'
+                    '"options":["A","B","C"]}}}'
+                )
         fallback_payload = {
             "title": "Blocked",
             "thought": "Schema correction failed safely.",
@@ -1176,138 +1252,56 @@ class BaseAgent(ABC):
             f"{fallback_json}"
         )
 
-    def _classify_schema_error(
+    def _resolve_runtime_error(
         self,
-        error: SchemaValidationError,
-    ) -> tuple[str, str, str, str, str, str]:
-        """Map schema errors to deterministic recovery instructions."""
-        message = str(error).strip()
-        lowered = message.lower()
-
-        allowed_decisions = "reflect,execute_action,execute_actions,notify_user,yield"
-        generic_example = (
-            '{"title":"Read file","thought":"I need file contents.","decision":{"type":"execute_action",'
-            '"tool":"read_file","args":{"path":"README.md"}}}'
+        *,
+        error_id: str,
+        source: str,
+        message: str,
+        task_id: str = "",
+        tool_name: str = "",
+        action_id: str = "",
+        batch_id: str = "",
+        details: Optional[Dict[str, Any]] = None,
+        exc: Exception | None = None,
+    ):
+        params = dict(details or {})
+        return self._error_router.resolve(
+            ErrorRecord(
+                error_id=error_id,
+                source=source,
+                message=message,
+                params=params,
+                metadata=dict(details or {}),
+                task_id=task_id,
+                tool_name=tool_name,
+                action_id=action_id,
+                batch_id=batch_id,
+                exception_type=type(exc).__name__ if exc is not None else "Error",
+                raw_exception=str(exc) if exc is not None else message,
+            )
         )
-        generic_fix = (
-            "Use one allowed decision.type value and include all required fields for that type."
-        )
 
-        if "unknown decision.type" in lowered:
-            received = self._extract_decision_type_from_raw_response(error.raw_response)
-            if received == "ask_user":
-                return (
-                    "enum_unknown",
-                    "decision.type",
-                    allowed_decisions,
-                    received,
-                    (
-                        'Use decision.type="execute_action", decision.tool="ask_user", '
-                        "and put question/options inside decision.args."
-                    ),
-                    (
-                        '{"title":"Ask clarification","thought":"Need user choice before proceeding.","decision":'
-                        '{"type":"execute_action","tool":"ask_user","args":{"question":"Which format do you prefer?",'
-                        '"options":["A","B","C"]}}}'
-                    ),
-                )
-            return (
-                "enum_unknown",
-                "decision.type",
-                allowed_decisions,
-                received,
-                (
-                    'Set decision.type to one allowed value. For tool usage, use decision.type="execute_action" '
-                    "with decision.tool and decision.args."
-                ),
-                generic_example,
-            )
-
-        if "must contain a 'decision' object" in lowered:
-            return (
-                "missing_field",
-                "decision",
-                "object",
-                "missing",
-                'Add a top-level decision object with a valid decision.type and required fields.',
-                generic_example,
-            )
-
-        if "decision.type is required" in lowered:
-            return (
-                "missing_field",
-                "decision.type",
-                allowed_decisions,
-                "missing",
-                "Add decision.type and choose one allowed value.",
-                generic_example,
-            )
-
-        if "decision.tool is required" in lowered:
-            return (
-                "missing_field",
-                "decision.tool",
-                "registered_tool_name",
-                "missing",
-                'Set decision.tool when decision.type is "execute_action".',
-                generic_example,
-            )
-
-        if "decision.args must be an object" in lowered:
-            return (
-                "type_mismatch",
-                "decision.args",
-                "object",
-                "non_object",
-                "Set decision.args to a JSON object ({} if no arguments).",
-                generic_example,
-            )
-
-        if "decision.actions must be a non-empty list" in lowered:
-            return (
-                "type_mismatch",
-                "decision.actions",
-                "non_empty_list",
-                "invalid",
-                (
-                    'Set decision.actions to a non-empty list of {"tool":"...","args":{...}} '
-                    'items when decision.type is "execute_actions".'
-                ),
-                (
-                    '{"title":"Batch read","thought":"Need independent tool results.","decision":{"type":"execute_actions",'
-                    '"actions":[{"tool":"read_file","args":{"path":"README.md"}},'
-                    '{"tool":"search_files","args":{"pattern":"TODO"}}]}}'
-                ),
-            )
-
-        if "response is not valid json" in lowered:
-            return (
-                "invalid_json",
-                "response",
-                "single_json_object",
-                "malformed",
-                "Return one valid JSON object only (no markdown, no prose, no code fences).",
-                generic_example,
-            )
-
-        if "contains no reasoning, no tool call, and no final answer" in lowered:
-            return (
-                "empty_response",
-                "response",
-                "single_json_object",
-                "empty",
-                "Return a non-empty JSON object with one valid decision.",
-                generic_example,
-            )
-
-        return (
-            "schema_invalid",
-            "response",
-            "valid_schema",
-            "invalid",
-            generic_fix,
-            generic_example,
-        )
+    @staticmethod
+    def _infer_schema_error_id(error: SchemaValidationError) -> str:
+        message = str(error).strip().lower()
+        if "unknown decision.type" in message:
+            return "schema.unknown_decision_type"
+        if "must contain a 'decision' object" in message:
+            return "schema.missing_decision"
+        if "decision.type is required" in message:
+            return "schema.missing_decision_type"
+        if "decision.tool is required" in message:
+            return "schema.missing_decision_tool"
+        if "decision.args must be an object" in message:
+            return "schema.invalid_decision_args"
+        if "decision.actions must be a non-empty list" in message:
+            return "schema.invalid_actions_list"
+        if "response is not valid json" in message:
+            return "schema.invalid_json"
+        if "decision.message is required" in message:
+            return "schema.missing_decision_message"
+        return "schema.generic_invalid"
 
     @staticmethod
     def _extract_decision_type_from_raw_response(raw_response: str | None) -> str:

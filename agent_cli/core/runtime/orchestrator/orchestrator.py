@@ -23,6 +23,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, Awaitable, Optional, cast
 
+from agent_cli.core.infra.events.error_catalog import ErrorRecord, ErrorRouter
 from agent_cli.core.infra.events.errors import AgentCLIError
 from agent_cli.core.infra.events.event_bus import AbstractEventBus
 from agent_cli.core.infra.events.events import (
@@ -353,22 +354,31 @@ class Orchestrator:
 
                 return result
         except asyncio.CancelledError:
-            cancel_msg = "Task cancelled by user."
+            resolved = self._resolve_runtime_error(
+                error_id="task.cancelled_by_user",
+                source="orchestrator",
+                message="Task cancelled by user.",
+                task_id=task_id,
+            )
             await self._safe_transition_to_cancelled(task_id)
             await self._persist_session_after_task(active_session, task_id, agent=agent)
             await self._event_bus.publish(
                 TaskResultEvent(
                     source="orchestrator",
                     task_id=task_id,
-                    result=cancel_msg,
+                    result=resolved.user_message,
                     is_success=False,
+                    error_id=resolved.error_id,
+                    ui_title=resolved.ui_title,
+                    technical_detail=resolved.technical_detail,
+                    metadata=resolved.metadata,
                 )
             )
             await self._event_bus.publish(
                 AgentMessageEvent(
                     source="orchestrator",
                     agent_name="system",
-                    content=cancel_msg,
+                    content=resolved.user_message,
                     is_monologue=False,
                 )
             )
@@ -381,26 +391,44 @@ class Orchestrator:
                     "data": {"agent": agent.name},
                 },
             )
-            return cancel_msg
+            return resolved.user_message
 
         except AgentCLIError as e:
+            resolved = self._resolve_runtime_error(
+                error_id=e.error_id or "generic.unexpected",
+                source="orchestrator",
+                message=e.user_message,
+                task_id=task_id,
+                details=e.details,
+                exc=e,
+            )
             # Transition to FAILED
-            await self._safe_transition_to_failed(task_id, e.user_message)
+            await self._safe_transition_to_failed(task_id, resolved.user_message)
             await self._persist_session_after_task(active_session, task_id, agent=agent)
 
             await self._event_bus.publish(
                 TaskResultEvent(
                     source="orchestrator",
                     task_id=task_id,
-                    result=e.user_message,
+                    result=resolved.user_message,
                     is_success=False,
+                    error_id=resolved.error_id,
+                    ui_title=resolved.ui_title,
+                    technical_detail=resolved.technical_detail,
+                    metadata=resolved.metadata,
                 )
             )
             self._log_task_metrics(task_id, is_success=False)
-            return e.user_message
+            return resolved.user_message
 
         except Exception as e:
-            error_msg = f"Unexpected error: {e}"
+            resolved = self._resolve_runtime_error(
+                error_id="generic.unexpected",
+                source="orchestrator",
+                message=str(e),
+                task_id=task_id,
+                exc=e,
+            )
             logger.error(
                 "Orchestrator caught unexpected error on task %s: %s",
                 task_id,
@@ -408,19 +436,23 @@ class Orchestrator:
                 exc_info=True,
             )
 
-            await self._safe_transition_to_failed(task_id, error_msg)
+            await self._safe_transition_to_failed(task_id, resolved.user_message)
             await self._persist_session_after_task(active_session, task_id, agent=agent)
 
             await self._event_bus.publish(
                 TaskResultEvent(
                     source="orchestrator",
                     task_id=task_id,
-                    result=error_msg,
+                    result=resolved.user_message,
                     is_success=False,
+                    error_id=resolved.error_id,
+                    ui_title=resolved.ui_title,
+                    technical_detail=resolved.technical_detail,
+                    metadata=resolved.metadata,
                 )
             )
             self._log_task_metrics(task_id, is_success=False)
-            return error_msg
+            return resolved.user_message
 
     # ── Helpers ──────────────────────────────────────────────────
 
@@ -628,6 +660,31 @@ class Orchestrator:
                 agent_name="system",
                 content=f"⚠ {message}",
                 is_monologue=False,
+            )
+        )
+
+    def _resolve_runtime_error(
+        self,
+        *,
+        error_id: str,
+        source: str,
+        message: str,
+        task_id: str = "",
+        details: Optional[dict[str, Any]] = None,
+        exc: Exception | None = None,
+    ):
+        active_agent = self.active_agent
+        router = ErrorRouter(active_agent._data_registry)
+        return router.resolve(
+            ErrorRecord(
+                error_id=error_id,
+                source=source,
+                message=message,
+                params=dict(details or {}),
+                metadata=dict(details or {}),
+                task_id=task_id,
+                exception_type=type(exc).__name__ if exc is not None else "Error",
+                raw_exception=str(exc) if exc is not None else message,
             )
         )
 

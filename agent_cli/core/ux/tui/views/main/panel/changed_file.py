@@ -77,45 +77,7 @@ class ChangedFilesPanel(Widget):
     - Emits selection and detail events on row click
     """
 
-    DEFAULT_CSS = """
-    ChangedFilesPanel {
-        background: $panel 50%;
-        width: 1fr;
-        height: auto;
-        margin-top: 1;
-        padding: 1;
-    }
-
-    ChangedFilesPanel.-hidden {
-        display: none;
-    }
-
-    ChangedFilesPanel .panel-header {
-        width: 100%;
-        height: auto;
-        text-style: bold;
-        color: $text;
-        margin-bottom: 1;
-    }
-
-    ChangedFilesPanel #changed_files_list {
-        width: 100%;
-        height: auto;
-        max-height: 16;
-    }
-
-    ChangedFilesPanel #changed_files_empty {
-        width: 100%;
-        height: auto;
-        color: $text-muted;
-        text-style: italic;
-        padding: 0 1;
-    }
-
-    ChangedFilesPanel #changed_files_empty.-hidden {
-        display: none;
-    }
-    """
+    DEFAULT_CSS = ""
 
     def __init__(self, app_context: Optional["AppContext"] = None, **kwargs) -> None:
         if "id" not in kwargs:
@@ -132,9 +94,6 @@ class ChangedFilesPanel(Widget):
         self._selected_path: Optional[str] = None
 
     def compose(self) -> ComposeResult:
-        yield Static(
-            "Changed Files (0)", id="changed_files_header", classes="panel-header"
-        )
         yield VerticalScroll(id="changed_files_list")
         yield Static("No changes yet", id="changed_files_empty")
 
@@ -158,7 +117,6 @@ class ChangedFilesPanel(Widget):
         list_view = self._list_view()
         for child in list(list_view.children):
             child.remove()
-        self._update_header()
         self._update_empty_state()
         self._update_visibility()
 
@@ -241,7 +199,6 @@ class ChangedFilesPanel(Widget):
             row.data = data
             row.update(row._render_text())
 
-        self._update_header()
         self._update_empty_state()
         self._update_visibility()
 
@@ -472,7 +429,6 @@ class ChangedFilesPanel(Widget):
         if self._selected_path == key:
             self._selected_path = None
 
-        self._update_header()
         self._update_empty_state()
         self._update_visibility()
 
@@ -492,11 +448,6 @@ class ChangedFilesPanel(Widget):
             )
 
     # ── UI state helpers ────────────────────────────────────────
-
-    def _update_header(self) -> None:
-        self.query_one("#changed_files_header", Static).update(
-            f"Changed Files ({len(self._changes)})"
-        )
 
     def _update_empty_state(self) -> None:
         empty = self.query_one("#changed_files_empty", Static)

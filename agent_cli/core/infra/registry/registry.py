@@ -15,6 +15,8 @@ from agent_cli.core.infra.config.config_models import (
     CapabilityObservation,
     CapabilitySnapshot,
     CapabilitySpec,
+    ErrorDefinitionConfig,
+    ErrorRouteConfig,
     EffortCapabilitySpec,
     EffortLevel,
     ModelSpec,
@@ -45,10 +47,12 @@ class DataRegistry:
         "_tools",
         "_memory",
         "_schema",
+        "_errors",
         "_prompt_cache",
         "_provider_specs_cache",
         "_model_specs_cache",
         "_model_lookup_cache",
+        "_error_catalog_cache",
         "_capability_observations",
         "_capability_observations_lock",
         "_capability_cache_version",
@@ -62,10 +66,12 @@ class DataRegistry:
         self._tools = self._load_json("tools.json")
         self._memory = self._load_json("memory.json")
         self._schema = self._load_json("schema.json")
+        self._errors = self._load_json("errors.json")
         self._prompt_cache: dict[str, str] = {}
         self._provider_specs_cache: dict[str, ProviderSpec] | None = None
         self._model_specs_cache: dict[str, ModelSpec] | None = None
         self._model_lookup_cache: dict[str, str] | None = None
+        self._error_catalog_cache: dict[str, ErrorDefinitionConfig] | None = None
         self._capability_observations: dict[
             tuple[str, str, str],
             dict[str, CapabilityObservation],
@@ -368,6 +374,22 @@ class DataRegistry:
     def get_title_generation_defaults(self) -> dict[str, Any]:
         return deepcopy(self._schema.get("title", {}))
 
+    def get_error_catalog(self) -> dict[str, ErrorDefinitionConfig]:
+        """Return the typed runtime error catalog."""
+        if self._error_catalog_cache is None:
+            self._error_catalog_cache = self._build_error_catalog()
+        return deepcopy(self._error_catalog_cache)
+
+    def get_error_definition(self, error_id: str) -> ErrorDefinitionConfig | None:
+        """Return a single typed error definition by ID."""
+        normalized = str(error_id or "").strip()
+        if not normalized:
+            return None
+        if self._error_catalog_cache is None:
+            self._error_catalog_cache = self._build_error_catalog()
+        definition = self._error_catalog_cache.get(normalized)
+        return deepcopy(definition) if definition is not None else None
+
     # -- Prompts ----------------------------------------------------
 
     def get_prompt_template(self, name: str) -> str:
@@ -401,6 +423,52 @@ class DataRegistry:
         if not isinstance(loaded, dict):
             raise RuntimeError(f"Data file did not parse to a mapping: {filename}")
         return loaded
+
+    def _build_error_catalog(self) -> dict[str, ErrorDefinitionConfig]:
+        definitions_raw = self._mapping(self._errors.get("definitions"))
+        catalog: dict[str, ErrorDefinitionConfig] = {}
+        for raw_error_id, raw_definition in definitions_raw.items():
+            error_id = str(raw_error_id).strip()
+            if not error_id:
+                raise RuntimeError("Error catalog contains an empty error ID")
+
+            definition_map = self._mapping(raw_definition)
+            route_map = self._mapping(definition_map.get("route"))
+            metadata = self._mapping(definition_map.get("metadata"))
+            tier = str(definition_map.get("tier", "")).strip().upper()
+            if not tier:
+                raise RuntimeError(f"Error definition '{error_id}' is missing tier")
+
+            catalog[error_id] = ErrorDefinitionConfig(
+                error_id=error_id,
+                tier=tier,
+                user_message=str(definition_map.get("user_message", "")),
+                agent_message=str(definition_map.get("agent_message", "")),
+                technical_detail=str(definition_map.get("technical_detail", "")),
+                tool_message=str(definition_map.get("tool_message", "")),
+                ui_title=str(definition_map.get("ui_title", "")),
+                error_code=str(definition_map.get("error_code", "")),
+                retryable=(
+                    bool(definition_map.get("retryable"))
+                    if "retryable" in definition_map
+                    else None
+                ),
+                metadata=metadata,
+                route=ErrorRouteConfig(
+                    emit_agent_memory=bool(route_map.get("emit_agent_memory", False)),
+                    emit_agent_event=bool(route_map.get("emit_agent_event", False)),
+                    agent_monologue=bool(route_map.get("agent_monologue", False)),
+                    emit_task_result=bool(route_map.get("emit_task_result", False)),
+                    emit_task_error_event=bool(
+                        route_map.get("emit_task_error_event", False)
+                    ),
+                    emit_system_error_event=bool(
+                        route_map.get("emit_system_error_event", False)
+                    ),
+                    persist_to_session=bool(route_map.get("persist_to_session", False)),
+                ),
+            )
+        return catalog
 
     def _load_offerings(self, directory: str) -> dict[str, dict[str, Any]]:
         """Load offering definitions from `data/<directory>/*.json`."""

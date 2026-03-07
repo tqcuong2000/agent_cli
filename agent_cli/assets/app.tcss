@@ -364,7 +364,6 @@ BodyContainer {
         dock: none;
         width: 100%;
         height: 100%;
-        border: solid #2a2f35;
     }
 
 
@@ -385,10 +384,8 @@ TextWindowContainer {
 /* --- panel_window.py --- */
 PanelWindowContainer {
         width: 1fr;
-        min-width: 30;
+        min-width: 40;
         height: 100%;
-        border-left: solid $panel 50%;
-        padding: 1;
     }
 
 
@@ -608,6 +605,33 @@ ContextContainer {
 
 
 /* --- changed_file.py --- */
+ChangedFilesPanel {
+    width: 1fr;
+    height: auto;
+}
+
+ChangedFilesPanel.-hidden {
+    display: none;
+}
+
+ChangedFilesPanel #changed_files_list {
+    width: 100%;
+    height: auto;
+    max-height: 16;
+}
+
+ChangedFilesPanel #changed_files_empty {
+    width: 100%;
+    height: auto;
+    color: $text-muted;
+    text-style: italic;
+    padding: 0 1;
+}
+
+ChangedFilesPanel #changed_files_empty.-hidden {
+    display: none;
+}
+
 ChangedFileRow {
         width: 100%;
         height: auto;
@@ -990,17 +1014,10 @@ SessionOverlay {
         width: 100%;
         height: 1fr;
         layout: vertical;
-        background: $surface 35%;
-        border: solid $panel;
     }
 
     TerminalOutputWidget #terminal_meta {
-        width: 100%;
-        height: auto;
-        color: $accent-lighten-1;
-        background: $panel 55%;
-        padding: 0 1;
-        text-style: bold;
+        display: none;
     }
 
     TerminalOutputWidget #terminal_output_log {

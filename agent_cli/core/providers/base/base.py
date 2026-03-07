@@ -340,9 +340,21 @@ class BaseLLMProvider(ABC):
             return LLMRateLimitError(
                 f"Rate limited by {self.provider_name}: {error}",
                 retry_after=retry_after,
+                details={
+                    "provider_name": self.provider_name,
+                    "model_name": self.model_name,
+                    "message": str(error),
+                },
             )
         elif "500" in msg or "503" in msg or "overloaded" in msg or "529" in msg:
-            return LLMOverloadError(f"Server error from {self.provider_name}: {error}")
+            return LLMOverloadError(
+                f"Server error from {self.provider_name}: {error}",
+                details={
+                    "provider_name": self.provider_name,
+                    "model_name": self.model_name,
+                    "message": str(error),
+                },
+            )
         elif (
             "401" in msg
             or "403" in msg
@@ -353,6 +365,11 @@ class BaseLLMProvider(ABC):
                 f"Authentication failed for {self.provider_name}: {error}",
                 user_message=f"API key for {self.provider_name} is invalid or expired. "
                 f"Check your .env file or keyring.",
+                details={
+                    "provider_name": self.provider_name,
+                    "model_name": self.model_name,
+                    "message": str(error),
+                },
             )
         elif (
             "context_length" in msg
@@ -363,10 +380,20 @@ class BaseLLMProvider(ABC):
                 f"Context too long for {self.model_name}: {error}",
                 user_message="The conversation is too long for this model. "
                 "Context compaction will be triggered.",
+                details={
+                    "provider_name": self.provider_name,
+                    "model_name": self.model_name,
+                    "message": str(error),
+                },
             )
         else:
             return LLMTransientError(
-                f"Provider error from {self.provider_name}: {error}"
+                f"Provider error from {self.provider_name}: {error}",
+                details={
+                    "provider_name": self.provider_name,
+                    "model_name": self.model_name,
+                    "message": str(error),
+                },
             )
 
     @staticmethod

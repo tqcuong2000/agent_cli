@@ -22,6 +22,7 @@ class TerminalOutputWidget(Widget):
         yield Static("", id="terminal_meta")
         yield RichLog(
             id="terminal_output_log",
+            min_width=1,
             wrap=True,
             markup=False,
             highlight=False,
@@ -29,6 +30,7 @@ class TerminalOutputWidget(Widget):
         )
 
     def on_mount(self) -> None:
+        self._rendered_line_count = 0
         self._sync_meta()
         self._flush_pending_lines()
 

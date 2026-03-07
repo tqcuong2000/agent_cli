@@ -101,6 +101,7 @@ class SchemaValidator(BaseSchemaValidator):
                 raise SchemaValidationError(
                     "Multiple native tool calls found. You must call exactly ONE tool per response and wait for the result.",
                     raw_response=response.text_content,
+                    error_id="schema.execute_actions_disabled",
                 )
 
             parsed_actions: List[ParsedAction] = []
@@ -110,6 +111,8 @@ class SchemaValidator(BaseSchemaValidator):
                         f"Unknown tool '{tc.tool_name}'. "
                         f"Available tools: {', '.join(sorted(self._registered_tools))}",
                         raw_response=response.text_content,
+                        error_id="schema.action_unknown_tool",
+                        details={"tool_name": tc.tool_name, "action_index": idx},
                     )
 
                 native_call_id = tc.native_call_id.strip()
@@ -137,6 +140,8 @@ class SchemaValidator(BaseSchemaValidator):
                 f"Unknown tool '{tc.tool_name}'. "
                 f"Available tools: {', '.join(sorted(self._registered_tools))}",
                 raw_response=response.text_content,
+                error_id="schema.unknown_tool",
+                details={"tool_name": tc.tool_name},
             )
 
         return AgentResponse(
@@ -233,6 +238,7 @@ class SchemaValidator(BaseSchemaValidator):
                     "Response is not valid JSON. Return exactly one JSON object "
                     "with fields: title, thought, decision{type,...}.",
                     raw_response=text,
+                    error_id="schema.invalid_json",
                 )
             return None
 
@@ -241,6 +247,7 @@ class SchemaValidator(BaseSchemaValidator):
             raise SchemaValidationError(
                 "JSON response must contain a 'decision' object.",
                 raw_response=text,
+                error_id="schema.missing_decision",
             )
 
         raw_type = decision.get("type")
@@ -248,6 +255,7 @@ class SchemaValidator(BaseSchemaValidator):
             raise SchemaValidationError(
                 "decision.type is required and must be a non-empty string.",
                 raw_response=text,
+                error_id="schema.missing_decision_type",
             )
         decision_type = raw_type.strip().lower()
 
@@ -272,6 +280,7 @@ class SchemaValidator(BaseSchemaValidator):
                 raise SchemaValidationError(
                     "decision.tool is required for execute_action.",
                     raw_response=text,
+                    error_id="schema.missing_decision_tool",
                 )
             tool_name = tool_name.strip()
             if tool_name not in self._registered_tools:
@@ -279,6 +288,8 @@ class SchemaValidator(BaseSchemaValidator):
                     f"Unknown tool '{tool_name}'. "
                     f"Available tools: {', '.join(sorted(self._registered_tools))}",
                     raw_response=text,
+                    error_id="schema.unknown_tool",
+                    details={"tool_name": tool_name},
                 )
 
             arguments = decision.get("args", {})
@@ -288,6 +299,7 @@ class SchemaValidator(BaseSchemaValidator):
                 raise SchemaValidationError(
                     "decision.args must be an object.",
                     raw_response=text,
+                    error_id="schema.invalid_decision_args",
                 )
 
             return AgentResponse(
@@ -304,6 +316,7 @@ class SchemaValidator(BaseSchemaValidator):
                 raise SchemaValidationError(
                     "decision.type=execute_actions is disabled for this agent/runtime.",
                     raw_response=text,
+                    error_id="schema.execute_actions_disabled",
                 )
 
             raw_actions = decision.get("actions")
@@ -311,6 +324,7 @@ class SchemaValidator(BaseSchemaValidator):
                 raise SchemaValidationError(
                     "decision.actions must be a non-empty list for execute_actions.",
                     raw_response=text,
+                    error_id="schema.invalid_actions_list",
                 )
 
             parsed_actions: List[ParsedAction] = []
@@ -319,6 +333,8 @@ class SchemaValidator(BaseSchemaValidator):
                     raise SchemaValidationError(
                         f"Action[{idx}] must be an object.",
                         raw_response=text,
+                        error_id="schema.action_not_object",
+                        details={"action_index": idx},
                     )
 
                 tool_name = str(raw_action.get("tool", "")).strip()
@@ -326,11 +342,15 @@ class SchemaValidator(BaseSchemaValidator):
                     raise SchemaValidationError(
                         f"Action at index {idx} missing 'tool' field.",
                         raw_response=text,
+                        error_id="schema.action_missing_tool",
+                        details={"action_index": idx},
                     )
                 if tool_name not in self._registered_tools:
                     raise SchemaValidationError(
                         f"Unknown tool '{tool_name}' in action[{idx}].",
                         raw_response=text,
+                        error_id="schema.action_unknown_tool",
+                        details={"action_index": idx, "tool_name": tool_name},
                     )
 
                 arguments = raw_action.get("args", {})
@@ -340,6 +360,8 @@ class SchemaValidator(BaseSchemaValidator):
                     raise SchemaValidationError(
                         f"Action[{idx}].args must be an object.",
                         raw_response=text,
+                        error_id="schema.action_args_not_object",
+                        details={"action_index": idx},
                     )
 
                 parsed_actions.append(
@@ -378,6 +400,7 @@ class SchemaValidator(BaseSchemaValidator):
                 raise SchemaValidationError(
                     "decision.message is required for notify_user/yield.",
                     raw_response=text,
+                    error_id="schema.missing_decision_message",
                 )
 
             return AgentResponse(
@@ -397,6 +420,8 @@ class SchemaValidator(BaseSchemaValidator):
             "Unknown decision.type. Allowed values: "
             "reflect, execute_action, execute_actions, notify_user, yield.",
             raw_response=text,
+            error_id="schema.unknown_decision_type",
+            details={"received": decision_type},
         )
 
     def _extract_json_reasoning(self, text: str) -> tuple[str, str]:
