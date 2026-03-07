@@ -503,8 +503,8 @@ def _update_status_bar(
     if ctx.app is None:
         return
     try:
-        from agent_cli.core.ux.tui.views.header.agent_badge import AgentBadgeComponent
-        from agent_cli.core.ux.tui.views.footer.status import StatusContainer
+        from agent_cli.core.ux.tui.views.layout.header import AgentBadgeComponent
+        from agent_cli.core.ux.tui.views.main.status.status import StatusContainer
 
         status = ctx.app.query_one(StatusContainer)
         if model is not None:

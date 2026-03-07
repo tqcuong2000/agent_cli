@@ -278,6 +278,7 @@ class SessionOverlay(Container):
 
         self._notify(f"Deleted session: {summary.display_name}")
         self.refresh_sessions()
+        self.focus()
 
     def _begin_rename_selected_session(self) -> None:
         summary = self._selected_summary()
@@ -392,7 +393,7 @@ class SessionOverlay(Container):
         self, *, model: Optional[str] = None, effort: Optional[str] = None
     ) -> None:
         try:
-            from agent_cli.core.ux.tui.views.footer.status import StatusContainer
+            from agent_cli.core.ux.tui.views.main.status.status import StatusContainer
 
             status = self.app.query_one(StatusContainer)
             if model is not None:

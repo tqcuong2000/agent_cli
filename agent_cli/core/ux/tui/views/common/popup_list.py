@@ -149,7 +149,7 @@ class BasePopupListView(Widget):
     def _position_above_footer(self) -> None:
         """Dynamically set margin-bottom to sit above the footer."""
         try:
-            from agent_cli.core.ux.tui.views.footer.footer import FooterContainer
+            from agent_cli.core.ux.tui.views.layout.footer import FooterContainer
 
             footer = self.app.query_one(FooterContainer)
             # Footer outer height = content + borders

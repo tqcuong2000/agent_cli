@@ -59,6 +59,7 @@ from agent_cli.core.providers.manager import ProviderManager
 from agent_cli.core.runtime.session.base import AbstractSessionManager
 from agent_cli.core.runtime.session.file_store import FileSessionManager
 from agent_cli.core.runtime.session.title_service import SessionTitleService
+from agent_cli.core.runtime.services import TerminalManager
 from agent_cli.core.runtime.tools.executor import ToolExecutor
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
@@ -101,6 +102,7 @@ class AppContext:
     providers: ProviderManager
 
     # ── Phase 3 Agent Core ───────────────────────────────────────
+    terminal_manager: TerminalManager
     tool_registry: ToolRegistry
     tool_executor: ToolExecutor
     schema_validator: BaseSchemaValidator
@@ -251,6 +253,8 @@ class AppContext:
         if self.orchestrator:
             await self.orchestrator.shutdown()
 
+        await self.terminal_manager.shutdown()
+
         # Drain the Event Bus (waits for background tasks)
         await self.event_bus.drain()
 
@@ -388,6 +392,19 @@ def create_app(
         allow_overrides=settings.workspace_allow_overrides,
     )
     workspace = SandboxWorkspaceManager(strict_workspace)
+    terminal_defaults = tool_defaults.get("terminal", {})
+    if not isinstance(terminal_defaults, dict):
+        terminal_defaults = {}
+    terminal_manager = TerminalManager(
+        event_bus=event_bus,
+        workspace_root=workspace.get_root(),
+        max_terminals=int(terminal_defaults.get("max_terminals", 3)),
+        max_buffer_lines=int(terminal_defaults.get("max_buffer_lines", 2000)),
+        default_wait_timeout=float(
+            terminal_defaults.get("wait_default_timeout", 30.0)
+        ),
+        max_wait_timeout=float(terminal_defaults.get("wait_max_timeout", 300.0)),
+    )
     file_indexer = FileIndexer(
         root_path=workspace.get_root(),
         max_files=int(tool_defaults.get("workspace", {}).get("index_max_files", 5000)),
@@ -397,7 +414,11 @@ def create_app(
     file_tracker = FileChangeTracker(event_bus=event_bus)
     file_tracker.start_tracking(workspace.get_root())
 
-    tool_registry = _build_tool_registry(workspace, data_registry=data_registry)
+    tool_registry = _build_tool_registry(
+        workspace,
+        terminal_manager=terminal_manager,
+        data_registry=data_registry,
+    )
     output_formatter = ToolOutputFormatter(
         max_output_length=settings.tool_output_max_chars,
         data_registry=data_registry,
@@ -477,6 +498,7 @@ def create_app(
         observability=observability,
         adapter_registry=adapter_registry,
         providers=providers,
+        terminal_manager=terminal_manager,
         tool_registry=tool_registry,
         tool_executor=tool_executor,
         schema_validator=schema_validator,
@@ -866,6 +888,7 @@ def _build_adapter_registry() -> AdapterRegistry:
 def _build_tool_registry(
     workspace: BaseWorkspaceManager,
     *,
+    terminal_manager: TerminalManager,
     data_registry: DataRegistry,
 ) -> ToolRegistry:
     """Create and populate the tool registry with all built-in tools."""
@@ -879,6 +902,14 @@ def _build_tool_registry(
         WriteFileTool,
     )
     from agent_cli.core.runtime.tools.shell_tool import RunCommandTool
+    from agent_cli.core.runtime.tools.terminal_tools import (
+        KillTerminalTool,
+        ListTerminalsTool,
+        ReadTerminalTool,
+        SendTerminalInputTool,
+        SpawnTerminalTool,
+        WaitForTerminalTool,
+    )
 
     registry = ToolRegistry()
 
@@ -889,6 +920,12 @@ def _build_tool_registry(
     registry.register(StrReplaceTool(workspace))
     registry.register(InsertLinesTool(workspace))
     registry.register(RunCommandTool(workspace, data_registry=data_registry))
+    registry.register(SpawnTerminalTool(terminal_manager))
+    registry.register(ReadTerminalTool(terminal_manager))
+    registry.register(SendTerminalInputTool(terminal_manager))
+    registry.register(WaitForTerminalTool(terminal_manager))
+    registry.register(KillTerminalTool(terminal_manager))
+    registry.register(ListTerminalsTool(terminal_manager))
     registry.register(AskUserTool())
 
     logger.info(

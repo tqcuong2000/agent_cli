@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 
 from agent_cli.core.infra.events.errors import ToolExecutionError
 from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.runtime._subprocess import build_subprocess_env
+from agent_cli.core.runtime.tools._sanitize import sanitize_terminal_output
 from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
 from agent_cli.core.ux.interaction.base import BaseWorkspaceManager
 
@@ -28,10 +30,6 @@ from agent_cli.core.ux.interaction.base import BaseWorkspaceManager
 
 _DEFAULT_TIMEOUT = 30
 _MAX_TIMEOUT = 120
-_ANSI_CSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
-_ANSI_OSC_RE = re.compile(r"\x1B\][^\x1B\x07]*(?:\x07|\x1B\\)")
-_ANSI_SS3_RE = re.compile(r"\x1BO[@-~]")
-_CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]")
 
 
 def compile_safe_command_patterns(
@@ -122,6 +120,7 @@ class RunCommandTool(BaseTool):
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.DEVNULL,
             cwd=str(self.workspace.get_root()),
+            env=build_subprocess_env(),
         )
 
         try:
@@ -160,8 +159,4 @@ def _sanitize_terminal_output(text: str) -> str:
     This prevents TUI mouse/keyboard escape streams and ANSI cursor control
     sequences from polluting the rendered transcript.
     """
-    sanitized = _ANSI_OSC_RE.sub("", text)
-    sanitized = _ANSI_CSI_RE.sub("", sanitized)
-    sanitized = _ANSI_SS3_RE.sub("", sanitized)
-    sanitized = _CTRL_CHARS_RE.sub("", sanitized)
-    return sanitized
+    return sanitize_terminal_output(text)

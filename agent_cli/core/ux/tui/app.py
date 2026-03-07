@@ -9,16 +9,16 @@ from agent_cli.core.infra.config.config_models import normalize_effort
 from agent_cli.core.infra.events.events import BaseEvent, SettingsChangedEvent
 from agent_cli.core.infra.registry.bootstrap import create_app
 from agent_cli.core.ux.commands.base import CommandRegistry
-from agent_cli.core.ux.tui.views.body.body import BodyContainer
+from agent_cli.core.ux.tui.views.layout.body import BodyContainer
 from agent_cli.core.ux.tui.views.common.command_popup import CommandPopup
 from agent_cli.core.ux.tui.views.common.error_popup import ErrorPopup
 from agent_cli.core.ux.tui.views.common.file_popup import FileDiscoveryPopup
 from agent_cli.core.ux.tui.views.common.popup_list import BasePopupListView
-from agent_cli.core.ux.tui.views.common.session_overlay import SessionOverlay
-from agent_cli.core.ux.tui.views.footer.footer import FooterContainer
-from agent_cli.core.ux.tui.views.header.header import HeaderContainer
-from agent_cli.core.ux.tui.views.header.title import TitleComponent
-from agent_cli.core.ux.tui.views.provider_manager.provider_overlay import (
+from agent_cli.core.ux.tui.views.main.session.session_overlay import SessionOverlay
+from agent_cli.core.ux.tui.views.layout.footer import FooterContainer
+from agent_cli.core.ux.tui.views.layout.header import HeaderContainer
+from agent_cli.core.ux.tui.views.layout.header import TitleComponent
+from agent_cli.core.ux.tui.views.main.provider.provider_overlay import (
     ProviderOverlay,
 )
 
@@ -122,8 +122,8 @@ class AgentCLIApp(App):
     def _init_status_bar(self) -> None:
         """Push current settings into the reactive status bar."""
         try:
-            from agent_cli.core.ux.tui.views.footer.status import StatusContainer
-            from agent_cli.core.ux.tui.views.header.agent_badge import (
+            from agent_cli.core.ux.tui.views.main.status.status import StatusContainer
+            from agent_cli.core.ux.tui.views.layout.header import (
                 AgentBadgeComponent,
             )
 

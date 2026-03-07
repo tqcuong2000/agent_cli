@@ -49,7 +49,7 @@ class ErrorPopup(Widget):
 
     def _position_bottom_right(self) -> None:
         try:
-            from agent_cli.core.ux.tui.views.footer.footer import FooterContainer
+            from agent_cli.core.ux.tui.views.layout.footer import FooterContainer
 
             footer = self.app.query_one(FooterContainer)
             footer_height = footer.outer_size.height

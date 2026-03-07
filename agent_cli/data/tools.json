@@ -37,5 +37,11 @@
     "defaults": {
       "allowed_domains": []
     }
+  },
+  "terminal": {
+    "max_terminals": 3,
+    "max_buffer_lines": 2000,
+    "wait_default_timeout": 30.0,
+    "wait_max_timeout": 300.0
   }
 }

@@ -1,0 +1,13 @@
+{
+  "offerings": {
+    "ollama-cogito-3b": {
+      "provider": "ollama",
+      "api_model": "cogito:3b",
+      "plain_text": true,
+      "context_window": 128000,
+      "tokenizer": "tiktoken",
+      "pricing_input": 0.0,
+      "pricing_output": 0.0
+    }
+  }
+}

@@ -14,10 +14,9 @@ from agent_cli.core.infra.events.events import (
     UserApprovalResponseEvent,
     UserRequestEvent,
 )
-from agent_cli.core.ux.tui.views.footer.submit_btn import SubmitButtonComponent
-from agent_cli.core.ux.tui.views.footer.user_input import UserInputComponent
-from agent_cli.core.ux.tui.views.footer.user_interaction import UserInteraction
-from agent_cli.core.ux.tui.views.footer.status import StatusContainer
+from agent_cli.core.ux.tui.views.main.input.user_input import SubmitButtonComponent, UserInputComponent
+from agent_cli.core.ux.tui.views.main.input.user_interaction import UserInteraction
+from agent_cli.core.ux.tui.views.main.status.status import StatusContainer
 
 
 class FooterContainer(Container):
@@ -90,8 +89,9 @@ class FooterContainer(Container):
             self._sync_submit_button_offset()
 
     def on_submit_button_component_pressed(
-        self, _: SubmitButtonComponent.Pressed
+        self, _: UserInputComponent.Submitted
     ) -> None:
+        """Handle manual submit button press by delegating to input component."""
         self.input_comp.submit()
 
     async def _on_user_approval_request(self, event: BaseEvent) -> None:
@@ -228,7 +228,7 @@ class FooterContainer(Container):
         # This guarantees the user bubble is in the DOM before the
         # Orchestrator starts the agent and agent responses mount.
         try:
-            from agent_cli.core.ux.tui.views.body.text_window import TextWindowContainer
+            from agent_cli.core.ux.tui.views.main.chat.text_window import TextWindowContainer
 
             text_window = self.app.query_one(TextWindowContainer)
             text_window.add_user_message(text)

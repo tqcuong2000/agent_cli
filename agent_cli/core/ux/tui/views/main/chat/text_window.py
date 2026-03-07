@@ -26,11 +26,11 @@ from agent_cli.core.infra.events.events import (
     UserRequestEvent,
     SessionLoadedEvent,
 )
-from agent_cli.core.ux.tui.views.body.messages.agent_response import AgentResponseContainer
-from agent_cli.core.ux.tui.views.body.messages.changed_file_detail_block import DiffLine
-from agent_cli.core.ux.tui.views.body.messages.system_message import SystemMessageContainer
-from agent_cli.core.ux.tui.views.body.messages.tool_step import ToolStepWidget
-from agent_cli.core.ux.tui.views.body.messages.user_message import UserMessageContainer
+from agent_cli.core.ux.tui.views.main.chat.messages.agent_response import AgentResponseContainer
+from agent_cli.core.ux.tui.views.main.chat.messages.changed_file_detail_block import DiffLine
+from agent_cli.core.ux.tui.views.main.chat.messages.system_message import SystemMessageContainer
+from agent_cli.core.ux.tui.views.main.chat.messages.tool_step import ToolStepWidget
+from agent_cli.core.ux.tui.views.main.chat.messages.user_message import UserMessageContainer
 from agent_cli.core.ux.tui.views.common.error_popup import ErrorPopup
 
 if TYPE_CHECKING:
@@ -278,7 +278,7 @@ class TextWindowContainer(Container):
         if not target_path:
             return
 
-        from agent_cli.core.ux.tui.views.body.messages.changed_file_detail_block import (
+        from agent_cli.core.ux.tui.views.main.chat.messages.changed_file_detail_block import (
             ChangedFileDetailBlock,
         )
 

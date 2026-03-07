@@ -388,6 +388,7 @@ PanelWindowContainer {
         min-width: 30;
         height: 100%;
         border-left: solid $panel 50%;
+        padding: 1;
     }
 
 
@@ -933,4 +934,80 @@ SessionOverlay {
 
     ProviderOverlay .empty-state {
         color: $text-muted;
+    }
+
+    /* TabbedContainer */
+
+    TabbedContainer {
+        width: 100%;
+        height: 1fr;
+        scrollbar-size: 0 0;
+        overflow: hidden;
+        padding: 0;
+        background: $background-darken-1;
+        border: solid $panel;
+    }
+
+    TabbedContainer .header {
+        width: 100%;
+        height: 1;
+        layout: grid;
+        grid-size: 3 1;
+        grid-columns: auto 1fr auto;
+        background: $panel 40%;
+    }
+
+    TabbedContainer .title {
+        color: $text;
+        text-style: bold;
+        background: transparent;
+        text-align: center;
+        content-align: center middle;
+    }
+
+    TabbedContainer .navigate {
+        color: $text-muted;
+        text-style: bold;
+        padding: 0 1;
+        background: transparent;
+    }
+
+    TabbedContainer .navigate:hover {
+        background: $panel-lighten-2;
+    }
+
+    TabbedContainer .content {
+        height: 1fr;
+        padding: 1;
+        overflow: hidden;
+    }
+
+    TabbedContainer .actions {
+        height: 1;
+    }
+
+    TerminalOutputWidget {
+        width: 100%;
+        height: 1fr;
+        layout: vertical;
+        background: $surface 35%;
+        border: solid $panel;
+    }
+
+    TerminalOutputWidget #terminal_meta {
+        width: 100%;
+        height: auto;
+        color: $accent-lighten-1;
+        background: $panel 55%;
+        padding: 0 1;
+        text-style: bold;
+    }
+
+    TerminalOutputWidget #terminal_output_log {
+        width: 100%;
+        height: 1fr;
+        background: $background-darken-2;
+        color: $text;
+        scrollbar-size: 0 0;
+        padding: 0 1;
     }

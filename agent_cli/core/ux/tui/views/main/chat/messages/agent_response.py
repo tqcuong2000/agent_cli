@@ -5,13 +5,12 @@ from typing import Optional
 from textual.containers import Container
 from textual.widget import Widget
 
-from agent_cli.core.ux.tui.views.body.messages.answer_block import AnswerBlock
-from agent_cli.core.ux.tui.views.body.messages.changed_file_detail_block import (
+from agent_cli.core.ux.tui.views.main.chat.messages.answer_block import AnswerBlock
+from agent_cli.core.ux.tui.views.main.chat.messages.changed_file_detail_block import (
     ChangedFileDetailBlock,
-    DiffLine,
 )
-from agent_cli.core.ux.tui.views.body.messages.thinking_block import ThinkingBlock
-from agent_cli.core.ux.tui.views.body.messages.tool_step import ToolStepWidget
+from agent_cli.core.ux.tui.views.main.chat.messages.thinking_block import ThinkingBlock
+from agent_cli.core.ux.tui.views.main.chat.messages.tool_step import ToolStepWidget
 
 
 class AgentResponseContainer(Container):
@@ -73,17 +72,17 @@ class AgentResponseContainer(Container):
         self.call_after_refresh(self._mount_child, child)
 
     def _create_thinking_block(self) -> "ThinkingBlock":
-        from agent_cli.core.ux.tui.views.body.messages.thinking_block import ThinkingBlock
+        from agent_cli.core.ux.tui.views.main.chat.messages.thinking_block import ThinkingBlock
 
         return ThinkingBlock()
 
     def _create_tool_step(self, tool_name: str, args: dict) -> "ToolStepWidget":
-        from agent_cli.core.ux.tui.views.body.messages.tool_step import ToolStepWidget
+        from agent_cli.core.ux.tui.views.main.chat.messages.tool_step import ToolStepWidget
 
         return ToolStepWidget(tool_name=tool_name, args=args)
 
     def _create_answer_block(self, content: str) -> "AnswerBlock":
-        from agent_cli.core.ux.tui.views.body.messages.answer_block import AnswerBlock
+        from agent_cli.core.ux.tui.views.main.chat.messages.answer_block import AnswerBlock
 
         return AnswerBlock(content=content)
 
@@ -95,7 +94,7 @@ class AgentResponseContainer(Container):
         diff_lines: list[DiffLine],
         file_path: str = "",
     ) -> "ChangedFileDetailBlock":
-        from agent_cli.core.ux.tui.views.body.messages.changed_file_detail_block import (
+        from agent_cli.core.ux.tui.views.main.chat.messages.changed_file_detail_block import (
             ChangedFileDetailBlock,
         )
 

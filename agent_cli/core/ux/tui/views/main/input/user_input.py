@@ -1,13 +1,47 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from textual import events
 from textual.css.query import NoMatches
 from textual.message import Message
-from textual.widgets import TextArea
+from textual.widgets import Static, TextArea
 
 from agent_cli.core.ux.tui.views.common.popup_list import BasePopupListView
-import json
-from pathlib import Path
+
+
+class SubmitButtonComponent(Static):
+    """A custom styled submit button for the agent orchestrator."""
+
+    can_focus = True
+
+    class Pressed(Message):
+        """Emitted when the submit button is activated."""
+
+        def __init__(self, button: "SubmitButtonComponent") -> None:
+            self.button = button
+            super().__init__()
+
+    DEFAULT_CSS = ""
+
+    def __init__(self, label: str = "Submit", **kwargs):
+        # Default to 'submit_btn' ID if not provided
+        if "id" not in kwargs:
+            kwargs["id"] = "submit_btn"
+        super().__init__(label, **kwargs)
+
+    def _emit_pressed(self) -> None:
+        self.post_message(self.Pressed(self))
+
+    def on_click(self, _: events.Click) -> None:
+        self._emit_pressed()
+
+    def key_enter(self) -> None:
+        self._emit_pressed()
+
+    def key_space(self) -> None:
+        self._emit_pressed()
 
 
 class UserInputComponent(TextArea):
@@ -209,7 +243,7 @@ class UserInputComponent(TextArea):
                         self.text = self._history_draft
                     else:
                         self.text = self._history[self._history_index]
-                    self.move_cursor((len(self.document.lines) - 1, len(self.document.get_line(self.document.line_count - 1))))
+                        self.move_cursor((len(self.document.lines) - 1, len(self.document.get_line(self.document.line_count - 1))))
                 return
 
         if key == "enter":

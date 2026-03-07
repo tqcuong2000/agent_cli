@@ -6,8 +6,8 @@ from textual import events
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
 
-from agent_cli.core.ux.tui.views.body.panel_window import PanelWindowContainer
-from agent_cli.core.ux.tui.views.body.text_window import TextWindowContainer
+from agent_cli.core.ux.tui.views.main.panel.panel_window import PanelWindowContainer
+from agent_cli.core.ux.tui.views.main.chat.text_window import TextWindowContainer
 
 if TYPE_CHECKING:
     from agent_cli.core.infra.registry.bootstrap import AppContext

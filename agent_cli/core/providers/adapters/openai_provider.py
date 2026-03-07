@@ -590,11 +590,11 @@ class OpenAIProvider(BaseLLMProvider):
 
     def _azure_chat_web_search_contract_available(self) -> bool:
         capabilities = self._data_registry.get_model_capabilities(self.model_name)
-        if capabilities is None or not capabilities.web_search.supported:
-            return False
+        if capabilities is not None and capabilities.web_search.supported:
+            return True
         chat_profile = self._azure_chat_web_search_profile()
         profile_tool_type = str(chat_profile.get("tool_type", "")).strip()
-        if capabilities.web_search.tool_type or profile_tool_type:
+        if profile_tool_type:
             return True
         mutations = chat_profile.get("mutations")
         return bool(isinstance(mutations, list) and mutations)
@@ -618,6 +618,12 @@ class OpenAIProvider(BaseLLMProvider):
             tool_type = str(capabilities.web_search.tool_type).strip()
         if not tool_type:
             tool_type = str(chat_profile.get("tool_type", "")).strip()
+
+        mutations = chat_profile.get("mutations")
+        if not tool_type and not (isinstance(mutations, list) and mutations):
+            # Default to web_search_preview if supported but no explicit tool type or mutations given
+            tool_type = "web_search_preview"
+
         if tool_type:
             kwargs["extra_body"] = {"tools": [{"type": tool_type}]}
 
