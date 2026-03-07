@@ -909,9 +909,12 @@ def _build_tool_registry(
         InsertLinesTool,
         ListDirectoryTool,
         ReadFileTool,
-        SearchFilesTool,
         StrReplaceTool,
         WriteFileTool,
+    )
+    from agent_cli.core.runtime.tools.search_tools import (
+        FindByNameTool,
+        GrepSearchTool,
     )
     from agent_cli.core.runtime.tools.shell_tool import RunCommandTool
     from agent_cli.core.runtime.tools.terminal_tools import (
@@ -924,12 +927,58 @@ def _build_tool_registry(
     )
 
     registry = ToolRegistry()
+    tool_defaults = data_registry.get_tool_defaults()
+    file_tool_defaults = tool_defaults.get("file_tools", {})
+    if not isinstance(file_tool_defaults, dict):
+        file_tool_defaults = {}
+    find_by_name_defaults = tool_defaults.get("find_by_name", {})
+    if not isinstance(find_by_name_defaults, dict):
+        find_by_name_defaults = {}
+    grep_search_defaults = tool_defaults.get("grep_search", {})
+    if not isinstance(grep_search_defaults, dict):
+        grep_search_defaults = {}
 
-    registry.register(ReadFileTool(workspace))
+    registry.register(
+        ReadFileTool(
+            workspace,
+            show_line_numbers=bool(file_tool_defaults.get("show_line_numbers", True)),
+            max_bytes=int(
+                file_tool_defaults.get("read_file_max_bytes", 1_048_576)
+            ),
+        )
+    )
     registry.register(WriteFileTool(workspace))
-    registry.register(ListDirectoryTool(workspace))
-    registry.register(SearchFilesTool(workspace))
-    registry.register(StrReplaceTool(workspace))
+    registry.register(
+        ListDirectoryTool(
+            workspace,
+            default_max_depth=int(
+                file_tool_defaults.get("list_directory_default_depth", 2)
+            ),
+        )
+    )
+    registry.register(
+        FindByNameTool(
+            workspace,
+            max_results=int(find_by_name_defaults.get("max_results", 50)),
+            default_max_depth=int(find_by_name_defaults.get("default_max_depth", 10)),
+        )
+    )
+    registry.register(
+        GrepSearchTool(
+            workspace,
+            max_results=int(grep_search_defaults.get("max_results", 50)),
+            max_file_size_bytes=int(
+                grep_search_defaults.get("max_file_size_bytes", 524_288)
+            ),
+        )
+    )
+    registry.register(
+        StrReplaceTool(
+            workspace,
+            diff_context_lines=int(file_tool_defaults.get("diff_context_lines", 2)),
+            diff_max_lines=int(file_tool_defaults.get("diff_max_lines", 60)),
+        )
+    )
     registry.register(InsertLinesTool(workspace))
     registry.register(
         RunCommandTool(

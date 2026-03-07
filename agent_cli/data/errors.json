@@ -140,7 +140,7 @@
         "expected": "non_empty_list",
         "received": "empty",
         "fix_instruction": "Set decision.actions to a non-empty list of {\"tool\":\"...\",\"args\":{...}} items.",
-        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"search_files\",\"args\":{\"pattern\":\"TODO\"}}]}}"
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"grep_search\",\"args\":{\"query\":\"TODO\"}}]}}"
       },
       "route": {
         "emit_agent_memory": true
@@ -155,7 +155,7 @@
         "expected": "at_most_{max_allowed}",
         "received": "{actual_size}",
         "fix_instruction": "Reduce the batch to at most {max_allowed} actions and try again.",
-        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Run fewer actions per turn.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"search_files\",\"args\":{\"pattern\":\"TODO\"}}]}}"
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Run fewer actions per turn.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"grep_search\",\"args\":{\"query\":\"TODO\"}}]}}"
       },
       "route": {
         "emit_agent_memory": true
@@ -170,7 +170,7 @@
         "expected": "unique_values",
         "received": "{duplicate_action_id}",
         "fix_instruction": "Ensure every action_id is unique within the batch.",
-        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Use unique action ids.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"},\"action_id\":\"act_0\"},{\"tool\":\"search_files\",\"args\":{\"pattern\":\"TODO\"},\"action_id\":\"act_1\"}]}}"
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Use unique action ids.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"},\"action_id\":\"act_0\"},{\"tool\":\"grep_search\",\"args\":{\"query\":\"TODO\"},\"action_id\":\"act_1\"}]}}"
       },
       "route": {
         "emit_agent_memory": true
@@ -336,7 +336,7 @@
         "expected": "non_empty_list",
         "received": "invalid",
         "fix_instruction": "Set decision.actions to a non-empty list of {\"tool\":\"...\",\"args\":{...}} items when decision.type is \"execute_actions\".",
-        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"search_files\",\"args\":{\"pattern\":\"TODO\"}}]}}"
+        "valid_example": "{\"title\":\"Batch read\",\"thought\":\"Need independent tool results.\",\"decision\":{\"type\":\"execute_actions\",\"actions\":[{\"tool\":\"read_file\",\"args\":{\"path\":\"README.md\"}},{\"tool\":\"grep_search\",\"args\":{\"query\":\"TODO\"}}]}}"
       },
       "route": {
         "emit_agent_memory": true

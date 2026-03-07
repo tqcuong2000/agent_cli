@@ -1,16 +1,10 @@
 """
-File Tools — core tools for reading, writing, editing, listing, and searching files.
-
-These are the fundamental file-system tools that every agent needs.
-All paths are resolved and jailed via a workspace manager to prevent
-escapes outside the project root.
+File tools for reading, writing, editing, and listing workspace files.
 """
 
 from __future__ import annotations
 
 import difflib
-import fnmatch
-import os
 from pathlib import Path
 from typing import Any, Optional, Type
 
@@ -21,11 +15,9 @@ from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
 from agent_cli.core.ux.interaction.base import BaseWorkspaceManager
 
 _LIST_DIRECTORY_DEFAULT_DEPTH = 2
-_SEARCH_FILES_DEFAULT_MAX_RESULTS = 50
 _DIFF_CONTEXT_LINES = 2
 _DIFF_MAX_LINES = 60
 _READ_FILE_MAX_BYTES = 1_048_576
-_SEARCH_FILES_MAX_FILE_BYTES = 524_288
 
 
 def _is_probably_binary(data: bytes) -> bool:
@@ -50,9 +42,21 @@ def _decode_text_bytes(data: bytes) -> tuple[str, bool]:
         return data.decode("utf-8", errors="replace"), True
 
 
-# ══════════════════════════════════════════════════════════════════════
-# ReadFile
-# ══════════════════════════════════════════════════════════════════════
+def _format_with_line_numbers(
+    lines: list[str],
+    *,
+    start_line_number: int = 1,
+) -> str:
+    """Prefix text lines with right-aligned 1-indexed line numbers."""
+    if not lines:
+        return ""
+
+    last_line_number = start_line_number + len(lines) - 1
+    width = max(3, len(str(last_line_number)))
+    return "\n".join(
+        f"{line_no:>{width}}: {line}"
+        for line_no, line in enumerate(lines, start=start_line_number)
+    )
 
 
 class ReadFileArgs(BaseModel):
@@ -84,8 +88,16 @@ class ReadFileTool(BaseTool):
     is_safe = True
     category = ToolCategory.FILE
 
-    def __init__(self, workspace: BaseWorkspaceManager) -> None:
+    def __init__(
+        self,
+        workspace: BaseWorkspaceManager,
+        *,
+        show_line_numbers: bool = True,
+        max_bytes: int = _READ_FILE_MAX_BYTES,
+    ) -> None:
         self.workspace = workspace
+        self._show_line_numbers = bool(show_line_numbers)
+        self._max_bytes = max(int(max_bytes), 1)
 
     @property
     def args_schema(self) -> Type[BaseModel]:
@@ -111,26 +123,36 @@ class ReadFileTool(BaseTool):
                 f"Cannot read '{path}': file appears to be binary or unsupported text.",
                 tool_name=self.name,
             )
-        was_truncated = file_size_bytes > _READ_FILE_MAX_BYTES
-        clipped = raw[:_READ_FILE_MAX_BYTES]
+
+        was_truncated = file_size_bytes > self._max_bytes
+        clipped = raw[: self._max_bytes]
         content, had_decode_replacement = _decode_text_bytes(clipped)
         content = content.replace("\r\n", "\n").replace("\r", "\n")
         all_lines = content.splitlines()
         total_lines = len(all_lines)
-        display_content = content
+        display_lines = all_lines
         showing_clause = ""
+        line_offset = 1
 
-        # Optional line slicing
         if start_line is not None or end_line is not None:
             start = max((start_line or 1) - 1, 0)
             end = min(end_line or total_lines, total_lines)
-            display_content = "\n".join(all_lines[start:end])
+            display_lines = all_lines[start:end]
             showing_clause = f" | Showing: {start + 1}-{end} of {total_lines}"
+            line_offset = start + 1
+
+        if self._show_line_numbers:
+            display_content = _format_with_line_numbers(
+                display_lines,
+                start_line_number=line_offset,
+            )
+        else:
+            display_content = "\n".join(display_lines)
 
         notices: list[str] = []
         if was_truncated:
             notices.append(
-                f"File is large ({file_size_bytes:,} bytes). Showing first {_READ_FILE_MAX_BYTES:,} bytes."
+                f"File is large ({file_size_bytes:,} bytes). Showing first {self._max_bytes:,} bytes."
             )
         if had_decode_replacement:
             notices.append("Non-UTF-8 bytes were decoded with replacement characters.")
@@ -144,11 +166,6 @@ class ReadFileTool(BaseTool):
         parts.extend(notices)
         parts.append(display_content)
         return "\n".join(part for part in parts if part != "")
-
-
-# ══════════════════════════════════════════════════════════════════════
-# WriteFile
-# ══════════════════════════════════════════════════════════════════════
 
 
 class WriteFileArgs(BaseModel):
@@ -173,7 +190,7 @@ class WriteFileTool(BaseTool):
         "If the file already exists, it will be completely overwritten. "
         "Parent directories are created automatically."
     )
-    is_safe = False  # Requires approval — modifies filesystem
+    is_safe = False
     parallel_safe = False
     category = ToolCategory.FILE
 
@@ -201,9 +218,6 @@ class WriteFileTool(BaseTool):
         return f"Successfully wrote {lines} lines ({size:,} bytes) to {path}"
 
 
-# ══════════════ Edit (surgical, preferred over WriteFile) ══════════════
-
-
 def _line_numbers_for_exact_match(content: str, needle: str) -> list[int]:
     """Return 1-indexed start line numbers where ``needle`` appears exactly."""
     if not needle:
@@ -221,9 +235,10 @@ def _line_numbers_for_exact_match(content: str, needle: str) -> list[int]:
 
 
 def _line_number_for_case_insensitive_line_hint(
-    content: str, old_str: str
+    content: str,
+    old_str: str,
 ) -> int | None:
-    """Return first line number where old_str's first line appears (case-insensitive)."""
+    """Return first line number where old_str's first line appears."""
     first_line = old_str.splitlines()[0].strip() if old_str else ""
     if not first_line:
         return None
@@ -450,11 +465,6 @@ class InsertLinesTool(BaseTool):
         )
 
 
-# ══════════════════════════════════════════════════════════════════════
-# ListDirectory
-# ══════════════════════════════════════════════════════════════════════
-
-
 class ListDirectoryArgs(BaseModel):
     """Arguments for the ``list_directory`` tool."""
 
@@ -479,8 +489,14 @@ class ListDirectoryTool(BaseTool):
     is_safe = True
     category = ToolCategory.FILE
 
-    def __init__(self, workspace: BaseWorkspaceManager) -> None:
+    def __init__(
+        self,
+        workspace: BaseWorkspaceManager,
+        *,
+        default_max_depth: int = _LIST_DIRECTORY_DEFAULT_DEPTH,
+    ) -> None:
         self.workspace = workspace
+        self._default_max_depth = max(int(default_max_depth), 0)
 
     @property
     def args_schema(self) -> Type[BaseModel]:
@@ -488,7 +504,7 @@ class ListDirectoryTool(BaseTool):
 
     async def execute(self, **kwargs: Any) -> str:
         path = str(kwargs.get("path", "."))
-        max_depth = int(kwargs.get("max_depth", _LIST_DIRECTORY_DEFAULT_DEPTH))
+        max_depth = int(kwargs.get("max_depth", self._default_max_depth))
 
         resolved = self.workspace.resolve_path(path, must_exist=True)
 
@@ -547,132 +563,3 @@ class ListDirectoryTool(BaseTool):
                 return f"{size:.0f}{unit}" if unit == "B" else f"{size:.1f}{unit}"
             size /= 1024
         return f"{size:.1f}TB"
-
-
-# ══════════════════════════════════════════════════════════════════════
-# SearchFiles (grep-like)
-# ══════════════════════════════════════════════════════════════════════
-
-
-class SearchFilesArgs(BaseModel):
-    """Arguments for the ``search_files`` tool."""
-
-    pattern: str = Field(description="Text pattern to search for (case-insensitive).")
-    path: str = Field(
-        default=".",
-        description="Directory to search in (relative to workspace root).",
-    )
-    file_pattern: str = Field(
-        default="*",
-        description="Glob pattern to filter file names (e.g. '*.py').",
-    )
-    max_results: int = Field(
-        default=_SEARCH_FILES_DEFAULT_MAX_RESULTS,
-        description="Maximum number of matching lines to return.",
-    )
-
-
-class SearchFilesTool(BaseTool):
-    """Search for a text pattern across files (grep-like)."""
-
-    name = "search_files"
-    description = (
-        "Search for a text pattern across files in a directory. "
-        "Returns matching lines with file path and line number. "
-        "Case-insensitive by default."
-    )
-    is_safe = True
-    category = ToolCategory.SEARCH
-
-    def __init__(self, workspace: BaseWorkspaceManager) -> None:
-        self.workspace = workspace
-
-    @property
-    def args_schema(self) -> Type[BaseModel]:
-        return SearchFilesArgs
-
-    async def execute(self, **kwargs: Any) -> str:
-        pattern = str(kwargs.get("pattern", ""))
-        path = str(kwargs.get("path", "."))
-        file_pattern = str(kwargs.get("file_pattern", "*"))
-        max_results = int(kwargs.get("max_results", _SEARCH_FILES_DEFAULT_MAX_RESULTS))
-
-        resolved = self.workspace.resolve_path(path, must_exist=True)
-
-        if not resolved.is_dir():
-            raise ToolExecutionError(
-                f"'{path}' is not a directory.",
-                tool_name=self.name,
-            )
-
-        search_lower = pattern.lower()
-        matches: list[str] = []
-        skipped_large_files = 0
-        skipped_binary_files = 0
-
-        for root, _dirs, files in os.walk(resolved):
-            # Skip hidden directories and common noise
-            root_path = Path(root)
-            if not self.workspace.is_allowed(root_path):
-                continue
-
-            if any(
-                part.startswith(".") or part in ("__pycache__", "node_modules", ".git")
-                for part in root_path.parts
-            ):
-                continue
-
-            for filename in files:
-                if not fnmatch.fnmatch(filename, file_pattern):
-                    continue
-
-                file_path = root_path / filename
-                if not self.workspace.is_allowed(file_path):
-                    continue
-
-                try:
-                    size_bytes = file_path.stat().st_size
-                except (PermissionError, OSError):
-                    continue
-
-                if size_bytes > _SEARCH_FILES_MAX_FILE_BYTES:
-                    skipped_large_files += 1
-                    continue
-
-                try:
-                    raw = file_path.read_bytes()
-                except (PermissionError, OSError):
-                    continue
-                if _is_probably_binary(raw):
-                    skipped_binary_files += 1
-                    continue
-                text, _ = _decode_text_bytes(raw)
-
-                for line_num, line in enumerate(text.splitlines(), start=1):
-                    if search_lower in line.lower():
-                        rel = file_path.relative_to(resolved)
-                        matches.append(f"{rel}:{line_num}: {line.rstrip()}")
-
-                        if len(matches) >= max_results:
-                            matches.append(
-                                f"\n[Stopped at {max_results} results. "
-                                f"Narrow your search pattern.]"
-                            )
-                            if skipped_large_files or skipped_binary_files:
-                                matches.append(
-                                    f"[Skipped files: large={skipped_large_files}, binary={skipped_binary_files}]"
-                                )
-                            return "\n".join(matches)
-
-        if not matches:
-            suffix = ""
-            if skipped_large_files or skipped_binary_files:
-                suffix = f" Skipped files: large={skipped_large_files}, binary={skipped_binary_files}."
-            return f"No matches found for '{pattern}' in '{path}'.{suffix}"
-
-        prefix = f"Found {len(matches)} matches:"
-        if skipped_large_files or skipped_binary_files:
-            prefix += (
-                f" (skipped large={skipped_large_files}, binary={skipped_binary_files})"
-            )
-        return prefix + "\n" + "\n".join(matches)

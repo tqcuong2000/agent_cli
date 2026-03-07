@@ -81,7 +81,7 @@ def default_empty_folder_scenario() -> BenchmarkScenario:
                 turn_id="bootstrap_search",
                 prompt=(
                     "Continue the benchmark. "
-                    "Use exactly one tool call: search_files with pattern='README|pyproject|package.json|Cargo.toml'. "
+                    "Use exactly one tool call: find_by_name with pattern='*', path='.', extensions=['md','toml','json'], and max_depth=2. "
                     "Do not use any other tools. "
                     "Reply in Markdown with exactly these headings and no others:\n"
                     "# Search Result\n"
@@ -89,7 +89,7 @@ def default_empty_folder_scenario() -> BenchmarkScenario:
                     "# Recommended Next Step\n"
                     "In '# Search Result', state either 'No bootstrap files found.' or list the matches."
                 ),
-                expected_tools=["search_files"],
+                expected_tools=["find_by_name"],
                 required_headings=[
                     "# Search Result",
                     "# Interpretation",
