@@ -94,6 +94,32 @@ def test_create_app_registers_new_search_tools_and_removes_legacy_search():
 
 
 @pytest.mark.asyncio
+async def test_create_app_honors_read_file_line_number_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    original = DataRegistry.get_tool_defaults
+
+    def _patched_defaults(self: DataRegistry):
+        defaults = original(self)
+        defaults["file_tools"]["show_line_numbers"] = False
+        return defaults
+
+    monkeypatch.setattr(DataRegistry, "get_tool_defaults", _patched_defaults)
+
+    target = tmp_path / "sample.txt"
+    target.write_text("line1\nline2\n", encoding="utf-8")
+
+    ctx = create_app(root_folder=tmp_path)
+    tool = ctx.tool_registry.get("read_file")
+
+    assert tool is not None
+    output = await tool.execute(path="sample.txt")
+    assert "\nline1\nline2" in output
+    assert "  1: line1" not in output
+
+
+@pytest.mark.asyncio
 async def test_create_app_default_agent_prompt_includes_system_information():
     ctx = create_app()
     assert ctx.agent_registry is not None
