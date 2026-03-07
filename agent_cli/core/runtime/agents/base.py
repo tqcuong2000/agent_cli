@@ -49,6 +49,7 @@ from agent_cli.core.runtime.orchestrator.state_manager import AbstractStateManag
 from agent_cli.core.infra.registry.registry import DataRegistry
 from agent_cli.core.providers.base.base import BaseLLMProvider
 from agent_cli.core.providers.base.models import LLMResponse, ProviderRequestOptions
+from agent_cli.core.runtime.services.system_info import SystemInfoProvider
 from agent_cli.core.runtime.tools.base import ToolResult
 from agent_cli.core.runtime.tools.executor import ToolExecutor
 
@@ -128,6 +129,7 @@ class BaseAgent(ABC):
         prompt_builder: PromptBuilder,
         *,
         data_registry: DataRegistry,
+        system_info_provider: SystemInfoProvider | None = None,
         settings: Any = None,  # AgentSettings
     ) -> None:
         self.config = config
@@ -138,6 +140,7 @@ class BaseAgent(ABC):
         self.event_bus = event_bus
         self.state_manager = state_manager
         self.prompt_builder = prompt_builder
+        self.system_info_provider = system_info_provider
 
         # In tests this might be None, so fallback gracefully
         if settings is None:

@@ -11,6 +11,10 @@
       "^(node|python|ruby|go)\\s+--version\\b"
     ]
   },
+  "subprocess": {
+    "shell_executable": "",
+    "shell_flavor": ""
+  },
   "output_formatter": {
     "error_truncation_chars": 2000
   },

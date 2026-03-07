@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List
 
 from agent_cli.core.infra.registry.registry import DataRegistry
+from agent_cli.core.runtime.services.system_info import SystemInfoSnapshot
 from agent_cli.core.runtime.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -187,6 +188,7 @@ class PromptBuilder:
         persona: str,
         tool_names: List[str],
         *,
+        system_info: SystemInfoSnapshot | None = None,
         workspace_context: str = "",
         extra_instructions: str = "",
         native_tool_mode: bool = False,
@@ -198,13 +200,15 @@ class PromptBuilder:
         Sections:
         1. Agent persona / role
         2. Output format instructions (JSON contract)
-        3. Tool descriptions (auto-generated from registry)
-        4. Workspace context (project type, language)
-        5. Agent-specific extra instructions
+        3. System information (runtime environment)
+        4. Tool descriptions (auto-generated from registry)
+        5. Workspace context (project type, language)
+        6. Agent-specific extra instructions
 
         Args:
             persona:             Agent's role description.
             tool_names:          Which tools this agent can use.
+            system_info:         Prompt-safe runtime environment details.
             workspace_context:   Project info (language, framework).
             extra_instructions:  Agent-specific additions.
             native_tool_mode:    Whether the provider handles tools natively.
@@ -222,26 +226,30 @@ class PromptBuilder:
             )
         )
 
-        # 3. Tool descriptions
+        # 3. System information
+        if system_info is not None:
+            sections.append(self._system_information_section(system_info))
+
+        # 4. Tool descriptions
         if tool_names:
             tool_defs = self.tool_registry.get_definitions_for_llm(tool_names)
             sections.append(self._tools_section(tool_defs))
 
-        # 3.5 Provider-managed capabilities (not local ToolRegistry tools)
+        # 4.5 Provider-managed capabilities (not local ToolRegistry tools)
         if provider_managed_capabilities:
             sections.append(
                 self._provider_capabilities_section(provider_managed_capabilities)
             )
 
-        # 4. Clarification policy (only if ask_user is available)
+        # 5. Clarification policy (only if ask_user is available)
         if "ask_user" in tool_names:
             sections.append(self._ask_user_policy_section())
 
-        # 5. Workspace context
+        # 6. Workspace context
         if workspace_context:
             sections.append(f"# Workspace Context\n{workspace_context}")
 
-        # 6. Extra instructions
+        # 7. Extra instructions
         if extra_instructions:
             sections.append(f"# Additional Instructions\n{extra_instructions}")
 
@@ -268,6 +276,21 @@ class PromptBuilder:
         template = self._data_registry.get_prompt_template(template_name)
         # Avoid str.format because templates intentionally include JSON braces.
         return template.replace("{title_max_words}", str(self._title_max_words))
+
+    def _system_information_section(self, system_info: SystemInfoSnapshot) -> str:
+        """Render prompt-safe runtime information for the current app."""
+        lines = [
+            f"Operating system: {system_info.operating_system}",
+            f"Architecture: {system_info.architecture}",
+            f"Local date: {system_info.local_date}",
+            f"Timezone: {system_info.timezone}",
+            f"Workspace root: {system_info.workspace_root}",
+            f"Command working directory: {system_info.command_working_directory}",
+            f"Command shell: {system_info.shell_name}",
+            f"Shell executable: {system_info.shell_executable}",
+            f"Python runtime: {system_info.python_version}",
+        ]
+        return "# System Information\n" + "\n".join(lines)
 
     @staticmethod
     def _tools_section(tool_defs: List[Dict[str, Any]]) -> str:

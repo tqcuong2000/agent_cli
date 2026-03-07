@@ -6,8 +6,6 @@ and performs standard tasks utilizing the available tools.
 
 from __future__ import annotations
 
-import platform
-
 from agent_cli.core.runtime.agents.base import BaseAgent
 
 
@@ -26,11 +24,16 @@ class DefaultAgent(BaseAgent):
 
         native_tools = self._supports_native_tools_effective()
         provider_capabilities = self._get_provider_managed_tools()
+        system_info = (
+            self.system_info_provider.snapshot()
+            if self.system_info_provider is not None
+            else None
+        )
 
         prompt = self.prompt_builder.build(
             persona=persona,
             tool_names=self.get_prompt_tool_names(),
-            workspace_context=f"Operating System: {platform.system() or 'Unknown'}",
+            system_info=system_info,
             native_tool_mode=native_tools,
             multi_action=self.config.multi_action_enabled,
             provider_managed_capabilities=provider_capabilities,

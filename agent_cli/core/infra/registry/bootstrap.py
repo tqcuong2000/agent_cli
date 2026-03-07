@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
+from agent_cli.core.runtime._subprocess import ShellProfile, resolve_shell_profile
 from agent_cli.core.runtime.agents.memory import BaseMemoryManager
 from agent_cli.core.runtime.agents.react_loop import PromptBuilder
 
@@ -59,7 +60,7 @@ from agent_cli.core.providers.manager import ProviderManager
 from agent_cli.core.runtime.session.base import AbstractSessionManager
 from agent_cli.core.runtime.session.file_store import FileSessionManager
 from agent_cli.core.runtime.session.title_service import SessionTitleService
-from agent_cli.core.runtime.services import TerminalManager
+from agent_cli.core.runtime.services import SystemInfoProvider, TerminalManager
 from agent_cli.core.runtime.tools.executor import ToolExecutor
 from agent_cli.core.runtime.tools.output_formatter import ToolOutputFormatter
 from agent_cli.core.runtime.tools.registry import ToolRegistry
@@ -108,6 +109,7 @@ class AppContext:
     schema_validator: BaseSchemaValidator
     memory_manager: BaseMemoryManager
     prompt_builder: PromptBuilder
+    system_info_provider: SystemInfoProvider
     key_manager: Optional[KeyManager] = None
     agent_registry: Optional[AgentRegistry] = None
     session_agents: Optional[SessionAgentRegistry] = None
@@ -395,15 +397,21 @@ def create_app(
     terminal_defaults = tool_defaults.get("terminal", {})
     if not isinstance(terminal_defaults, dict):
         terminal_defaults = {}
+    shell_profile = resolve_shell_profile(tool_defaults)
     terminal_manager = TerminalManager(
         event_bus=event_bus,
         workspace_root=workspace.get_root(),
+        shell_profile=shell_profile,
         max_terminals=int(terminal_defaults.get("max_terminals", 3)),
         max_buffer_lines=int(terminal_defaults.get("max_buffer_lines", 2000)),
         default_wait_timeout=float(
             terminal_defaults.get("wait_default_timeout", 30.0)
         ),
         max_wait_timeout=float(terminal_defaults.get("wait_max_timeout", 300.0)),
+    )
+    system_info_provider = SystemInfoProvider(
+        workspace_root=workspace.get_root(),
+        shell_profile=shell_profile,
     )
     file_indexer = FileIndexer(
         root_path=workspace.get_root(),
@@ -418,6 +426,7 @@ def create_app(
         workspace,
         terminal_manager=terminal_manager,
         data_registry=data_registry,
+        shell_profile=shell_profile,
     )
     output_formatter = ToolOutputFormatter(
         max_output_length=settings.tool_output_max_chars,
@@ -504,6 +513,7 @@ def create_app(
         schema_validator=schema_validator,
         memory_manager=memory_manager,
         prompt_builder=prompt_builder,
+        system_info_provider=system_info_provider,
         key_manager=key_manager,
         agent_registry=None,
         session_agents=None,
@@ -637,6 +647,7 @@ def create_app(
             event_bus=event_bus,
             state_manager=state_manager,
             prompt_builder=prompt_builder,
+            system_info_provider=system_info_provider,
             settings=settings,
             data_registry=data_registry,
         )
@@ -890,6 +901,7 @@ def _build_tool_registry(
     *,
     terminal_manager: TerminalManager,
     data_registry: DataRegistry,
+    shell_profile: ShellProfile,
 ) -> ToolRegistry:
     """Create and populate the tool registry with all built-in tools."""
     from agent_cli.core.runtime.tools.ask_user_tool import AskUserTool
@@ -919,7 +931,13 @@ def _build_tool_registry(
     registry.register(SearchFilesTool(workspace))
     registry.register(StrReplaceTool(workspace))
     registry.register(InsertLinesTool(workspace))
-    registry.register(RunCommandTool(workspace, data_registry=data_registry))
+    registry.register(
+        RunCommandTool(
+            workspace,
+            data_registry=data_registry,
+            shell_profile=shell_profile,
+        )
+    )
     registry.register(SpawnTerminalTool(terminal_manager))
     registry.register(ReadTerminalTool(terminal_manager))
     registry.register(SendTerminalInputTool(terminal_manager))

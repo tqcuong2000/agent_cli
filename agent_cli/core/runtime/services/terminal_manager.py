@@ -19,13 +19,21 @@ from agent_cli.core.infra.events.events import (
     TerminalLogEvent,
     TerminalSpawnedEvent,
 )
-from agent_cli.core.runtime._subprocess import build_subprocess_env
+from agent_cli.core.runtime._subprocess import (
+    ShellProfile,
+    create_shell_subprocess,
+    resolve_shell_profile,
+)
 from agent_cli.core.runtime.tools._sanitize import sanitize_terminal_output
 
 logger = logging.getLogger(__name__)
 
 _TERMINAL_TOOL_NAME = "terminal_manager"
 _EXIT_WAIT_TIMEOUT_SECONDS = 5.0
+_SPAWN_GRACE_PERIOD_SECONDS = 1.0
+_SPAWN_OUTPUT_SETTLE_SECONDS = 0.2
+_SPAWN_NO_OUTPUT_SUCCESS_SECONDS = 0.25
+_SPAWN_POLL_INTERVAL_SECONDS = 0.05
 _DEFAULT_WAIT_TIMEOUT_SECONDS = 30.0
 _MAX_WAIT_TIMEOUT_SECONDS = 300.0
 
@@ -69,6 +77,7 @@ class TerminalManager:
         event_bus: AbstractEventBus,
         workspace_root: Path,
         *,
+        shell_profile: ShellProfile | None = None,
         max_terminals: int = 3,
         max_buffer_lines: int = 2000,
         default_wait_timeout: float = _DEFAULT_WAIT_TIMEOUT_SECONDS,
@@ -76,6 +85,7 @@ class TerminalManager:
     ) -> None:
         self._event_bus = event_bus
         self._workspace_root = Path(workspace_root)
+        self._shell_profile = shell_profile or resolve_shell_profile()
         self._max_terminals = max(int(max_terminals), 1)
         self._max_buffer_lines = max(int(max_buffer_lines), 1)
         self._default_wait_timeout = max(float(default_wait_timeout), 0.1)
@@ -100,13 +110,13 @@ class TerminalManager:
                 tool_name=_TERMINAL_TOOL_NAME,
             )
 
-        process = await asyncio.create_subprocess_shell(
+        process = await create_shell_subprocess(
             normalized_command,
+            shell_profile=self._shell_profile,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             stdin=asyncio.subprocess.PIPE,
             cwd=str(self._workspace_root),
-            env=build_subprocess_env(),
         )
 
         terminal_id = f"term_{uuid.uuid4().hex[:8]}"
@@ -122,6 +132,22 @@ class TerminalManager:
             name=f"terminal-reader:{terminal_id}",
         )
         self._terminals[terminal_id] = terminal
+
+        if await self._exited_during_spawn_grace(terminal) and (
+            terminal.exit_code not in (None, 0)
+        ):
+            await self._await_reader_shutdown(terminal)
+            startup_output = self.read(terminal_id, consume=False)
+            self._terminals.pop(terminal_id, None)
+            message = (
+                f"Terminal command exited during startup (exit code {terminal.exit_code})."
+            )
+            if startup_output.strip():
+                message = f"{message}\n{startup_output}"
+            raise ToolExecutionError(
+                f"{message}\nUse run_command for short-lived commands.",
+                tool_name=_TERMINAL_TOOL_NAME,
+            )
 
         await self._event_bus.publish(
             TerminalSpawnedEvent(
@@ -324,6 +350,31 @@ class TerminalManager:
 
     def _running_terminal_count(self) -> int:
         return sum(1 for terminal in self._terminals.values() if not terminal.exited)
+
+    async def _exited_during_spawn_grace(self, terminal: ManagedTerminal) -> bool:
+        loop = asyncio.get_running_loop()
+        started_at = loop.time()
+        deadline = started_at + _SPAWN_GRACE_PERIOD_SECONDS
+        first_output_seen_at: float | None = None
+
+        while loop.time() < deadline:
+            if terminal.process.returncode is not None:
+                return True
+
+            if terminal.next_line_index > 0:
+                if first_output_seen_at is None:
+                    first_output_seen_at = loop.time()
+                elif (
+                    loop.time() - first_output_seen_at
+                    >= _SPAWN_OUTPUT_SETTLE_SECONDS
+                ):
+                    return False
+            elif loop.time() - started_at >= _SPAWN_NO_OUTPUT_SUCCESS_SECONDS:
+                return False
+
+            await asyncio.sleep(_SPAWN_POLL_INTERVAL_SECONDS)
+
+        return terminal.process.returncode is not None
 
     def _resolve_wait_timeout(self, timeout: float | None) -> float:
         effective_timeout = (

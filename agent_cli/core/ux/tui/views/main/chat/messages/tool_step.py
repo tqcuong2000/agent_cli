@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from rich.markup import escape
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.timer import Timer
 from textual.widget import Widget
@@ -68,28 +68,35 @@ class ToolStepWidget(Widget):
         if self.is_mounted:
             self._label.update(self._render_row())
 
-    def _render_row(self) -> str:
+    def _render_row(self) -> Text:
         args_text = self._format_args(self.args)
         tool_call = f"{self.tool_name}({args_text})"
-        safe_tool_call = escape(tool_call)
 
         if self._status == "success":
             duration = self._duration_ms if self._duration_ms is not None else 0
-            return (
-                f"[green]\u2713[/green] [b]{safe_tool_call}[/b] "
-                f"[dim]({duration} ms)[/dim]"
+            return Text.assemble(
+                ("\u2713", "green"),
+                (" ", ""),
+                (tool_call, "bold"),
+                (f" ({duration} ms)", "dim"),
             )
 
         if self._status == "failed":
             error = self._error or "Tool execution failed."
-            safe_error = escape(error)
-            return (
-                f"[red]\u2717[/red] [b]{safe_tool_call}[/b] "
-                f"[dim]- {safe_error}[/dim]"
+            return Text.assemble(
+                ("\u2717", "red"),
+                (" ", ""),
+                (tool_call, "bold"),
+                (" - ", "dim"),
+                (error, "dim"),
             )
 
         spinner = self.SPINNER_FRAMES[self._frame_index]
-        return f"[cyan]{spinner}[/cyan] [b]{safe_tool_call}[/b]"
+        return Text.assemble(
+            (spinner, "cyan"),
+            (" ", ""),
+            (tool_call, "bold"),
+        )
 
     def _format_args(self, args: dict) -> str:
         if not args:

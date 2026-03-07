@@ -19,7 +19,11 @@ from pydantic import BaseModel, Field
 
 from agent_cli.core.infra.events.errors import ToolExecutionError
 from agent_cli.core.infra.registry.registry import DataRegistry
-from agent_cli.core.runtime._subprocess import build_subprocess_env
+from agent_cli.core.runtime._subprocess import (
+    ShellProfile,
+    create_shell_subprocess,
+    resolve_shell_profile,
+)
 from agent_cli.core.runtime.tools._sanitize import sanitize_terminal_output
 from agent_cli.core.runtime.tools.base import BaseTool, ToolCategory
 from agent_cli.core.ux.interaction.base import BaseWorkspaceManager
@@ -94,12 +98,15 @@ class RunCommandTool(BaseTool):
         workspace: BaseWorkspaceManager,
         *,
         data_registry: DataRegistry,
+        shell_profile: ShellProfile | None = None,
     ) -> None:
         self.workspace = workspace
-        defaults = data_registry.get_tool_defaults().get("shell", {})
+        tool_defaults = data_registry.get_tool_defaults()
+        defaults = tool_defaults.get("shell", {})
         self._default_timeout = int(defaults.get("default_timeout", _DEFAULT_TIMEOUT))
         self._max_timeout = int(defaults.get("max_timeout", _MAX_TIMEOUT))
         self._safe_patterns = compile_safe_command_patterns(data_registry)
+        self._shell_profile = shell_profile or resolve_shell_profile(tool_defaults)
 
     @property
     def args_schema(self) -> Type[BaseModel]:
@@ -114,13 +121,13 @@ class RunCommandTool(BaseTool):
         effective_timeout = self._default_timeout if timeout is None else int(timeout)
         effective_timeout = min(max(effective_timeout, 1), self._max_timeout)
 
-        proc = await asyncio.create_subprocess_shell(
+        proc = await create_shell_subprocess(
             command,
+            shell_profile=self._shell_profile,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.DEVNULL,
             cwd=str(self.workspace.get_root()),
-            env=build_subprocess_env(),
         )
 
         try:
